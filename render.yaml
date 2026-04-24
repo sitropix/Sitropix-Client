@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: zohoportal-api
+    env: node
+    plan: free
+    autoDeploy: true
+    buildCommand: npm install
+    startCommand: node server/src/index.mjs
+    healthCheckPath: /api/health

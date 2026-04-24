@@ -63,7 +63,8 @@ export async function startServer() {
       }),
     );
   }
-  app.listen(env.port, "127.0.0.1", () => {
+  const listenHost = process.env.HOST ?? "0.0.0.0";
+  app.listen(env.port, listenHost, () => {
     console.log(JSON.stringify({ level: "info", msg: "api.started", port: env.port }));
   });
 }

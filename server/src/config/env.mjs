@@ -13,7 +13,7 @@ function required(name, fallback = "") {
 
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
-  port: Number(process.env.API_SERVER_PORT ?? 8787),
+  port: Number(process.env.PORT ?? process.env.API_SERVER_PORT ?? 8787),
   databaseUrl: required("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:5432/sitropix_portal"),
   jwtAccessSecret: required("JWT_ACCESS_SECRET", DEV_ACCESS_SECRET),
   jwtRefreshSecret: required("JWT_REFRESH_SECRET", DEV_REFRESH_SECRET),
