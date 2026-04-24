@@ -1,0 +1,358 @@
+// Production relational schema — PostgreSQL
+// Run: npx prisma migrate dev
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  user
+  admin
+}
+
+enum SubscriptionStatus {
+  trialing
+  active
+  paused
+  canceled
+  past_due
+}
+
+enum BillingCycle {
+  monthly
+  yearly
+}
+
+enum PaymentStatus {
+  succeeded
+  failed
+  pending
+  refunded
+}
+
+enum TicketStatus {
+  open
+  in_progress
+  resolved
+}
+
+model User {
+  id                       String    @id @default(cuid())
+  email                    String    @unique
+  name                     String
+  passwordHash             String    @map("password_hash")
+  role                     Role      @default(user)
+  isEmailVerified          Boolean   @default(false) @map("is_email_verified")
+  emailVerificationToken   String?   @map("email_verification_token")
+  passwordResetToken       String?   @map("password_reset_token")
+  passwordResetExpiresAt   DateTime? @map("password_reset_expires_at")
+  stripeCustomerId         String?   @map("stripe_customer_id")
+  razorpayCustomerId       String?   @map("razorpay_customer_id")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  refreshTokens    RefreshToken[]
+  subscriptions    Subscription[]
+  payments         Payment[]
+  tickets          SupportTicket[]
+  ticketMessages   TicketMessage[]
+  clientDocuments  ClientDocument[]
+  invitesCreated   Invite[] @relation("InviteCreator")
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id")
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Plan {
+  id                   String   @id @default(cuid())
+  code                 String   @unique
+  name                 String
+  description          String   @default("")
+  priceMonthlyCents    Int      @map("price_monthly_cents")
+  priceYearlyCents     Int      @map("price_yearly_cents")
+  currency             String   @default("USD")
+  features             String[] @default([])
+  isActive             Boolean  @default(true) @map("is_active")
+  archivedAt           DateTime? @map("archived_at")
+  trialDays            Int      @default(14) @map("trial_days")
+  stripeProductId      String?  @map("stripe_product_id")
+  stripePriceMonthlyId String?  @map("stripe_price_monthly_id")
+  stripePriceYearlyId  String?  @map("stripe_price_yearly_id")
+  razorpayPlanId       String?  @map("razorpay_plan_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  subscriptions          Subscription[]
+  planFeatureOverrides   PlanFeatureOverride[]
+  invites                Invite[]
+
+  @@index([isActive])
+  @@map("plans")
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  userId               String             @unique @map("user_id")
+  planId               String             @map("plan_id")
+  status               SubscriptionStatus
+  billingCycle         BillingCycle       @default(monthly) @map("billing_cycle")
+  currentPeriodStart   DateTime           @map("current_period_start")
+  currentPeriodEnd     DateTime           @map("current_period_end")
+  cancelAtPeriodEnd    Boolean            @default(false) @map("cancel_at_period_end")
+  pausedAt             DateTime?          @map("paused_at")
+  canceledAt           DateTime?          @map("canceled_at")
+  stripeSubscriptionId String?            @unique @map("stripe_subscription_id")
+  stripeCustomerId     String?            @map("stripe_customer_id")
+  razorpaySubscriptionId String?          @map("razorpay_subscription_id")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  user     User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan     Plan  @relation(fields: [planId], references: [id])
+  payments Payment[]
+
+  @@index([planId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  userId          String        @map("user_id")
+  subscriptionId  String        @map("subscription_id")
+  invoiceNumber   String        @unique @map("invoice_number")
+  amountCents     Int           @map("amount_cents")
+  currency        String        @default("USD")
+  status          PaymentStatus
+  paidAt          DateTime?     @map("paid_at")
+  failureReason   String?       @map("failure_reason")
+  stripeInvoiceId String?       @unique @map("stripe_invoice_id")
+  invoicePdfUrl   String?       @map("invoice_pdf_url")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([subscriptionId])
+  @@index([status])
+  @@map("payments")
+}
+
+model Coupon {
+  id               String    @id @default(cuid())
+  code             String    @unique
+  discountType     String    @map("discount_type") // percent | flat
+  discountValue    Int       @map("discount_value")
+  expiresAt        DateTime? @map("expires_at")
+  maxRedemptions   Int?      @map("max_redemptions")
+  redemptionsCount Int       @default(0) @map("redemptions_count")
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@map("coupons")
+}
+
+model SupportTicket {
+  id          String       @id @default(cuid())
+  userId      String       @map("user_id")
+  subject     String
+  description String       @db.Text
+  status      TicketStatus @default(open)
+  department  String       @default("General")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages TicketMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("support_tickets")
+}
+
+model TicketMessage {
+  id        String   @id @default(cuid())
+  ticketId  String   @map("ticket_id")
+  userId    String?  @map("user_id")
+  isStaff   Boolean  @default(false) @map("is_staff")
+  body      String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId])
+  @@map("ticket_messages")
+}
+
+model KBCategory {
+  id           String      @id @default(cuid())
+  name         String
+  slug         String      @unique
+  articleCount Int         @default(0) @map("article_count")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+  articles     KBArticle[]
+
+  @@map("kb_categories")
+}
+
+model KBArticle {
+  id              String   @id @default(cuid())
+  title           String
+  excerpt         String
+  content         String   @db.Text
+  categoryId      String   @map("category_id")
+  readTimeMinutes Int      @default(5) @map("read_time_minutes")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  category KBCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId])
+  @@map("kb_articles")
+}
+
+model WebhookEvent {
+  id          String    @id @default(cuid())
+  provider    String
+  eventId     String    @unique @map("event_id")
+  eventType   String    @map("event_type")
+  payload     Json
+  processedAt DateTime? @map("processed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([provider])
+  @@map("webhook_events")
+}
+
+model EmailLog {
+  id         String   @id @default(cuid())
+  toEmail    String   @map("to_email")
+  template   String
+  idempotencyKey String? @unique @map("idempotency_key")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("email_logs")
+}
+
+/// Singleton (id = "default"). Admin-configured outbound email; secrets stored encrypted at rest.
+model EmailSettings {
+  id               String   @id
+  provider         String   @default("console")
+  fromEmail        String   @default("") @map("from_email")
+  fromName         String   @default("") @map("from_name")
+  settingsJson     Json     @default("{}") @map("settings_json")
+  secretsEncrypted String?  @map("secrets_encrypted") @db.Text
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("email_settings")
+}
+
+/// SaaS-wide toggles (admin). Keys are stable API contracts.
+model FeatureFlag {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  label     String
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("feature_flags")
+}
+
+/// When set, overrides the global flag for a specific plan (existing subscribers keep their plan row).
+model PlanFeatureOverride {
+  id        String   @id @default(cuid())
+  planId    String   @map("plan_id")
+  key       String
+  enabled   Boolean
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([planId, key])
+  @@index([planId])
+  @@map("plan_feature_overrides")
+}
+
+/// Admin-uploaded files visible only to the owning client.
+model ClientDocument {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  category     String   @default("General")
+  title        String
+  fileName     String   @map("file_name")
+  mimeType     String   @map("mime_type")
+  storagePath  String   @map("storage_path")
+  sizeBytes    Int      @default(0) @map("size_bytes")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([category])
+  @@map("client_documents")
+}
+
+/// Admin-issued signup invite (optional pre-assigned plan).
+model Invite {
+  id              String    @id @default(cuid())
+  email           String
+  tokenHash       String    @unique @map("token_hash")
+  planId          String?   @map("plan_id")
+  message         String    @default("") @db.Text
+  expiresAt       DateTime  @map("expires_at")
+  acceptedAt      DateTime? @map("accepted_at")
+  revokedAt       DateTime? @map("revoked_at")
+  createdByUserId String    @map("created_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  plan      Plan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+  createdBy User  @relation("InviteCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([expiresAt])
+  @@map("invites")
+}
+
+/// Immutable audit trail for security and operational forensics.
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?  @map("actor_user_id")
+  actorRole   String?  @map("actor_role")
+  action      String
+  targetType  String?  @map("target_type")
+  targetId    String?  @map("target_id")
+  requestId   String?  @map("request_id")
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([actorUserId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

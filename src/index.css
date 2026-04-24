@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply scroll-smooth antialiased;
+  }
+  body {
+    @apply min-h-screen bg-canvas text-white font-sans;
+    background-image: radial-gradient(
+        ellipse 120% 80% at 50% -30%,
+        rgba(132, 204, 22, 0.07),
+        transparent
+      ),
+      linear-gradient(180deg, #0b0f14 0%, #080b0f 100%);
+  }
+  ::selection {
+    @apply bg-brand-lime/30 text-white;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] shadow-glass;
+  }
+  .glass-strong {
+    @apply bg-white/[0.06] backdrop-blur-2xl border border-white/[0.1] shadow-glass;
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+}
