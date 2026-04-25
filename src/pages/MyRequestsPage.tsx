@@ -34,7 +34,7 @@ export function MyRequestsPage() {
 
   return (
     <div className="space-y-8">
-      <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "My requests" }]} />
+      <Breadcrumb items={[{ label: "Home", to: "/dashboard" }, { label: "My requests" }]} />
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">My requests</h1>
@@ -44,7 +44,7 @@ export function MyRequestsPage() {
         </div>
         <Link
           to="/ticket"
-          className="inline-flex items-center justify-center rounded-full bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas shadow-glow transition hover:scale-[1.02] hover:bg-brand-lime-dim"
+          className="inline-flex shrink-0 items-center justify-center rounded-full bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas shadow-glow transition hover:scale-[1.02] hover:bg-brand-lime-dim"
         >
           New ticket
         </Link>
@@ -86,10 +86,14 @@ export function MyRequestsPage() {
       </div>
 
       {error && (
-        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-          {error}{" "}
-          <button type="button" className="font-semibold underline" onClick={() => void reload()}>
-            Retry
+        <div className="flex flex-col gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-rose-100">{error}</p>
+          <button
+            type="button"
+            className="shrink-0 rounded-lg border border-rose-300/40 bg-rose-500/20 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-500/30"
+            onClick={() => void reload()}
+          >
+            Retry loading tickets
           </button>
         </div>
       )}
@@ -102,7 +106,7 @@ export function MyRequestsPage() {
         </div>
       )}
 
-      {!loading && tickets.length === 0 && (
+      {!error && !loading && tickets.length === 0 && (
         <EmptyState
           title="No requests yet"
           description="When you reach out, every conversation shows up here with status, owners, and timestamps."

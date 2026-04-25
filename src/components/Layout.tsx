@@ -5,6 +5,7 @@ import { ClientPortalShell } from "@/components/ClientPortalShell";
 import { AdminPortalShell } from "@/components/AdminPortalShell";
 import { useAuth } from "@/context/AuthContext";
 import { useAuthz } from "@/context/AuthzContext";
+import { SubscriptionPortalProvider } from "@/context/SubscriptionPortalContext";
 
 export function Layout() {
   const { pathname } = useLocation();
@@ -21,6 +22,7 @@ export function Layout() {
     "/requests",
     "/support/tickets",
     "/kb",
+    "/search",
     "/profile",
     "/ticket",
   ];
@@ -38,9 +40,11 @@ export function Layout() {
 
   if (useClientPortalShell) {
     return (
-      <ClientPortalShell>
-        <Outlet />
-      </ClientPortalShell>
+      <SubscriptionPortalProvider>
+        <ClientPortalShell>
+          <Outlet />
+        </ClientPortalShell>
+      </SubscriptionPortalProvider>
     );
   }
 

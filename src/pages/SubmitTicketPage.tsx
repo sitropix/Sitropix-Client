@@ -31,7 +31,7 @@ export function SubmitTicketPage() {
 
   return (
     <div className="space-y-8">
-      <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "Submit a ticket" }]} />
+      <Breadcrumb items={[{ label: "Home", to: "/dashboard" }, { label: "Submit a ticket" }]} />
       <header>
         <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">Submit a ticket</h1>
         <p className="mt-2 max-w-2xl text-sm text-ink-muted">

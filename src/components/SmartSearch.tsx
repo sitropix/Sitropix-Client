@@ -1,24 +1,31 @@
-import { FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { FormEvent, useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 export function SmartSearch({ compact = false }: { compact?: boolean }) {
   const [q, setQ] = useState("");
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.pathname !== "/search") return;
+    const sp = new URLSearchParams(location.search);
+    setQ(sp.get("q") ?? "");
+  }, [location.pathname, location.search]);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     const query = q.trim();
     if (!query) {
-      navigate("/kb");
+      navigate("/search");
       return;
     }
-    navigate(`/kb?q=${encodeURIComponent(query)}`);
+    navigate(`/search?q=${encodeURIComponent(query)}`);
   }
 
   return (
     <form onSubmit={onSubmit} className={compact ? "w-full" : "mx-auto max-w-2xl"} role="search">
       <label htmlFor="support-search" className="sr-only">
-        Search help articles
+        Search portal
       </label>
       <div
         className={[
@@ -41,7 +48,7 @@ export function SmartSearch({ compact = false }: { compact?: boolean }) {
           id="support-search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search billing, subscriptions, invoices..."
+          placeholder="Search tickets, docs, invoices, plans, help…"
           className="w-full bg-transparent text-sm text-white outline-none placeholder:text-ink-subtle sm:text-base"
           autoComplete="off"
         />
@@ -52,9 +59,11 @@ export function SmartSearch({ compact = false }: { compact?: boolean }) {
           Search
         </button>
       </div>
-      <p className="mt-3 text-center text-xs text-ink-subtle">
-        Tip: start with a product area — results open in the knowledge base.
-      </p>
+      {!compact ? (
+        <p className="mt-3 text-center text-xs text-ink-subtle">
+          Searches support tickets, workspace files, billing, plans, and the knowledge base.
+        </p>
+      ) : null}
     </form>
   );
 }

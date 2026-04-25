@@ -71,7 +71,7 @@ export function ArticlePage() {
     <article className="space-y-6">
       <Breadcrumb
         items={[
-          { label: "Home", to: "/" },
+          { label: "Home", to: "/dashboard" },
           { label: "Knowledge base", to: "/kb" },
           { label: category?.name ?? "Article", to: category ? `/kb?cat=${category.id}` : "/kb" },
           { label: article.title },

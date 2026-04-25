@@ -73,7 +73,7 @@ export function KnowledgeBasePage() {
 
   return (
     <div className="space-y-8">
-      <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "Knowledge base" }]} />
+      <Breadcrumb items={[{ label: "Home", to: "/dashboard" }, { label: "Knowledge base" }]} />
       <header>
         <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">Knowledge base</h1>
         <p className="mt-2 max-w-2xl text-sm text-ink-muted">

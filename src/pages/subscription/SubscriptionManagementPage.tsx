@@ -32,8 +32,8 @@ function formatDate(iso?: string) {
 }
 
 export function SubscriptionManagementPage() {
-  const { contact, subscription, loading: userLoading, error: userError, refresh: refreshUser } = useUser();
-  const { data, loading: billingLoading, error: billingError, refresh: refreshBilling } = useSubscriptionPortal();
+  const { contact, subscription, loading: userLoading, error: userError } = useUser();
+  const { data, loading: billingLoading, error: billingError } = useSubscriptionPortal();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const pendingCount = subscription?.state === "past_due" ? 1 : 0;
@@ -53,9 +53,6 @@ export function SubscriptionManagementPage() {
     }
   }
 
-  async function refreshAll() {
-    await Promise.all([refreshUser(), refreshBilling()]);
-  }
 
   const defaultMethod = data?.paymentMethods.find((pm) => pm.isDefault);
   const status = subscription?.state ?? "trialing";
@@ -76,13 +73,6 @@ export function SubscriptionManagementPage() {
             Account, plan status, payment method, and invoices in one place.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void refreshAll()}
-          className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-white transition hover:border-brand-lime/35"
-        >
-          Refresh
-        </button>
       </header>
 
       {userError && <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{userError}</p>}
