@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/Skeleton";
+import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { isModuleForbiddenError } from "@/services/http";
 import { fetchAnalytics, fetchTransactions, retryFailedPayment } from "@/services/subscriptionsApi";
 import type { AnalyticsSummary } from "@/types/subscription";
 
@@ -11,13 +13,19 @@ export function AdminDashboardPage() {
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
   const [transactions, setTransactions] = useState<Array<{ id: string; amountCents: number; status: string; invoiceNumber: string; failureReason?: string | null }>>([]);
   const [loading, setLoading] = useState(true);
+  const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function load() {
     setLoading(true);
+    setNoModuleAccess(false);
     try {
       const [a, t] = await Promise.all([fetchAnalytics(), fetchTransactions()]);
       setAnalytics(a);
       setTransactions(t);
+    } catch (err) {
+      if (isModuleForbiddenError(err)) {
+        setNoModuleAccess(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -26,6 +34,10 @@ export function AdminDashboardPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  if (noModuleAccess) {
+    return <NoModuleAccess moduleLabel="Dashboard Analytics" />;
+  }
 
   return (
     <div className="space-y-8">

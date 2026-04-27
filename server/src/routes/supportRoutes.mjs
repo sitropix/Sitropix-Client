@@ -4,6 +4,7 @@ import { prisma } from "../db/client.mjs";
 import { requireAuth } from "../middleware/auth.mjs";
 import { validate } from "../middleware/validate.mjs";
 import { createTicketSchema, replyTicketSchema } from "../schemas/supportSchemas.mjs";
+import { log } from "../observability/logger.mjs";
 import { sendTransactionalEmail } from "../services/emailService.mjs";
 
 const router = express.Router();
@@ -81,18 +82,7 @@ router.post("/tickets", validate(createTicketSchema), async (req, res) => {
     html: `<p>We received your request <strong>#${ticket.id}</strong>. Our team will respond shortly.</p>`,
   });
 
-  const admins = await prisma.user.findMany({ where: { role: "admin" }, select: { email: true } });
-  for (const a of admins) {
-    await sendTransactionalEmail({
-      to: a.email,
-      template: "ticket_notify_admin",
-      idempotencyKey: `ticket_admin_${ticket.id}_${a.email}`,
-      subject: `New ticket: ${ticket.subject}`,
-      html: `<p>New support ticket from ${req.auth.email}.</p><p><a href="${env.appUrl}/admin/tickets/${ticket.id}">Open in admin</a></p>`,
-    });
-  }
-
-  return res.status(201).json({
+  const responseBody = {
     id: ticket.id,
     subject: ticket.subject,
     status: ticket.status,
@@ -100,7 +90,29 @@ router.post("/tickets", validate(createTicketSchema), async (req, res) => {
     updatedAt: ticket.updatedAt,
     department: ticket.department,
     threadCount: 1,
+  };
+  res.status(201).json(responseBody);
+
+  // Notify admins outside the request path so ticket creation latency stays stable as admin count grows.
+  setImmediate(async () => {
+    try {
+      const admins = await prisma.user.findMany({ where: { role: "admin" }, select: { email: true } });
+      await Promise.all(
+        admins.map((a) =>
+          sendTransactionalEmail({
+            to: a.email,
+            template: "ticket_notify_admin",
+            idempotencyKey: `ticket_admin_${ticket.id}_${a.email}`,
+            subject: `New ticket: ${ticket.subject}`,
+            html: `<p>New support ticket from ${req.auth.email}.</p><p><a href="${env.appUrl}/admin/tickets/${ticket.id}">Open in admin</a></p>`,
+          }),
+        ),
+      );
+    } catch (e) {
+      log.error("ticket.admin_notify_failed", { ticketId: ticket.id, error: e?.message });
+    }
   });
+  return;
 });
 
 router.post("/tickets/:id/messages", validate(replyTicketSchema), async (req, res) => {

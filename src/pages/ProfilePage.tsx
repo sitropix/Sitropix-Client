@@ -1,19 +1,56 @@
-import { Link } from "react-router-dom";
+import { FormEvent, useEffect, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { Skeleton } from "@/components/Skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/context/UserContext";
+import { patchProfile } from "@/services/authApi";
+import { ApiRequestError, setAccessToken } from "@/services/http";
 
 export function ProfilePage() {
-  const { user } = useAuth();
-  const { contact, subscription, loading, error, refresh } = useUser();
+  const { contact, loading, error, refresh } = useUser();
+  const { updateUser } = useAuth();
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
-  const name =
-    contact != null
-      ? `${contact.firstName} ${contact.lastName}`.trim()
-      : user?.name?.trim() || "—";
-  const email = contact?.email ?? user?.email ?? "—";
-  const roleLabel = user?.role === "admin" ? "Administrator" : "Customer";
+  useEffect(() => {
+    if (!contact) return;
+    setEmail(contact.email);
+    setPhone(contact.phoneNumber ?? "");
+  }, [contact]);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!contact) return;
+    setFormError(null);
+    setSaved(false);
+    setSaving(true);
+    try {
+      const body: { email?: string; phoneNumber?: string } = {};
+      const trimmedPhone = phone.trim();
+      if (email.trim().toLowerCase() !== contact.email.toLowerCase()) body.email = email.trim();
+      if (trimmedPhone !== (contact.phoneNumber ?? "")) body.phoneNumber = trimmedPhone || "";
+      if (Object.keys(body).length === 0) {
+        setSaved(true);
+        return;
+      }
+      const res = await patchProfile(body);
+      if (res.accessToken) setAccessToken(res.accessToken);
+      updateUser(res.user);
+      await refresh();
+      setSaved(true);
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        setFormError(err.message || "Could not save profile.");
+      } else {
+        setFormError(err instanceof Error ? err.message : "Could not save profile.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -21,7 +58,7 @@ export function ProfilePage() {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">Profile</h1>
-          <p className="mt-2 max-w-xl text-sm text-ink-muted">Your sign-in identity and workspace account details.</p>
+          <p className="mt-2 max-w-xl text-sm text-ink-muted">Update the email and mobile number for this account.</p>
         </div>
         <button
           type="button"
@@ -34,6 +71,12 @@ export function ProfilePage() {
 
       {error && (
         <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</div>
+      )}
+      {formError && (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{formError}</div>
+      )}
+      {saved && !formError && (
+        <div className="rounded-xl border border-brand-lime/30 bg-brand-lime/10 px-4 py-3 text-sm text-white">Profile saved.</div>
       )}
 
       {loading && (
@@ -50,54 +93,54 @@ export function ProfilePage() {
         </div>
       )}
 
-      {!loading && (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <section className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.06] to-transparent p-6 lg:col-span-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-lime">Account</p>
-            <h2 className="mt-2 text-xl font-bold text-white">{name}</h2>
-            <p className="mt-1 text-sm text-ink-muted">{email}</p>
-            <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-ink-subtle">Workspace role</dt>
-                <dd className="mt-1 font-medium text-white">{roleLabel}</dd>
-              </div>
-              {contact?.accountName ? (
-                <div>
-                  <dt className="text-ink-subtle">Organization</dt>
-                  <dd className="mt-1 font-medium text-white">{contact.accountName}</dd>
-                </div>
-              ) : null}
-              {subscription?.planName ? (
-                <div className="sm:col-span-2">
-                  <dt className="text-ink-subtle">Plan</dt>
-                  <dd className="mt-1 font-medium text-white">{subscription.planName}</dd>
-                </div>
-              ) : null}
-            </dl>
-          </section>
-
-          <section className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-            <h3 className="text-sm font-semibold text-white">Shortcuts</h3>
-            <Link
-              to="/subscription-management"
-              className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-medium text-white transition hover:border-brand-lime/35"
+      {!loading && contact && (
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+          <h2 className="text-sm font-semibold text-white">Account</h2>
+          <dl className="mt-4 space-y-3 text-sm">
+            <div>
+              <dt className="text-ink-subtle">Name</dt>
+              <dd className="mt-1 font-medium text-white">
+                {contact.firstName} {contact.lastName}
+              </dd>
+            </div>
+          </dl>
+          <form className="mt-6 space-y-4 border-t border-white/10 pt-6" onSubmit={(e) => void onSubmit(e)}>
+            <div>
+              <label htmlFor="profile-email" className="block text-xs font-medium uppercase tracking-wide text-ink-subtle">
+                Email
+              </label>
+              <input
+                id="profile-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                className="mt-2 w-full max-w-md rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
+              />
+            </div>
+            <div>
+              <label htmlFor="profile-phone" className="block text-xs font-medium uppercase tracking-wide text-ink-subtle">
+                Mobile number
+              </label>
+              <input
+                id="profile-phone"
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                autoComplete="tel"
+                placeholder="+1 …"
+                className="mt-2 w-full max-w-md rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-full bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim disabled:opacity-50"
             >
-              Subscription & invoices
-            </Link>
-            <Link
-              to="/workspace"
-              className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-medium text-white transition hover:border-brand-lime/35"
-            >
-              Workspace & documents
-            </Link>
-            <Link
-              to="/requests"
-              className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-medium text-white transition hover:border-brand-lime/35"
-            >
-              Support requests
-            </Link>
-          </section>
-        </div>
+              {saving ? "Saving…" : "Save changes"}
+            </button>
+          </form>
+        </section>
       )}
     </div>
   );

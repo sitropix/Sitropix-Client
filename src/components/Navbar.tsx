@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { Logo } from "@/components/Logo";
+import { SmartSearch } from "@/components/SmartSearch";
 import { useAuthz } from "@/context/AuthzContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/context/UserContext";
@@ -13,6 +14,70 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
       : "text-ink-muted hover:bg-white/[0.06] hover:text-white",
   ].join(" ");
 
+function ProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
+  const { logout } = useAuth();
+  const { contact } = useUser();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const initials =
+    `${contact?.firstName?.charAt(0) ?? ""}${contact?.lastName?.charAt(0) ?? ""}`.trim() || "?";
+
+  return (
+    <div className="relative" ref={rootRef}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((v) => !v)}
+        className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-white/[0.04] text-sm font-semibold text-brand-lime outline-none ring-brand-lime/30 focus-visible:ring-2"
+      >
+        <span className="sr-only">Account menu</span>
+        {initials}
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-[60] mt-2 min-w-[180px] rounded-xl border border-white/10 bg-[#15191c] py-1 shadow-xl"
+        >
+          <Link
+            role="menuitem"
+            to="/profile"
+            className="block px-4 py-2.5 text-sm text-white hover:bg-white/[0.06]"
+            onClick={() => {
+              setOpen(false);
+              onNavigate?.();
+            }}
+          >
+            Profile
+          </Link>
+          <button
+            type="button"
+            role="menuitem"
+            className="w-full px-4 py-2.5 text-left text-sm text-ink-muted hover:bg-white/[0.06] hover:text-white"
+            onClick={() => {
+              setOpen(false);
+              onNavigate?.();
+              void logout();
+            }}
+          >
+            Logout
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Navbar() {
   const { pathname } = useLocation();
   const { contact, loading } = useUser();
@@ -21,20 +86,26 @@ export function Navbar() {
   const [open, setOpen] = useState(false);
   const isHomeScreen = pathname === "/";
 
-  const display = loading
+  const displayName = loading
     ? "…"
     : contact
-      ? `${contact.firstName} ${contact.lastName?.charAt(0) ?? ""}.`
+      ? `${contact.firstName} ${contact.lastName}`.trim() || "Account"
       : "Account";
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/[0.07] bg-canvas/70 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <Link to="/" className="shrink-0 rounded-xl outline-none ring-brand-lime/40 focus-visible:ring-2">
           <Logo />
         </Link>
 
-        <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
+        {!isAuthenticated && (
+          <div className="hidden min-w-0 max-w-md flex-1 px-2 md:block">
+            <SmartSearch compact />
+          </div>
+        )}
+
+        <nav className="hidden min-w-0 items-center gap-1 md:flex" aria-label="Primary">
           <NavLink to="/" end className={navLinkClass}>
             Home
           </NavLink>
@@ -62,16 +133,16 @@ export function Navbar() {
                   </NavLink>
                 </>
               )}
-              {isAdmin && (
-                <NavLink to="/admin" className={navLinkClass}>
-                  Admin
-                </NavLink>
-              )}
             </>
+          )}
+          {isAuthenticated && isAdmin && (
+            <NavLink to="/admin" className={navLinkClass}>
+              Admin
+            </NavLink>
           )}
         </nav>
 
-        <div className="hidden items-center gap-2 md:flex">
+        <div className="hidden shrink-0 items-center gap-3 md:flex">
           {!isAuthenticated && (
             <>
               <NavLink
@@ -88,7 +159,15 @@ export function Navbar() {
               </NavLink>
             </>
           )}
-          {isAuthenticated && (
+          {isAuthenticated && !isAdmin && (
+            <>
+              <span className="max-w-[160px] truncate text-right text-sm font-medium text-white" title={displayName}>
+                {displayName}
+              </span>
+              <ProfileMenu />
+            </>
+          )}
+          {isAuthenticated && isAdmin && (
             <button
               type="button"
               onClick={() => void logout()}
@@ -97,29 +176,22 @@ export function Navbar() {
               Sign out
             </button>
           )}
-          {isAuthenticated && !isAdmin && (
-            <NavLink
-              to="/profile"
-              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-white transition hover:border-brand-lime/35 hover:bg-white/[0.07]"
-            >
-              <span className="grid h-7 w-7 place-items-center rounded-full bg-brand-lime/15 text-xs font-semibold text-brand-lime">
-                {contact?.firstName?.charAt(0) ?? "?"}
-              </span>
-              <span className="max-w-[140px] truncate text-ink-muted">
-                <span className="block text-[11px] uppercase tracking-wide text-ink-subtle">Profile</span>
-                {display}
-              </span>
-            </NavLink>
-          )}
         </div>
 
-        <button
-          type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-white md:hidden"
-          aria-expanded={open}
-          aria-controls="mobile-nav"
-          onClick={() => setOpen((v) => !v)}
-        >
+        <div className="flex items-center gap-2 md:hidden">
+          {isAuthenticated && !isAdmin && (
+            <>
+              <span className="max-w-[120px] truncate text-right text-xs font-medium text-white">{displayName}</span>
+              <ProfileMenu onNavigate={() => setOpen(false)} />
+            </>
+          )}
+          <button
+            type="button"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-white"
+            aria-expanded={open}
+            aria-controls="mobile-nav"
+            onClick={() => setOpen((v) => !v)}
+          >
           <span className="sr-only">Menu</span>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
             {open ? (
@@ -128,7 +200,8 @@ export function Navbar() {
               <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
             )}
           </svg>
-        </button>
+          </button>
+        </div>
       </div>
 
       {open && (
@@ -136,6 +209,11 @@ export function Navbar() {
           id="mobile-nav"
           className="border-t border-white/10 bg-canvas/95 px-4 py-4 backdrop-blur-xl md:hidden"
         >
+          {!isAuthenticated && (
+            <div className="mb-4">
+              <SmartSearch compact />
+            </div>
+          )}
           <nav className="flex flex-col gap-1" aria-label="Mobile primary">
             <NavLink to="/" end className={navLinkClass} onClick={() => setOpen(false)}>
               Home
@@ -166,6 +244,16 @@ export function Navbar() {
                         </NavLink>
                       </>
                     )}
+                    <button
+                      type="button"
+                      className="rounded-lg px-3 py-2 text-left text-sm text-ink-muted hover:bg-white/[0.06] hover:text-white"
+                      onClick={() => {
+                        setOpen(false);
+                        void logout();
+                      }}
+                    >
+                      Logout
+                    </button>
                   </>
                 )}
                 {isAdmin && (
@@ -173,21 +261,18 @@ export function Navbar() {
                     Admin
                   </NavLink>
                 )}
-                {!isAdmin && (
-                  <NavLink to="/profile" className={navLinkClass} onClick={() => setOpen(false)}>
-                    Profile
-                  </NavLink>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="rounded-lg px-3 py-2 text-left text-sm text-ink-muted"
+                    onClick={() => {
+                      setOpen(false);
+                      void logout();
+                    }}
+                  >
+                    Sign out
+                  </button>
                 )}
-                <button
-                  type="button"
-                  className="rounded-lg px-3 py-2 text-left text-sm text-ink-muted"
-                  onClick={() => {
-                    setOpen(false);
-                    void logout();
-                  }}
-                >
-                  Sign out
-                </button>
               </>
             )}
             {!isAuthenticated && (

@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { isModuleForbiddenError } from "@/services/http";
 import { adminDeleteClientDocument, adminUploadClientDocument, fetchAdminUserDocuments } from "@/services/subscriptionsApi";
 import type { ClientDocumentRow } from "@/types/subscription";
 
@@ -14,13 +16,19 @@ export function AdminUserDocumentsPage() {
   const [file, setFile] = useState<File | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function load() {
     if (!userId) return;
     setLoading(true);
+    setNoModuleAccess(false);
     try {
       setRows(await fetchAdminUserDocuments(userId));
-    } catch {
+    } catch (err) {
+      if (isModuleForbiddenError(err)) {
+        setNoModuleAccess(true);
+        return;
+      }
       setNotice("Could not load documents.");
     } finally {
       setLoading(false);
@@ -30,6 +38,10 @@ export function AdminUserDocumentsPage() {
   useEffect(() => {
     void load();
   }, [userId]);
+
+  if (noModuleAccess) {
+    return <NoModuleAccess moduleLabel="Customer Documents" />;
+  }
 
   async function onUpload(e: FormEvent) {
     e.preventDefault();

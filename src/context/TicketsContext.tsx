@@ -21,6 +21,11 @@ interface TicketsState {
 
 const TicketsContext = createContext<TicketsState | undefined>(undefined);
 
+function normalizeTickets(payload: unknown): SupportTicket[] {
+  if (Array.isArray(payload)) return payload as SupportTicket[];
+  return [];
+}
+
 export function TicketsProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, loading: authLoading } = useAuth();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
@@ -28,18 +33,24 @@ export function TicketsProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
+    if (!isAuthenticated) {
+      setTickets([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const data = await fetchTickets();
-      setTickets(data);
+      setTickets(normalizeTickets(data));
     } catch {
       setError("Unable to load tickets.");
       setTickets([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (authLoading) return;

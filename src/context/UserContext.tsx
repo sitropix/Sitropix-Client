@@ -7,14 +7,17 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useAuth } from "@/context/AuthContext";
 import { getAccessToken } from "@/services/http";
-import { fetchCurrentProfile, fetchSubscriptionSummary } from "@/services/accountApi";
-import { syncFromStripe } from "@/services/subscriptionsApi";
+import { profileAndSubscriptionFromPortal } from "@/services/accountApi";
+import { fetchCustomerPortal, syncFromStripe } from "@/services/subscriptionsApi";
+import type { CustomerPortalPayload } from "@/types/subscription";
 import type { AccountProfile, SubscriptionSummary } from "@/types/account";
 
 interface UserState {
   contact: AccountProfile | null;
   subscription: SubscriptionSummary | null;
+  portal: CustomerPortalPayload | null;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
@@ -23,15 +26,18 @@ interface UserState {
 const UserContext = createContext<UserState | undefined>(undefined);
 
 export function UserProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth();
   const [contact, setContact] = useState<AccountProfile | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionSummary | null>(null);
+  const [portal, setPortal] = useState<CustomerPortalPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!getAccessToken()) {
+    if (!getAccessToken() || !isAuthenticated) {
       setContact(null);
       setSubscription(null);
+      setPortal(null);
       setLoading(false);
       setError(null);
       return;
@@ -39,16 +45,21 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const [c, s0] = await Promise.all([fetchCurrentProfile(), fetchSubscriptionSummary()]);
+      let portalPayload = await fetchCustomerPortal();
+      let { contact: c, subscription: s0 } = profileAndSubscriptionFromPortal(portalPayload);
       let s = s0;
       if (s == null) {
         try {
           await syncFromStripe();
         } catch {
-          /* webhook-style sync is optional; profile still loads */
+          /* optional */
         }
-        s = await fetchSubscriptionSummary();
+        portalPayload = await fetchCustomerPortal();
+        const parsed = profileAndSubscriptionFromPortal(portalPayload);
+        c = parsed.contact;
+        s = parsed.subscription;
       }
+      setPortal(portalPayload);
       setContact(c);
       setSubscription(s);
     } catch {
@@ -56,15 +67,15 @@ export function UserProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   const value = useMemo(
-    () => ({ contact, subscription, loading, error, refresh }),
-    [contact, subscription, loading, error, refresh],
+    () => ({ contact, subscription, portal, loading, error, refresh }),
+    [contact, subscription, portal, loading, error, refresh],
   );
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;

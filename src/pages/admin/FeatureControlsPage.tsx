@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { isModuleForbiddenError } from "@/services/http";
 import {
   deletePlanFeatureOverride,
   fetchAdminPlans,
@@ -17,16 +19,22 @@ export function FeatureControlsPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
+  const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setNoModuleAccess(false);
     setNotice(null);
     try {
       const [f, p] = await Promise.all([fetchFeatureFlagsAdmin(), fetchAdminPlans()]);
       setPayload(f);
       setPlans(p.filter((x) => !x.archivedAt));
-    } catch {
+    } catch (err) {
+      if (isModuleForbiddenError(err)) {
+        setNoModuleAccess(true);
+      } else {
       setNotice("Could not load feature settings.");
+      }
     } finally {
       setLoading(false);
     }
@@ -59,6 +67,10 @@ export function FeatureControlsPage() {
     const k = `${planId}:${key}`;
     if (!overrideFor.has(k)) return "inherit";
     return overrideFor.get(k) ? "on" : "off";
+  }
+
+  if (noModuleAccess) {
+    return <NoModuleAccess moduleLabel="Feature Controls" />;
   }
 
   return (

@@ -2,6 +2,7 @@ import { Resend } from "resend";
 import nodemailer from "nodemailer";
 import { prisma } from "../db/client.mjs";
 import { env } from "../config/env.mjs";
+import { log } from "../observability/logger.mjs";
 import { getResolvedDbEmailConfig } from "./emailSettingsStore.mjs";
 
 const resendEnv = env.resendApiKey ? new Resend(env.resendApiKey) : null;
@@ -125,7 +126,7 @@ async function sendWithEnvFallback({ to, subject, html }) {
     }
     return;
   }
-  console.log(JSON.stringify({ level: "info", msg: "email.console", to, subject: subject?.slice(0, 60) }));
+  log.info("email.console", { to, subject: subject?.slice(0, 60) });
 }
 
 /**
@@ -146,7 +147,7 @@ export async function sendTransactionalEmail({ to, subject, html, template, idem
   try {
     const db = await getResolvedDbEmailConfig();
     if (db?.error === "decrypt_failed") {
-      console.error(JSON.stringify({ level: "error", msg: "email.db_decrypt_failed" }));
+      log.error("email.db_decrypt_failed", {});
     } else if (db && !db.error && db.row?.provider && db.row.provider !== "console") {
       await sendWithDbConfig({ to, subject, html }, db);
       used = `db:${db.row.provider}`;
@@ -157,13 +158,13 @@ export async function sendTransactionalEmail({ to, subject, html, template, idem
       sent = true;
     }
   } catch (e) {
-    console.error(JSON.stringify({ level: "error", msg: "email.send_failed", error: e?.message, used }));
+    log.error("email.send_failed", { error: e?.message, used });
     try {
       await sendWithEnvFallback({ to, subject, html });
       used = `${used}_env_fallback`;
       sent = true;
     } catch (e2) {
-      console.error(JSON.stringify({ level: "error", msg: "email.fallback_failed", error: e2?.message }));
+      log.error("email.fallback_failed", { error: e2?.message });
     }
   }
 

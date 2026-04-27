@@ -2,6 +2,7 @@ import { prisma } from "../db/client.mjs";
 import { sendTransactionalEmail } from "./emailService.mjs";
 import { stripe } from "./stripeService.mjs";
 import { env } from "../config/env.mjs";
+import { log } from "../observability/logger.mjs";
 import {
   mapStripeStatus,
   resolvePlanAndBillingCycle,
@@ -10,7 +11,7 @@ import {
 } from "./stripeSyncHelpers.mjs";
 
 function logCheckout(phase, fields = {}) {
-  console.log(JSON.stringify({ level: "info", source: "stripe.checkout", phase, ...fields }));
+  log.info("billing.stripe_checkout", { phase, ...fields });
 }
 
 /** Stripe may send `subscription` as an id string or (if expanded) an object. */
@@ -222,8 +223,9 @@ export async function handleInvoicePaymentFailed(invoice) {
   });
 
   const invNum = invoice.number ?? `failed_${invoice.id}`;
-  await prisma.payment.create({
-    data: {
+  await prisma.payment.upsert({
+    where: { stripeInvoiceId: invoice.id },
+    create: {
       userId: sub.userId,
       subscriptionId: sub.id,
       invoiceNumber: invNum,
@@ -232,6 +234,12 @@ export async function handleInvoicePaymentFailed(invoice) {
       status: "failed",
       failureReason: invoice.last_finalization_error?.message ?? "payment_failed",
       stripeInvoiceId: invoice.id,
+    },
+    update: {
+      amountCents: invoice.amount_due ?? 0,
+      currency: (invoice.currency ?? "usd").toUpperCase(),
+      status: "failed",
+      failureReason: invoice.last_finalization_error?.message ?? "payment_failed",
     },
   });
 

@@ -9,6 +9,9 @@ import {
   handleSubscriptionUpdated,
 } from "../services/stripeWebhookHandlers.mjs";
 import { env } from "../config/env.mjs";
+import { log } from "../observability/logger.mjs";
+import { metricsWebhook } from "../observability/metrics.mjs";
+import { sendAlert } from "../observability/alerts.mjs";
 import { logAuditEvent } from "../services/auditLogService.mjs";
 
 const router = express.Router();
@@ -20,34 +23,28 @@ router.post(
   async (req, res) => {
   assertStripeConfigured();
   if (!env.stripeWebhookSecret?.trim()) {
-    console.warn(
-      JSON.stringify({
-        level: "warn",
-        msg: "webhook.stripe_misconfigured",
-        hint: "STRIPE_WEBHOOK_SECRET is empty — set whsec_ from `npm run stripe:listen` or the Dashboard, then restart the API",
-      }),
-    );
+    metricsWebhook.stripeMisconfig();
+    log.warn("webhook.stripe_misconfigured", {
+      hint: "STRIPE_WEBHOOK_SECRET is empty — set whsec_ from `npm run stripe:listen` or the Dashboard, then restart the API",
+    });
     return res.status(503).send("webhook_not_configured");
   }
   let event;
   try {
     event = stripe.webhooks.constructEvent(req.body, req.headers["stripe-signature"], env.stripeWebhookSecret);
   } catch (e) {
-    console.warn(
-      JSON.stringify({
-        level: "warn",
-        msg: "webhook.stripe_invalid_signature",
-        err: e?.message,
-        bodyBytes: Buffer.isBuffer(req.body) ? req.body.length : 0,
-        hasSig: Boolean(req.headers["stripe-signature"]),
-        hint: "Use the signing secret from the same place as the sender (CLI `whsec_` for stripe listen, or Dashboard for live endpoints)",
-      }),
-    );
+    metricsWebhook.stripeInvalidSig();
+    log.warn("webhook.stripe_invalid_signature", {
+      err: e?.message,
+      bodyBytes: Buffer.isBuffer(req.body) ? req.body.length : 0,
+      hasSig: Boolean(req.headers["stripe-signature"]),
+    });
     return res.status(400).send("invalid_signature");
   }
 
   const existing = await prisma.webhookEvent.findUnique({ where: { eventId: event.id } });
   if (existing?.processedAt) {
+    metricsWebhook.stripeDedup();
     return res.json({ ok: true, deduped: true });
   }
 
@@ -91,7 +88,17 @@ router.post(
         break;
     }
   } catch (e) {
-    console.error(JSON.stringify({ level: "error", msg: "webhook.handler_failed", type: event.type, error: e?.message }));
+    metricsWebhook.stripeHandlerFail();
+    log.error("webhook.stripe_handler_failed", {
+      requestId: req.requestId,
+      type: event.type,
+      error: e?.message,
+    });
+    void sendAlert({
+      event: "webhook.stripe_handler_failed",
+      requestId: req.requestId,
+      detail: { eventType: event.type, error: e?.message },
+    });
     // Leave processedAt null so Stripe retries; do not swallow as 200.
     return res.status(500).json({ error: "webhook_handler_failed" });
   }
@@ -100,6 +107,7 @@ router.post(
     where: { eventId: event.id },
     data: { processedAt: new Date() },
   });
+  metricsWebhook.stripeOk();
   await logAuditEvent({
     action: "billing.webhook_processed",
     targetType: "webhook_event",
@@ -107,24 +115,32 @@ router.post(
     metadata: { provider: "stripe", eventType: event.type },
     ipAddress: req.ip ?? null,
     userAgent: req.headers["user-agent"] ?? null,
-    requestId: req.headers["x-request-id"] ?? null,
+    requestId: req.requestId ?? req.headers["x-request-id"] ?? null,
   });
 
   return res.json({ ok: true });
   },
 );
 
-/** Razorpay webhook — verify signature and map events (fallback gateway). */
-router.post("/razorpay", express.json({ limit: "1mb" }), async (req, res) => {
+/** Razorpay webhook — verify signature from the exact raw body bytes. */
+router.post("/razorpay", express.raw({ type: () => true, limit: "1mb" }), async (req, res) => {
   if (!env.razorpayWebhookSecret) return res.status(501).json({ error: "razorpay_not_configured" });
 
   const crypto = await import("node:crypto");
-  const body = JSON.stringify(req.body);
-  const expected = crypto.createHmac("sha256", env.razorpayWebhookSecret).update(body).digest("hex");
+  const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body ?? "");
+  const expected = crypto.createHmac("sha256", env.razorpayWebhookSecret).update(rawBody).digest("hex");
   const sig = req.headers["x-razorpay-signature"];
-  if (sig !== expected) return res.status(400).json({ error: "invalid_signature" });
+  if (sig !== expected) {
+    return res.status(400).json({ error: "invalid_signature" });
+  }
+  let payload;
+  try {
+    payload = JSON.parse(rawBody.toString("utf8"));
+  } catch {
+    return res.status(400).json({ error: "invalid_payload" });
+  }
 
-  const eventId = req.body?.event?.id ?? req.body?.id ?? `rp_${Date.now()}`;
+  const eventId = payload?.event?.id ?? payload?.id ?? `rp_${Date.now()}`;
   const existing = await prisma.webhookEvent.findUnique({ where: { eventId } });
   if (existing) return res.json({ ok: true, deduped: true });
 
@@ -132,12 +148,13 @@ router.post("/razorpay", express.json({ limit: "1mb" }), async (req, res) => {
     data: {
       provider: "razorpay",
       eventId,
-      eventType: req.body?.event ?? "unknown",
-      payload: req.body,
+      eventType: payload?.event ?? "unknown",
+      payload,
       processedAt: new Date(),
     },
   });
 
+  metricsWebhook.razorpay();
   return res.json({ ok: true, note: "razorpay_events_logged_extend_as_needed" });
 });
 

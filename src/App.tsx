@@ -75,6 +75,12 @@ const AdminUserDocumentsPage = lazy(() =>
 const AdminAuditLogsPage = lazy(() =>
   import("@/pages/admin/AdminAuditLogsPage").then((m) => ({ default: m.AdminAuditLogsPage })),
 );
+const UserManagementPage = lazy(() =>
+  import("@/pages/admin/UserManagementPage").then((m) => ({ default: m.UserManagementPage })),
+);
+const EnvironmentConfigPage = lazy(() =>
+  import("@/pages/admin/EnvironmentConfigPage").then((m) => ({ default: m.EnvironmentConfigPage })),
+);
 
 function AppRouteFallback() {
   return (
@@ -168,6 +174,14 @@ export default function App() {
                       }
                     />
                     <Route
+                      path="/admin/environment"
+                      element={
+                        <RequireAdmin>
+                          <EnvironmentConfigPage />
+                        </RequireAdmin>
+                      }
+                    />
+                    <Route
                       path="/admin/features"
                       element={
                         <RequireAdmin>
@@ -220,6 +234,14 @@ export default function App() {
                       element={
                         <RequireAdmin>
                           <AdminTicketDetailPage />
+                        </RequireAdmin>
+                      }
+                    />
+                    <Route
+                      path="/admin/users"
+                      element={
+                        <RequireAdmin>
+                          <UserManagementPage />
                         </RequireAdmin>
                       }
                     />

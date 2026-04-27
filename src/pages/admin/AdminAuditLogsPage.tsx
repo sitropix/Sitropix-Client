@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { isModuleForbiddenError } from "@/services/http";
 import { downloadAdminAuditLogsCsv, fetchAdminAuditLogs, fetchAdminAuditSummary } from "@/services/subscriptionsApi";
 import type { AuditLogRow, AuditLogSummary } from "@/types/subscription";
 
@@ -17,27 +19,42 @@ export function AdminAuditLogsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [summary, setSummary] = useState<AuditLogSummary | null>(null);
+  const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function load() {
     setLoading(true);
+    setNoModuleAccess(false);
     setNotice(null);
+    let listLoaded = false;
     try {
-      const [list, metrics] = await Promise.all([
-        fetchAdminAuditLogs({
-          action: action.trim() || undefined,
-          targetType: targetType.trim() || undefined,
-          startAt: startAt || undefined,
-          endAt: endAt || undefined,
-          limit: 50,
-          page,
-        }),
-        fetchAdminAuditSummary(),
-      ]);
+      const list = await fetchAdminAuditLogs({
+        action: action.trim() || undefined,
+        targetType: targetType.trim() || undefined,
+        startAt: startAt || undefined,
+        endAt: endAt || undefined,
+        limit: 50,
+        page,
+      });
       setRows(list.rows);
       setTotalPages(list.totalPages);
-      setSummary(metrics);
-    } catch {
+      listLoaded = true;
+    } catch (err) {
+      if (isModuleForbiddenError(err)) {
+        setNoModuleAccess(true);
+        return;
+      }
       setNotice("Could not load audit logs.");
+    }
+    try {
+      const metrics = await fetchAdminAuditSummary();
+      setSummary(metrics);
+    } catch (err) {
+      if (isModuleForbiddenError(err)) {
+        setNoModuleAccess(true);
+        return;
+      }
+      if (listLoaded) setNotice("Audit summary is temporarily unavailable.");
+      else setNotice("Could not load audit logs.");
     } finally {
       setLoading(false);
     }
@@ -52,6 +69,10 @@ export function AdminAuditLogsPage() {
     () => Array.from(new Set(rows.map((r) => r.targetType).filter(Boolean) as string[])).slice(0, 30),
     [rows],
   );
+
+  if (noModuleAccess) {
+    return <NoModuleAccess moduleLabel="Audit Logs" />;
+  }
 
   return (
     <div className="space-y-6">
@@ -126,8 +147,12 @@ export function AdminAuditLogsPage() {
                 setRows(list.rows);
                 setTotalPages(list.totalPages);
                 setSummary(metrics);
-              } catch {
-                setNotice("Could not load audit logs.");
+              } catch (err) {
+                if (isModuleForbiddenError(err)) {
+                  setNoModuleAccess(true);
+                } else {
+                  setNotice("Could not load audit logs.");
+                }
               } finally {
                 setLoading(false);
               }

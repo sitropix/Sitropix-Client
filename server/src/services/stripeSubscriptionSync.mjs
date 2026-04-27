@@ -99,27 +99,61 @@ export async function syncSubscriptionFromStripeForUserId(userId) {
 
   const subRow = await prisma.subscription.findUnique({ where: { userId } });
   if (subRow) {
-    await syncPaidInvoicesFromStripe(userId, subRow.id, full.id);
+    await syncPaidInvoicesFromStripe(userId, subRow.id, full.id, customerId);
   }
 
   return { ok: true, planCode: plan.code, stripeSubscriptionId: full.id };
 }
 
+function stripeSubscriptionIdOnInvoice(invoice) {
+  const sub = invoice.subscription;
+  return typeof sub === "string" ? sub : sub?.id ?? null;
+}
+
 /** Backfill payments from Stripe invoices when webhooks did not run. */
-async function syncPaidInvoicesFromStripe(userId, subscriptionRowId, stripeSubscriptionId) {
+export async function syncPaidInvoicesFromStripe(userId, subscriptionRowId, stripeSubscriptionId, stripeCustomerId = null) {
   if (!stripe) return;
-  let startingAfter;
-  for (;;) {
-    const page = await stripe.invoices.list({
-      subscription: stripeSubscriptionId,
-      limit: 40,
-      ...(startingAfter ? { starting_after: startingAfter } : {}),
-    });
-    for (const invoice of page.data) {
-      if (invoice.status !== "paid") continue;
+
+  const subRow =
+    (await prisma.subscription.findUnique({ where: { id: subscriptionRowId } })) ??
+    (await prisma.subscription.findUnique({ where: { userId } }));
+  const customerId = stripeCustomerId ?? subRow?.stripeCustomerId ?? null;
+
+  const collected = new Map();
+
+  async function collectPages(listParams) {
+    let startingAfter;
+    for (;;) {
+      const page = await stripe.invoices.list({
+        ...listParams,
+        limit: 40,
+        ...(startingAfter ? { starting_after: startingAfter } : {}),
+      });
+      for (const invoice of page.data) {
+        const sid = stripeSubscriptionIdOnInvoice(invoice);
+        if (sid !== stripeSubscriptionId) continue;
+        collected.set(invoice.id, invoice);
+      }
+      if (!page.has_more || page.data.length === 0) break;
+      startingAfter = page.data[page.data.length - 1].id;
+    }
+  }
+
+  await collectPages({ subscription: stripeSubscriptionId });
+  if (collected.size === 0 && customerId) {
+    await collectPages({ customer: customerId });
+  }
+
+  for (const invoice of collected.values()) {
+    const invNum = invoice.number ?? String(invoice.id);
+    const pdfUrl = invoice.invoice_pdf ?? invoice.hosted_invoice_url ?? null;
+
+    if (invoice.status === "paid") {
       const paid = invoice.amount_paid ?? 0;
       if (paid <= 0) continue;
-      const invNum = invoice.number ?? String(invoice.id);
+      const paidAt = invoice.status_transitions?.paid_at
+        ? new Date(invoice.status_transitions.paid_at * 1000)
+        : new Date();
       await prisma.payment.upsert({
         where: { stripeInvoiceId: invoice.id },
         create: {
@@ -129,23 +163,72 @@ async function syncPaidInvoicesFromStripe(userId, subscriptionRowId, stripeSubsc
           amountCents: paid,
           currency: (invoice.currency ?? "usd").toUpperCase(),
           status: "succeeded",
-          paidAt: invoice.status_transitions?.paid_at
-            ? new Date(invoice.status_transitions.paid_at * 1000)
-            : new Date(),
+          paidAt,
           stripeInvoiceId: invoice.id,
-          invoicePdfUrl: invoice.invoice_pdf ?? invoice.hosted_invoice_url ?? null,
+          invoicePdfUrl: pdfUrl,
         },
         update: {
+          userId,
+          subscriptionId: subscriptionRowId,
           amountCents: paid,
           status: "succeeded",
-          paidAt: invoice.status_transitions?.paid_at
-            ? new Date(invoice.status_transitions.paid_at * 1000)
-            : new Date(),
-          invoicePdfUrl: invoice.invoice_pdf ?? invoice.hosted_invoice_url ?? null,
+          paidAt,
+          invoicePdfUrl: pdfUrl,
+        },
+      });
+      continue;
+    }
+
+    if (invoice.status === "open" || invoice.status === "draft") {
+      const due = invoice.amount_due ?? invoice.total ?? 0;
+      await prisma.payment.upsert({
+        where: { stripeInvoiceId: invoice.id },
+        create: {
+          userId,
+          subscriptionId: subscriptionRowId,
+          invoiceNumber: invNum,
+          amountCents: due,
+          currency: (invoice.currency ?? "usd").toUpperCase(),
+          status: "pending",
+          paidAt: null,
+          stripeInvoiceId: invoice.id,
+          invoicePdfUrl: pdfUrl,
+        },
+        update: {
+          userId,
+          subscriptionId: subscriptionRowId,
+          amountCents: due,
+          status: "pending",
+          paidAt: null,
+          invoicePdfUrl: pdfUrl,
+        },
+      });
+      continue;
+    }
+
+    if (invoice.status === "uncollectible") {
+      await prisma.payment.upsert({
+        where: { stripeInvoiceId: invoice.id },
+        create: {
+          userId,
+          subscriptionId: subscriptionRowId,
+          invoiceNumber: invNum,
+          amountCents: invoice.amount_due ?? invoice.total ?? 0,
+          currency: (invoice.currency ?? "usd").toUpperCase(),
+          status: "failed",
+          failureReason: "uncollectible",
+          stripeInvoiceId: invoice.id,
+          invoicePdfUrl: pdfUrl,
+        },
+        update: {
+          userId,
+          subscriptionId: subscriptionRowId,
+          amountCents: invoice.amount_due ?? invoice.total ?? 0,
+          status: "failed",
+          failureReason: "uncollectible",
+          invoicePdfUrl: pdfUrl,
         },
       });
     }
-    if (!page.has_more || page.data.length === 0) break;
-    startingAfter = page.data[page.data.length - 1].id;
   }
 }

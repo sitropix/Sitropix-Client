@@ -1,4 +1,4 @@
-import { Link, NavLink } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import type { ReactNode } from "react";
 
@@ -16,11 +16,13 @@ export function AdminPortalShell({ children }: { children: ReactNode }) {
   const adminLinks = [
     { to: "/admin", label: "Dashboard", end: true },
     { to: "/admin/customers", label: "Customers" },
+    { to: "/admin/users", label: "Users" },
     { to: "/admin/plans", label: "Plans" },
     { to: "/admin/invites", label: "Invites" },
     { to: "/admin/features", label: "Feature Controls" },
     { to: "/admin/audit-logs", label: "Audit Logs" },
     { to: "/admin/email", label: "Email" },
+    { to: "/admin/environment", label: "Environment" },
     { to: "/admin/tickets", label: "Support" },
   ];
 
@@ -29,9 +31,6 @@ export function AdminPortalShell({ children }: { children: ReactNode }) {
       <header className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between border-b border-white/10 bg-canvas/95 px-6 backdrop-blur">
         <div className="text-lg font-black tracking-tight text-brand-lime">Sitropix Admin</div>
         <div className="flex items-center gap-3">
-          <Link to="/admin/plans" className="rounded-lg bg-brand-lime px-3 py-1.5 text-xs font-bold text-canvas">
-            Create New Plan
-          </Link>
           <button
             type="button"
             onClick={() => void logout()}

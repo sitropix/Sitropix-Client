@@ -5,10 +5,14 @@ const ACCESS_TOKEN_KEY = "portal_access_token";
 /** Thrown by `api()` when `!res.ok` so callers can branch on HTTP status. */
 export class ApiRequestError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  readonly code?: string;
+  readonly moduleKey?: string;
+  constructor(message: string, status: number, code?: string, moduleKey?: string) {
     super(message);
     this.name = "ApiRequestError";
     this.status = status;
+    this.code = code;
+    this.moduleKey = moduleKey;
   }
 }
 
@@ -16,8 +20,9 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string;
-  role: "user" | "admin";
+  role: "user" | "manager" | "admin" | "master_admin" | "support";
   isEmailVerified?: boolean;
+  phoneNumber?: string | null;
 }
 
 export function getAccessToken() {
@@ -59,8 +64,12 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     if (refreshed?.accessToken) res = await doFetch(refreshed.accessToken);
   }
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new ApiRequestError(body.error ?? "request_failed", res.status);
+    const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string; moduleKey?: string };
+    throw new ApiRequestError(body.message ?? body.error ?? "request_failed", res.status, body.error, body.moduleKey);
   }
   return (await res.json()) as T;
+}
+
+export function isModuleForbiddenError(err: unknown): err is ApiRequestError {
+  return err instanceof ApiRequestError && err.status === 403 && err.code === "module_forbidden";
 }

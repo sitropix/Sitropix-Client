@@ -5,7 +5,7 @@ import type { KBArticle, KBCategory } from "@/types/support";
 export function useKnowledgeBase() {
   const [categories, setCategories] = useState<KBCategory[]>([]);
   const [articles, setArticles] = useState<KBArticle[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (categoryId?: string) => {
