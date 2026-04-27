@@ -1,6 +1,14 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
-import { createAdminInvite, fetchAdminInvites, fetchAdminPlans, revokeAdminInvite } from "@/services/subscriptionsApi";
+import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { isModuleForbiddenError } from "@/services/http";
+import {
+  createAdminInvite,
+  fetchAdminInvites,
+  fetchAdminPlans,
+  resendAdminInvite,
+  revokeAdminInvite,
+} from "@/services/subscriptionsApi";
 import type { AdminInviteRow, Plan } from "@/types/subscription";
 
 export function InvitesPage() {
@@ -11,16 +19,29 @@ export function InvitesPage() {
   const [message, setMessage] = useState("");
   const [expiresDays, setExpiresDays] = useState("14");
   const [notice, setNotice] = useState<string | null>(null);
+  const [busyInviteId, setBusyInviteId] = useState<string | null>(null);
+  const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function load() {
+    setNoModuleAccess(false);
     const [i, p] = await Promise.all([fetchAdminInvites(), fetchAdminPlans()]);
     setInvites(i);
     setPlans(p);
   }
 
   useEffect(() => {
-    void load().catch(() => setNotice("Could not load invites."));
+    void load().catch((err) => {
+      if (isModuleForbiddenError(err)) {
+        setNoModuleAccess(true);
+        return;
+      }
+      setNotice("Could not load invites.");
+    });
   }, []);
+
+  if (noModuleAccess) {
+    return <NoModuleAccess moduleLabel="Invites" />;
+  }
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -116,16 +137,55 @@ export function InvitesPage() {
                 <p className="text-xs text-ink-muted">
                   {inv.plan?.name ?? "No plan"} · {inv.acceptedAt ? "Accepted" : inv.revokedAt ? "Revoked" : "Pending"} · expires{" "}
                   {new Date(inv.expiresAt).toLocaleDateString()}
+                  {typeof inv.resendCount === "number" ? ` · resent ${inv.resendCount}x` : ""}
+                  {inv.lastSentAt ? ` · last sent ${new Date(inv.lastSentAt).toLocaleDateString()}` : ""}
                 </p>
               </div>
               {!inv.acceptedAt && !inv.revokedAt && (
-                <button
-                  type="button"
-                  onClick={() => void revokeAdminInvite(inv.id).then(load)}
-                  className="rounded-lg border border-rose-500/30 px-3 py-1.5 text-xs text-rose-100"
-                >
-                  Revoke
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={busyInviteId === inv.id}
+                    onClick={() =>
+                      void (async () => {
+                        setBusyInviteId(inv.id);
+                        setNotice(null);
+                        try {
+                          await resendAdminInvite(inv.id);
+                          setNotice(`Invite re-sent to ${inv.email}.`);
+                        } catch {
+                          setNotice("Could not resend invite.");
+                        } finally {
+                          setBusyInviteId(null);
+                        }
+                      })()
+                    }
+                    className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                  >
+                    {busyInviteId === inv.id ? "Resending..." : "Resend"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyInviteId === inv.id}
+                    onClick={() =>
+                      void (async () => {
+                        setBusyInviteId(inv.id);
+                        setNotice(null);
+                        try {
+                          await revokeAdminInvite(inv.id);
+                          await load();
+                        } catch {
+                          setNotice("Could not revoke invite.");
+                        } finally {
+                          setBusyInviteId(null);
+                        }
+                      })()
+                    }
+                    className="rounded-lg border border-rose-500/30 px-3 py-1.5 text-xs text-rose-100 disabled:opacity-40"
+                  >
+                    Revoke
+                  </button>
+                </div>
               )}
             </li>
           ))}

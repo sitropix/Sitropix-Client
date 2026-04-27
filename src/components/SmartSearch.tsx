@@ -22,13 +22,21 @@ export function SmartSearch({ compact = false }: { compact?: boolean }) {
       </label>
       <div
         className={[
-          "group flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-3 shadow-inner transition",
+          "group flex items-center border border-white/10 bg-white/[0.05] shadow-inner transition",
           "focus-within:border-brand-lime/45 focus-within:shadow-glow focus-within:ring-1 focus-within:ring-brand-lime/30",
-          compact ? "py-2" : "py-2.5 sm:py-3",
+          compact
+            ? "gap-1.5 rounded-xl px-2 py-1"
+            : "gap-2 rounded-2xl px-3 py-2.5 sm:py-3",
         ].join(" ")}
       >
-        <span className="pl-1 text-ink-muted transition group-focus-within:text-brand-lime" aria-hidden>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <span
+          className={[
+            "shrink-0 text-ink-muted transition group-focus-within:text-brand-lime",
+            compact ? "pl-0.5" : "pl-1",
+          ].join(" ")}
+          aria-hidden
+        >
+          <svg className={compact ? "h-4 w-4" : "h-5 w-5"} viewBox="0 0 24 24" fill="none" aria-hidden>
             <path
               d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z"
               stroke="currentColor"
@@ -42,19 +50,29 @@ export function SmartSearch({ compact = false }: { compact?: boolean }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search billing, subscriptions, invoices..."
-          className="w-full bg-transparent text-sm text-white outline-none placeholder:text-ink-subtle sm:text-base"
+          className={[
+            "min-h-0 w-full bg-transparent text-white outline-none placeholder:text-ink-subtle",
+            compact ? "py-0.5 text-sm leading-tight" : "text-sm sm:text-base",
+          ].join(" ")}
           autoComplete="off"
         />
         <button
           type="submit"
-          className="inline-flex shrink-0 items-center justify-center rounded-xl bg-brand-lime px-4 py-2 text-sm font-semibold text-canvas transition hover:scale-[1.02] hover:bg-brand-lime-dim active:scale-[0.99]"
+          className={[
+            "inline-flex shrink-0 items-center justify-center bg-brand-lime font-semibold text-canvas transition hover:bg-brand-lime-dim active:scale-[0.99]",
+            compact
+              ? "rounded-lg px-2.5 py-1 text-xs hover:scale-[1.01]"
+              : "rounded-xl px-4 py-2 text-sm hover:scale-[1.02]",
+          ].join(" ")}
         >
           Search
         </button>
       </div>
-      <p className="mt-3 text-center text-xs text-ink-subtle">
-        Tip: start with a product area — results open in the knowledge base.
-      </p>
+      {!compact && (
+        <p className="mt-3 text-center text-xs text-ink-subtle">
+          Tip: start with a product area — results open in the knowledge base.
+        </p>
+      )}
     </form>
   );
 }

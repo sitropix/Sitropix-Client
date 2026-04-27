@@ -1,4 +1,3 @@
-import { SmartSearch } from "@/components/SmartSearch";
 import { useUser } from "@/context/UserContext";
 
 export function Hero() {
@@ -20,10 +19,7 @@ export function Hero() {
         <p className="mx-auto mt-4 max-w-xl text-pretty text-sm text-ink-muted sm:text-base">
           Sign in to manage subscriptions, billing, and support from one secure workspace.
         </p>
-        <div className="mt-10 opacity-0 animate-fade-up-delay [animation-fill-mode:forwards]">
-          <SmartSearch />
-        </div>
-        <p className="mt-4 text-center text-xs text-ink-subtle">Secure access • Encrypted billing • 99.9% uptime</p>
+        <p className="mt-8 text-center text-xs text-ink-subtle">Secure access • Encrypted billing • 99.9% uptime</p>
       </div>
     </section>
   );

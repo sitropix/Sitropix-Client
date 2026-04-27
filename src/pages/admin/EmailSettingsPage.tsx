@@ -1,12 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { NoModuleAccess } from "@/components/NoModuleAccess";
 import {
   clearAdminEmailSettings,
   fetchAdminEmailSettings,
   postAdminEmailTest,
   saveAdminEmailSettings,
 } from "@/services/subscriptionsApi";
-import { ApiRequestError } from "@/services/http";
+import { ApiRequestError, isModuleForbiddenError } from "@/services/http";
 import type { EmailProviderId, EmailSettingsPayload } from "@/types/subscription";
 
 const PROVIDERS: { id: EmailProviderId; label: string }[] = [
@@ -37,9 +38,11 @@ export function EmailSettingsPage() {
   const [testTo, setTestTo] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function load() {
     setLoading(true);
+    setNoModuleAccess(false);
     try {
       const p = await fetchAdminEmailSettings();
       setPayload(p);
@@ -53,6 +56,12 @@ export function EmailSettingsPage() {
       setSmtpUser(String(s.smtpUser ?? ""));
       setMailgunDomain(String(s.mailgunDomain ?? ""));
       setMailgunRegion(s.mailgunRegion === "eu" ? "eu" : "us");
+    } catch (err) {
+      if (isModuleForbiddenError(err)) {
+        setNoModuleAccess(true);
+      } else {
+        setNotice("Could not load email settings.");
+      }
     } finally {
       setLoading(false);
     }
@@ -61,6 +70,10 @@ export function EmailSettingsPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  if (noModuleAccess) {
+    return <NoModuleAccess moduleLabel="Email Settings" />;
+  }
 
   function buildSettings(): Record<string, unknown> {
     if (provider === "smtp") {

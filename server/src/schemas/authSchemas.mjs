@@ -24,3 +24,13 @@ export const resetPasswordSchema = z.object({
   token: z.string().min(10),
   newPassword: z.string().min(8).max(200),
 });
+
+export const patchProfileSchema = z
+  .object({
+    email: z.string().email().optional(),
+    phoneNumber: z.union([z.string().max(32), z.literal("")]).optional(),
+  })
+  .strict()
+  .refine((b) => b.email !== undefined || b.phoneNumber !== undefined, {
+    message: "at_least_one_field",
+  });

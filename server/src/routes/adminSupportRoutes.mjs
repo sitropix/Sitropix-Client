@@ -1,13 +1,13 @@
 import express from "express";
 import { prisma } from "../db/client.mjs";
-import { requireAuth, requireRole } from "../middleware/auth.mjs";
+import { requireAuth, requireModuleAccess, requireRole } from "../middleware/auth.mjs";
 import { validate } from "../middleware/validate.mjs";
 import { replyTicketSchema, updateTicketStatusSchema } from "../schemas/supportSchemas.mjs";
 import { sendTransactionalEmail } from "../services/emailService.mjs";
 import { env } from "../config/env.mjs";
 
 const router = express.Router();
-router.use(requireAuth, requireRole("admin"));
+router.use(requireAuth, requireRole("admin", "master_admin"), requireModuleAccess("tickets"));
 
 router.get("/tickets", async (req, res) => {
   const { status, userId, limit = "50", offset = "0" } = req.query;

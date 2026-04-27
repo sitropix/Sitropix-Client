@@ -1,4 +1,4 @@
-export type Role = "user" | "admin";
+export type Role = "user" | "manager" | "admin" | "master_admin" | "support";
 
 export interface Plan {
   id: string;
@@ -22,6 +22,7 @@ export interface UserLite {
   email: string;
   name: string;
   role: Role;
+  phoneNumber?: string | null;
 }
 
 export interface Subscription {
@@ -107,6 +108,8 @@ export interface AdminInviteRow {
   expiresAt: string;
   acceptedAt: string | null;
   revokedAt: string | null;
+  resendCount?: number;
+  lastSentAt?: string | null;
   createdAt: string;
   createdBy: { id: string; name: string; email: string };
 }
@@ -117,6 +120,8 @@ export interface AdminUserRow {
   name: string;
   role: Role;
   isEmailVerified: boolean;
+  isActive?: boolean;
+  deactivatedAt?: string | null;
   createdAt: string;
   subscriptions: Array<{
     id: string;
@@ -126,11 +131,57 @@ export interface AdminUserRow {
   }>;
 }
 
+export interface AdminCustomerProfilePayload {
+  overview: {
+    user: {
+      id: string;
+      name: string;
+      email: string;
+      role: Role;
+      phoneNumber?: string | null;
+      isEmailVerified: boolean;
+      isActive: boolean;
+      deactivatedAt: string | null;
+      createdAt: string;
+    };
+    subscription: {
+      id: string;
+      status: SubscriptionStatus;
+      billingCycle: BillingCycle;
+      nextBillingDate: string;
+      nextBillingAmountCents: number | null;
+      plan: { id: string; code: string; name: string } | null;
+    } | null;
+    totalGeneratedRevenueCents: number;
+  };
+  tickets: Array<{
+    id: string;
+    subject: string;
+    status: "open" | "in_progress" | "resolved";
+    department: string;
+    createdAt: string;
+    updatedAt: string;
+    threadCount: number;
+  }>;
+  documents: ClientDocumentRow[];
+  transactions: Array<{
+    id: string;
+    invoiceNumber: string;
+    amountCents: number;
+    currency: string;
+    status: "succeeded" | "failed" | "pending" | "refunded";
+    paidAt: string | null;
+    paymentMode: string;
+    nextBillingAmountCents: number | null;
+  }>;
+}
+
 export interface CustomerPortalPayload {
   user: UserLite;
   plans: Plan[];
   subscription: Subscription | null;
   featureControls?: SubscriptionFeatureControls;
+  experiments?: Record<string, unknown>;
   invoices: Invoice[];
   paymentMethods: PaymentMethod[];
 }
@@ -145,6 +196,30 @@ export interface EmailSettingsPayload {
   settings: Record<string, unknown>;
   secretMasks: Record<string, string | null | undefined>;
   hint: string | null;
+}
+
+export interface SystemConfigItem {
+  key:
+    | "DATABASE_URL"
+    | "STRIPE_SECRET_KEY"
+    | "STRIPE_WEBHOOK_SECRET"
+    | "STRIPE_SUCCESS_URL"
+    | "STRIPE_CANCEL_URL"
+    | "APP_URL"
+    | "API_URL"
+    | "EMAIL_PROVIDER"
+    | "EMAIL_FROM"
+    | "RESEND_API_KEY"
+    | "SENDGRID_API_KEY"
+    | "ALLOWED_REDIRECT_ORIGINS";
+  isSecret: boolean;
+  configuredInDatabase: boolean;
+  value: string;
+  secretMask: string | null;
+}
+
+export interface SystemConfigPayload {
+  items: SystemConfigItem[];
 }
 
 export interface AnalyticsSummary {

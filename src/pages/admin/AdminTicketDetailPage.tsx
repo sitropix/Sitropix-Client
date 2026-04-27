@@ -1,8 +1,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { Skeleton } from "@/components/Skeleton";
 import { StatusBadge } from "@/components/StatusBadge";
+import { isModuleForbiddenError } from "@/services/http";
 import { fetchAdminTicketById, patchAdminTicketStatus, postAdminTicketReply } from "@/services/supportApi";
 import type { SupportTicketDetail, TicketStatus } from "@/types/support";
 
@@ -21,6 +23,7 @@ export function AdminTicketDetailPage() {
   const [sending, setSending] = useState(false);
   const [statusChoice, setStatusChoice] = useState<TicketStatus | "">("");
   const [error, setError] = useState<string | null>(null);
+  const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function reload() {
     if (!id) return;
@@ -36,16 +39,21 @@ export function AdminTicketDetailPage() {
     async function run() {
       setLoading(true);
       setNotFound(false);
+      setNoModuleAccess(false);
       try {
         const d = await fetchAdminTicketById(ticketId);
         if (!cancelled) {
           setDetail(d);
           setStatusChoice(d.status);
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
-          setNotFound(true);
-          setDetail(null);
+          if (isModuleForbiddenError(err)) {
+            setNoModuleAccess(true);
+          } else {
+            setNotFound(true);
+            setDetail(null);
+          }
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -95,6 +103,10 @@ export function AdminTicketDetailPage() {
         <Skeleton className="h-32 w-full" />
       </div>
     );
+  }
+
+  if (noModuleAccess) {
+    return <NoModuleAccess moduleLabel="Support Tickets" />;
   }
 
   if (notFound || !detail) {

@@ -7,9 +7,13 @@ export function validate(schema) {
       return next();
     } catch (error) {
       if (error instanceof ZodError) {
-        return res.status(400).json({ error: "validation_error", issues: error.flatten() });
+        return res.status(400).json({
+          error: "validation_error",
+          message: "Invalid request payload.",
+          issues: error.flatten(),
+        });
       }
-      return res.status(400).json({ error: "validation_error" });
+      return res.status(400).json({ error: "validation_error", message: "Invalid request payload." });
     }
   };
 }

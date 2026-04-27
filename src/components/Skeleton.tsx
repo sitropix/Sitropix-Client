@@ -9,12 +9,23 @@ export function Skeleton({ className = "" }: { className?: string }) {
 
 export function TicketRowSkeleton() {
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-5 md:flex-row md:items-center md:justify-between">
-      <div className="flex-1 space-y-2">
-        <Skeleton className="h-4 w-[min(100%,28rem)] max-w-md" />
-        <Skeleton className="h-3 w-40" />
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0c1016]/95 shadow-glass ring-1 ring-white/[0.04] md:flex">
+      <div className="min-w-0 flex-1 space-y-3 border-b border-white/10 p-5 md:border-b-0 md:border-r md:p-6">
+        <div className="flex flex-wrap gap-2">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-6 w-16 rounded-full" />
+          <Skeleton className="h-6 w-20 rounded-full" />
+        </div>
+        <Skeleton className="h-5 w-[min(100%,24rem)]" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+        </div>
       </div>
-      <Skeleton className="h-7 w-20 rounded-full" />
+      <div className="w-full shrink-0 space-y-2 bg-black/25 p-5 md:w-[220px] md:border-l md:border-white/10 md:p-6">
+        <Skeleton className="h-3 w-16" />
+        <Skeleton className="h-16 w-full" />
+      </div>
     </div>
   );
 }

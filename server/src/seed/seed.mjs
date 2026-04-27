@@ -59,4 +59,34 @@ export async function seedIfEmpty() {
   }
 
   await ensureFeatureFlagDefaults();
+  const ALL_MODULES = [
+    "dashboard",
+    "customers",
+    "users",
+    "plans",
+    "invites",
+    "features",
+    "audit_logs",
+    "email",
+    "environment",
+    "tickets",
+  ];
+  const MANAGER_MODULES = ["dashboard", "customers", "plans", "invites", "audit_logs", "tickets"];
+  const SUPPORT_MODULES = ["tickets", "customers", "dashboard"];
+  const adminUsers = await prisma.user.findMany({
+    where: { role: { in: ["admin", "master_admin", "manager", "support"] } },
+    select: { id: true, role: true },
+  });
+  for (const u of adminUsers) {
+    const wanted =
+      u.role === "master_admin" || u.role === "admin"
+        ? ALL_MODULES
+        : u.role === "manager"
+          ? MANAGER_MODULES
+          : SUPPORT_MODULES;
+    await prisma.userModuleAccess.createMany({
+      data: wanted.map((moduleKey) => ({ userId: u.id, moduleKey, enabled: true })),
+      skipDuplicates: true,
+    });
+  }
 }

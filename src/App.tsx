@@ -29,6 +29,8 @@ import { EmailSettingsPage } from "@/pages/admin/EmailSettingsPage";
 import { InvitesPage } from "@/pages/admin/InvitesPage";
 import { AdminUserDocumentsPage } from "@/pages/admin/AdminUserDocumentsPage";
 import { AdminAuditLogsPage } from "@/pages/admin/AdminAuditLogsPage";
+import { UserManagementPage } from "@/pages/admin/UserManagementPage";
+import { EnvironmentConfigPage } from "@/pages/admin/EnvironmentConfigPage";
 import { ForgotPasswordPage } from "@/pages/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "@/pages/auth/ResetPasswordPage";
 import { VerifyEmailPage } from "@/pages/auth/VerifyEmailPage";
@@ -114,6 +116,14 @@ export default function App() {
                     }
                   />
                   <Route
+                    path="/admin/environment"
+                    element={
+                      <RequireAdmin>
+                        <EnvironmentConfigPage />
+                      </RequireAdmin>
+                    }
+                  />
+                  <Route
                     path="/admin/features"
                     element={
                       <RequireAdmin>
@@ -166,6 +176,14 @@ export default function App() {
                     element={
                       <RequireAdmin>
                         <AdminTicketDetailPage />
+                      </RequireAdmin>
+                    }
+                  />
+                  <Route
+                    path="/admin/users"
+                    element={
+                      <RequireAdmin>
+                        <UserManagementPage />
                       </RequireAdmin>
                     }
                   />

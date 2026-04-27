@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useAuth } from "@/context/AuthContext";
 import { createTicket, fetchTickets } from "@/services/supportApi";
 import type { CreateTicketInput, SupportTicket } from "@/types/support";
 
@@ -20,23 +21,35 @@ interface TicketsState {
 
 const TicketsContext = createContext<TicketsState | undefined>(undefined);
 
+function normalizeTickets(payload: unknown): SupportTicket[] {
+  if (Array.isArray(payload)) return payload as SupportTicket[];
+  return [];
+}
+
 export function TicketsProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
+    if (!isAuthenticated) {
+      setTickets([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const data = await fetchTickets();
-      setTickets(data);
+      setTickets(normalizeTickets(data));
     } catch {
       setError("Unable to load tickets.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     void reload();

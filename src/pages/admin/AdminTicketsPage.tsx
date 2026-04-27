@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/Skeleton";
+import { isModuleForbiddenError } from "@/services/http";
 import { fetchAdminTickets } from "@/services/supportApi";
 import type { AdminSupportTicketListItem, TicketStatus } from "@/types/support";
 
@@ -23,11 +25,13 @@ export function AdminTicketsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     async function run() {
       setLoading(true);
+      setNoModuleAccess(false);
       setError(null);
       try {
         const r = await fetchAdminTickets({ status: status === "all" ? undefined : status, limit: 100 });
@@ -35,8 +39,11 @@ export function AdminTicketsPage() {
           setRows(r.items);
           setTotal(r.total);
         }
-      } catch {
-        if (!cancelled) setError("Unable to load tickets.");
+      } catch (err) {
+        if (!cancelled) {
+          if (isModuleForbiddenError(err)) setNoModuleAccess(true);
+          else setError("Unable to load tickets.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -46,6 +53,10 @@ export function AdminTicketsPage() {
       cancelled = true;
     };
   }, [status]);
+
+  if (noModuleAccess) {
+    return <NoModuleAccess moduleLabel="Support Tickets" />;
+  }
 
   return (
     <div className="space-y-8">

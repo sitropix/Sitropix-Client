@@ -1,5 +1,6 @@
 import { prisma } from "../db/client.mjs";
 import { env } from "../config/env.mjs";
+import { log } from "../observability/logger.mjs";
 
 export async function logAuditEvent(event) {
   if (!env.auditLogEnabled) return;
@@ -18,13 +19,13 @@ export async function logAuditEvent(event) {
       },
     });
   } catch (e) {
-    console.warn(JSON.stringify({ level: "warn", msg: "audit_log_write_failed", error: e?.message }));
+    log.warn("audit_log.write_failed", { error: e?.message });
   }
 }
 
 export function requestAuditContext(req) {
   return {
-    requestId: req.headers["x-request-id"] ?? null,
+    requestId: req?.requestId ?? req.headers["x-request-id"] ?? null,
     ipAddress: req.ip ?? null,
     userAgent: req.headers["user-agent"] ?? null,
   };

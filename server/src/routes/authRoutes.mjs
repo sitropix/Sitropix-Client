@@ -1,9 +1,12 @@
 import bcrypt from "bcryptjs";
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { prisma } from "../db/client.mjs";
+import { requireAuth } from "../middleware/auth.mjs";
 import { validate } from "../middleware/validate.mjs";
 import {
   loginSchema,
+  patchProfileSchema,
   requestResetSchema,
   resetPasswordSchema,
   signupSchema,
@@ -14,8 +17,17 @@ import { logAuditEvent, requestAuditContext } from "../services/auditLogService.
 import { randomToken, sha256 } from "../utils/crypto.mjs";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/tokens.mjs";
 import { env } from "../config/env.mjs";
+import { log } from "../observability/logger.mjs";
+import { metricsAuth } from "../observability/metrics.mjs";
 
 const router = express.Router();
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "too_many_login_attempts", message: "Too many login attempts. Please try again later." },
+});
 
 /** Public: validate invite link before signup (token from email). */
 router.get("/invite-info", async (req, res) => {
@@ -56,6 +68,20 @@ async function persistRefreshToken(userId, refreshToken) {
       tokenHash: sha256(refreshToken),
       expiresAt: new Date(decoded.exp * 1000),
     },
+  });
+}
+
+async function revokeRefreshToken(refreshToken) {
+  await prisma.refreshToken.updateMany({
+    where: { tokenHash: sha256(refreshToken), revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+}
+
+async function revokeAllUserRefreshTokens(userId) {
+  await prisma.refreshToken.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
   });
 }
 
@@ -157,22 +183,24 @@ router.post("/verify-email", validate(verifyEmailSchema), async (req, res) => {
   return res.json({ ok: true });
 });
 
-router.post("/login", validate(loginSchema), async (req, res) => {
+router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
   try {
     const { email, password } = req.validatedBody;
     const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     const auditCtx = requestAuditContext(req);
     if (!user) {
+      metricsAuth.loginFail();
       await logAuditEvent({
         action: "auth.login_failed",
         targetType: "user",
         metadata: { email: email.toLowerCase(), reason: "user_not_found" },
         ...auditCtx,
       });
-      return res.status(401).json({ error: "invalid_credentials" });
+      return res.status(401).json({ error: "invalid_credentials", message: "Invalid email or password." });
     }
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) {
+      metricsAuth.loginFail();
       await logAuditEvent({
         action: "auth.login_failed",
         actorUserId: user.id,
@@ -182,9 +210,14 @@ router.post("/login", validate(loginSchema), async (req, res) => {
         metadata: { email: user.email, reason: "invalid_password" },
         ...auditCtx,
       });
-      return res.status(401).json({ error: "invalid_credentials" });
+      return res.status(401).json({ error: "invalid_credentials", message: "Invalid email or password." });
+    }
+    if (user.isActive === false) {
+      metricsAuth.loginFail();
+      return res.status(403).json({ error: "account_deactivated", message: "This account has been deactivated." });
     }
 
+    metricsAuth.loginOk();
     const accessToken = signAccessToken(user);
     const refreshToken = signRefreshToken(user);
     await persistRefreshToken(user.id, refreshToken);
@@ -207,37 +240,53 @@ router.post("/login", validate(loginSchema), async (req, res) => {
         name: user.name,
         role: user.role,
         isEmailVerified: user.isEmailVerified,
+        phoneNumber: user.phoneNumber ?? null,
       },
     });
   } catch (e) {
     const code = e?.code;
     if (code === "P1001" || code === "P1017") {
-      return res.status(503).json({ error: "database_unavailable" });
+      metricsAuth.loginDbDown();
+      log.warnReq(req, "auth.login_db_unreachable", { code });
+      return res.status(503).json({ error: "database_unavailable", message: "Database is currently unavailable." });
     }
-    console.error(JSON.stringify({ level: "error", msg: "auth.login_failed", error: e?.message, code }));
-    return res.status(500).json({ error: "login_failed" });
+    metricsAuth.loginError();
+    log.errorReq(req, "auth.login_error", { error: e?.message, code });
+    return res.status(500).json({ error: "login_failed", message: "Login failed due to a server error." });
   }
 });
 
 router.post("/refresh", async (req, res) => {
   const token = req.cookies?.refresh_token;
-  if (!token) return res.status(401).json({ error: "missing_refresh_token" });
+  if (!token) return res.status(401).json({ error: "missing_refresh_token", message: "Missing refresh token." });
   try {
     const payload = verifyRefreshToken(token);
     const row = await prisma.refreshToken.findFirst({
       where: { tokenHash: sha256(token), revokedAt: null },
     });
-    if (!row) return res.status(401).json({ error: "invalid_refresh_token" });
-    if (row.expiresAt.getTime() < Date.now()) return res.status(401).json({ error: "expired_refresh_token" });
+    if (!row) return res.status(401).json({ error: "invalid_refresh_token", message: "Invalid refresh token." });
+    if (row.expiresAt.getTime() < Date.now()) return res.status(401).json({ error: "expired_refresh_token", message: "Refresh token expired." });
     const user = await prisma.user.findUnique({ where: { id: payload.sub } });
-    if (!user) return res.status(401).json({ error: "invalid_refresh_token" });
+    if (!user) return res.status(401).json({ error: "invalid_refresh_token", message: "Invalid refresh token." });
+    if (user.isActive === false) return res.status(403).json({ error: "account_deactivated", message: "This account has been deactivated." });
     const accessToken = signAccessToken(user);
+    const nextRefreshToken = signRefreshToken(user);
+    await revokeRefreshToken(token);
+    await persistRefreshToken(user.id, nextRefreshToken);
+    setRefreshCookie(res, nextRefreshToken);
     return res.json({
       accessToken,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role, isEmailVerified: user.isEmailVerified },
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        isEmailVerified: user.isEmailVerified,
+        phoneNumber: user.phoneNumber ?? null,
+      },
     });
   } catch {
-    return res.status(401).json({ error: "invalid_refresh_token" });
+    return res.status(401).json({ error: "invalid_refresh_token", message: "Invalid refresh token." });
   }
 });
 
@@ -245,10 +294,7 @@ router.post("/logout", async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const token = req.cookies?.refresh_token;
   if (token) {
-    await prisma.refreshToken.updateMany({
-      where: { tokenHash: sha256(token), revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    await revokeRefreshToken(token);
   }
   await logAuditEvent({
     action: "auth.logout",
@@ -258,6 +304,58 @@ router.post("/logout", async (req, res) => {
   });
   res.clearCookie("refresh_token", { path: "/api/auth" });
   return res.json({ ok: true });
+});
+
+router.patch("/me", requireAuth, validate(patchProfileSchema), async (req, res) => {
+  const auditCtx = requestAuditContext(req);
+  const { email, phoneNumber } = req.validatedBody;
+  const user = await prisma.user.findUnique({ where: { id: req.auth.userId } });
+  if (!user) return res.status(404).json({ error: "user_not_found", message: "User not found." });
+
+  const data = {};
+  let emailChanged = false;
+  if (email !== undefined && email.toLowerCase() !== user.email.toLowerCase()) {
+    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    if (existing && existing.id !== user.id) {
+      return res.status(409).json({ error: "email_in_use", message: "That email is already in use." });
+    }
+    data.email = email.toLowerCase();
+    emailChanged = true;
+  }
+  if (phoneNumber !== undefined) {
+    data.phoneNumber = phoneNumber === "" ? null : String(phoneNumber).trim();
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data,
+    select: { id: true, email: true, name: true, role: true, isEmailVerified: true, phoneNumber: true },
+  });
+
+  const authUser = {
+    id: updated.id,
+    email: updated.email,
+    name: updated.name,
+    role: updated.role,
+    isEmailVerified: updated.isEmailVerified,
+    phoneNumber: updated.phoneNumber,
+  };
+
+  await logAuditEvent({
+    action: "auth.profile_updated",
+    actorUserId: user.id,
+    actorRole: user.role,
+    targetType: "user",
+    targetId: user.id,
+    metadata: { emailChanged, phoneUpdated: phoneNumber !== undefined },
+    ...auditCtx,
+  });
+
+  if (emailChanged) {
+    const accessToken = signAccessToken(updated);
+    return res.json({ accessToken, user: authUser });
+  }
+  return res.json({ user: authUser });
 });
 
 router.post("/request-password-reset", validate(requestResetSchema), async (req, res) => {
@@ -298,7 +396,7 @@ router.post("/reset-password", validate(resetPasswordSchema), async (req, res) =
     where: { passwordResetToken: sha256(token) },
   });
   if (!user || !user.passwordResetExpiresAt || user.passwordResetExpiresAt.getTime() < Date.now()) {
-    return res.status(400).json({ error: "invalid_or_expired_token" });
+    return res.status(400).json({ error: "invalid_or_expired_token", message: "Reset token is invalid or expired." });
   }
   const passwordHash = await bcrypt.hash(newPassword, 12);
   await prisma.user.update({
@@ -309,6 +407,7 @@ router.post("/reset-password", validate(resetPasswordSchema), async (req, res) =
       passwordResetExpiresAt: null,
     },
   });
+  await revokeAllUserRefreshTokens(user.id);
   return res.json({ ok: true });
 });
 

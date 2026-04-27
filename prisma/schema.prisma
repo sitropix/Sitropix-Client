@@ -12,7 +12,10 @@ datasource db {
 
 enum Role {
   user
+  manager
   admin
+  master_admin
+  support
 }
 
 enum SubscriptionStatus {
@@ -53,6 +56,10 @@ model User {
   passwordResetExpiresAt   DateTime? @map("password_reset_expires_at")
   stripeCustomerId         String?   @map("stripe_customer_id")
   razorpayCustomerId       String?   @map("razorpay_customer_id")
+  phoneNumber              String?   @map("phone_number")
+  isActive                 Boolean   @default(true) @map("is_active")
+  deactivatedAt            DateTime? @map("deactivated_at")
+  deactivationReason       String?   @map("deactivation_reason")
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @updatedAt @map("updated_at")
 
@@ -63,10 +70,25 @@ model User {
   ticketMessages   TicketMessage[]
   clientDocuments  ClientDocument[]
   invitesCreated   Invite[] @relation("InviteCreator")
+  funnelEvents     FunnelEvent[]
+  moduleAccess     UserModuleAccess[]
 
   @@index([email])
   @@index([role])
   @@map("users")
+}
+
+model UserModuleAccess {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  moduleKey String   @map("module_key")
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, moduleKey])
+  @@index([userId])
+  @@map("user_module_access")
 }
 
 model RefreshToken {
@@ -273,12 +295,14 @@ model EmailSettings {
 }
 
 /// SaaS-wide toggles (admin). Keys are stable API contracts.
+/// For experiment flags, `stringValue` stores the active variant; boolean flags use `stringValue` = null.
 model FeatureFlag {
-  id        String   @id @default(cuid())
-  key       String   @unique
-  label     String
-  enabled   Boolean  @default(true)
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id          String   @id @default(cuid())
+  key         String   @unique
+  label       String
+  enabled     Boolean  @default(true)
+  stringValue String?  @map("string_value") @db.VarChar(120)
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("feature_flags")
 }
@@ -326,6 +350,8 @@ model Invite {
   expiresAt       DateTime  @map("expires_at")
   acceptedAt      DateTime? @map("accepted_at")
   revokedAt       DateTime? @map("revoked_at")
+  resendCount     Int       @default(0) @map("resend_count")
+  lastSentAt      DateTime? @map("last_sent_at")
   createdByUserId String    @map("created_by_user_id")
   createdAt       DateTime  @default(now()) @map("created_at")
 
@@ -355,4 +381,31 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+/// Product/conversion funnel events (authenticated; used for layout experiments and checkout analytics).
+model FunnelEvent {
+  id        String   @id @default(cuid())
+  userId    String?  @map("user_id")
+  name      String
+  props     Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([name, createdAt])
+  @@index([userId, createdAt])
+  @@map("funnel_events")
+}
+
+/// Secure runtime configuration values managed by admin UI.
+/// Secrets are encrypted in `valueEncrypted`; non-secrets use `valuePlain`.
+model SystemConfig {
+  id             String   @id @default(cuid())
+  key            String   @unique
+  valuePlain     String?  @map("value_plain") @db.Text
+  valueEncrypted String?  @map("value_encrypted") @db.Text
+  isSecret       Boolean  @default(false) @map("is_secret")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("system_config")
 }

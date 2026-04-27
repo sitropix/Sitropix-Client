@@ -8,6 +8,8 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   signup: (name: string, email: string, password: string, inviteToken?: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Replace session user (e.g. after profile PATCH). */
+  updateUser: (user: AuthUser) => void;
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
@@ -53,8 +55,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }
 
+  function updateUser(next: AuthUser) {
+    setUser(next);
+  }
+
   const value = useMemo(
-    () => ({ user, loading, isAuthenticated: Boolean(user), login, signup, logout }),
+    () => ({ user, loading, isAuthenticated: Boolean(user), login, signup, logout, updateUser }),
     [user, loading],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
