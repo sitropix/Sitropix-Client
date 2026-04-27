@@ -4,7 +4,8 @@ services:
     env: node
     plan: free
     autoDeploy: true
-    buildCommand: npm install
+    buildCommand: npm install --include=dev && npx prisma generate
+    preDeployCommand: npx prisma db push
     startCommand: node server/src/index.mjs
     # Liveness: /api/health — database readiness: /api/health/ready
     healthCheckPath: /api/health
