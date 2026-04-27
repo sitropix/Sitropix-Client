@@ -11,6 +11,26 @@ function required(name, fallback = "") {
   return value;
 }
 
+function normalizeOrigin(urlLike) {
+  try {
+    const parsed = new URL(urlLike);
+    return `${parsed.protocol}//${parsed.host}`.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function parseAllowedRedirectOrigins(appUrl) {
+  const base = [normalizeOrigin(appUrl)].filter(Boolean);
+  const extra = String(process.env.ALLOWED_REDIRECT_ORIGINS ?? "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map(normalizeOrigin)
+    .filter(Boolean);
+  return [...new Set([...base, ...extra])];
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? process.env.API_SERVER_PORT ?? 8787),
@@ -34,7 +54,15 @@ export const env = {
   razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET ?? "",
   clientDocumentsDir: process.env.CLIENT_DOCUMENTS_DIR ?? "data/client-documents",
   auditLogEnabled: (process.env.AUDIT_LOG_ENABLED ?? "true").toLowerCase() === "true",
+  /** Optional bearer for GET /api/metrics (if unset, route returns 404 in production, open in non-production) */
+  metricsBearerToken: String(process.env.METRICS_BEARER_TOKEN ?? "").trim(),
+  /** JSON POST for Slack/Discord/custom when critical failures occur (optional) */
+  alertWebhookUrl: String(process.env.ALERT_WEBHOOK_URL ?? "").trim(),
+  alertingEnabled: (process.env.ALERTING_ENABLED ?? "true").toLowerCase() !== "false",
+  /** When true, POST to alert webhook for unhandled express errors (can be noisy) */
+  alertOnInternalError: (process.env.ALERT_ON_INTERNAL_ERROR ?? "false").toLowerCase() === "true",
 };
+env.allowedRedirectOrigins = parseAllowedRedirectOrigins(env.appUrl);
 
 function assertProductionSecurity() {
   if (env.nodeEnv !== "production") return;

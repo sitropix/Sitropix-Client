@@ -1,11 +1,18 @@
 import { FormEvent, useEffect, useState } from "react";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
+import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { isModuleForbiddenError } from "@/services/http";
 import { createAdminPlan, deleteAdminPlan, fetchAdminPlans, updateAdminPlan } from "@/services/subscriptionsApi";
 import type { Plan } from "@/types/subscription";
 
 export function PlanManagementPage() {
+  const { cache, updateCache } = useAdminPrefetch();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [monthly, setMonthly] = useState("29");
+  const [creating, setCreating] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [eName, setEName] = useState("");
   const [eDesc, setEDesc] = useState("");
@@ -14,14 +21,29 @@ export function PlanManagementPage() {
   const [eFeatures, setEFeatures] = useState("");
   const [eTrial, setETrial] = useState("14");
   const [eActive, setEActive] = useState(true);
+  const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function load() {
-    setPlans(await fetchAdminPlans());
+    setNoModuleAccess(false);
+    const next = await fetchAdminPlans();
+    setPlans(next);
+    updateCache({ plans: next });
   }
 
   useEffect(() => {
-    void load();
+    if (cache.plans) setPlans(cache.plans);
+    void load().catch((err) => {
+      if (isModuleForbiddenError(err)) {
+        setNoModuleAccess(true);
+        return;
+      }
+      setNotice("Could not load plans.");
+    });
   }, []);
+
+  if (noModuleAccess) {
+    return <NoModuleAccess moduleLabel="Plans" />;
+  }
 
   function startEdit(plan: Plan) {
     setEditingId(plan.id);
@@ -56,20 +78,29 @@ export function PlanManagementPage() {
 
   async function addPlan() {
     if (!name.trim()) return;
-    await createAdminPlan({
-      code: name.toLowerCase().replace(/\s+/g, "-"),
-      name,
-      description: "Custom admin-defined plan",
-      priceMonthlyCents: Math.round(Number(monthly) * 100),
-      priceYearlyCents: Math.round(Number(monthly) * 100 * 10),
-      currency: "USD",
-      features: ["Admin-created feature set"],
-      isActive: true,
-      trialDays: 14,
-    });
-    setName("");
-    setMonthly("29");
-    await load();
+    setCreating(true);
+    setNotice(null);
+    try {
+      await createAdminPlan({
+        code: name.toLowerCase().replace(/\s+/g, "-"),
+        name: name.trim(),
+        description: description.trim() || "Custom admin-defined plan",
+        priceMonthlyCents: Math.round(Number(monthly) * 100),
+        priceYearlyCents: Math.round(Number(monthly) * 100 * 10),
+        currency: "USD",
+        features: ["Admin-created feature set"],
+        isActive: true,
+        trialDays: 14,
+      });
+      setName("");
+      setDescription("");
+      setMonthly("29");
+      await load();
+    } catch {
+      setNotice("Plan creation failed. Check Stripe configuration and plan fields.");
+    } finally {
+      setCreating(false);
+    }
   }
 
   return (
@@ -77,18 +108,25 @@ export function PlanManagementPage() {
       <header>
         <h1 className="text-3xl font-black tracking-tight text-white">Plan Inventory</h1>
         <p className="mt-2 text-sm text-neutral-400">
-          Create plans, archive legacy tiers, and edit catalog copy and pricing. Stripe price IDs are not changed here—update those in Stripe and run your price-mapping script when prices move.
+          Create plans in Stripe and the app catalog together, and edit pricing/catalog details from one place.
         </p>
       </header>
+      {notice && <p className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/90">{notice}</p>}
 
       <section className="rounded-xl border border-[#24292E] bg-[#15191C] p-6">
         <h2 className="text-sm font-semibold text-white">Create plan</h2>
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Plan name"
             className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
+          />
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Plan description"
+            className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35 md:col-span-2"
           />
           <input
             value={monthly}
@@ -98,10 +136,11 @@ export function PlanManagementPage() {
           />
           <button
             type="button"
+            disabled={creating}
             onClick={() => void addPlan()}
-            className="rounded-lg bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim"
+            className="rounded-lg bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim disabled:opacity-50"
           >
-            Create
+            {creating ? "Creating..." : "Create"}
           </button>
         </div>
       </section>
@@ -189,7 +228,7 @@ export function PlanManagementPage() {
                       onClick={() => void deleteAdminPlan(plan.id).then(load)}
                       className="rounded-lg border border-rose-500/30 px-3 py-1.5 text-xs text-rose-100 transition hover:bg-rose-500/20"
                     >
-                      Archive
+                      Delete
                     </button>
                   </div>
                 </div>

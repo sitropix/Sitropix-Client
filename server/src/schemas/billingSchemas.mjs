@@ -44,3 +44,87 @@ export const couponSchema = z.object({
   maxRedemptions: z.number().int().positive().optional(),
   expiresAt: z.string().datetime().optional(),
 });
+
+const cycleSchema = z.enum(["monthly", "yearly"]);
+const safeReturnUrlSchema = z.string().url().max(2048);
+
+export const bootstrapSubscriptionSchema = z.object({
+  planId: z.string().min(1),
+  billingCycle: cycleSchema.optional(),
+});
+
+export const checkoutSessionSchema = z.object({
+  planId: z.string().min(1),
+  billingCycle: cycleSchema.optional(),
+  successUrl: safeReturnUrlSchema.optional(),
+  cancelUrl: safeReturnUrlSchema.optional(),
+});
+
+export const billingPortalSchema = z.object({
+  returnUrl: safeReturnUrlSchema.optional(),
+});
+
+export const emptyObjectSchema = z.object({}).strict();
+
+export const adminSubscriptionPatchSchema = z
+  .object({
+    status: z.enum(["trialing", "active", "paused", "canceled", "past_due"]).optional(),
+    cancelAtPeriodEnd: z.boolean().optional(),
+    pausedAt: z.union([z.string().datetime(), z.null()]).optional(),
+    canceledAt: z.union([z.string().datetime(), z.null()]).optional(),
+    currentPeriodEnd: z.string().datetime().optional(),
+    extendDays: z.number().int().positive().max(366).optional(),
+  })
+  .strict();
+
+const funnelNameEnum = z.enum([
+  "subscription_plans_viewed",
+  "subscription_plan_cta",
+  "subscription_checkout_redirect",
+  "subscription_checkout_return",
+  "subscription_plan_changed",
+  "subscription_bootstrap_trial",
+]);
+
+export const funnelEventSchema = z
+  .object({
+    name: funnelNameEnum,
+    properties: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .refine((p) => p == null || JSON.stringify(p).length <= 4000, { message: "properties_too_large" }),
+  })
+  .strict();
+
+export const adminFeatureFlagPatchSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    stringValue: z.union([z.string().min(1).max(120), z.null()]).optional(),
+  })
+  .strict()
+  .refine((b) => b.enabled !== undefined || b.stringValue !== undefined, {
+    message: "at_least_one_field",
+  });
+
+export const adminUserRolePatchSchema = z
+  .object({
+    role: z.enum(["user", "manager", "admin", "master_admin", "support"]),
+  })
+  .strict();
+
+export const adminUserSetPasswordSchema = z
+  .object({
+    newPassword: z.string().min(8).max(200),
+  })
+  .strict();
+
+export const adminUserModuleAccessPutSchema = z
+  .object({
+    modules: z.array(
+      z.object({
+        moduleKey: z.string().min(2).max(80),
+        enabled: z.boolean(),
+      }),
+    ),
+  })
+  .strict();

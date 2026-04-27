@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { Skeleton } from "@/components/Skeleton";
+import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { isModuleForbiddenError } from "@/services/http";
 import { fetchAnalytics, fetchTransactions, retryFailedPayment } from "@/services/subscriptionsApi";
 import type { AnalyticsSummary } from "@/types/subscription";
 
@@ -8,24 +11,42 @@ function money(cents: number) {
 }
 
 export function AdminDashboardPage() {
+  const { cache, updateCache } = useAdminPrefetch();
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
   const [transactions, setTransactions] = useState<Array<{ id: string; amountCents: number; status: string; invoiceNumber: string; failureReason?: string | null }>>([]);
   const [loading, setLoading] = useState(true);
+  const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function load() {
-    setLoading(true);
+    setLoading(!(analytics || transactions.length));
+    setNoModuleAccess(false);
     try {
       const [a, t] = await Promise.all([fetchAnalytics(), fetchTransactions()]);
       setAnalytics(a);
       setTransactions(t);
+      updateCache({ analytics: a, transactions: t });
+    } catch (err) {
+      if (isModuleForbiddenError(err)) {
+        setNoModuleAccess(true);
+      }
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
+    if (cache.analytics) setAnalytics(cache.analytics);
+    if (cache.transactions) setTransactions(cache.transactions);
+    if (cache.analytics && cache.transactions) {
+      setLoading(false);
+      return;
+    }
     void load();
   }, []);
+
+  if (noModuleAccess) {
+    return <NoModuleAccess moduleLabel="Dashboard Analytics" />;
+  }
 
   return (
     <div className="space-y-8">

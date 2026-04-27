@@ -18,17 +18,16 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
-      navigate("/");
+      navigate("/dashboard");
     } catch (err) {
       if (err instanceof ApiRequestError) {
-        if (err.status === 401) setError("Invalid credentials");
+        if (err.status === 401) setError("Invalid email or password.");
         else if (err.status === 503 || err.message === "database_unavailable")
-          setError("Sign-in is unavailable: the database could not be reached. Check your connection and DATABASE_URL.");
-        else if (err.status >= 500)
-          setError("Server error while signing in. Confirm the API is running and the database is online.");
+          setError("Sign-in is temporarily unavailable. Try again in a moment.");
+        else if (err.status >= 500) setError("Something went wrong on the server. Try again shortly.");
         else setError(err.message || "Sign-in failed");
       } else {
-        setError("Could not reach the server. Is the API running?");
+        setError("Could not reach the server. Check your connection and try again.");
       }
     } finally {
       setSubmitting(false);

@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
+import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { isModuleForbiddenError } from "@/services/http";
 import { downloadAdminAuditLogsCsv, fetchAdminAuditLogs, fetchAdminAuditSummary } from "@/services/subscriptionsApi";
 import type { AuditLogRow, AuditLogSummary } from "@/types/subscription";
 
@@ -7,6 +10,7 @@ function fmtTs(value: string) {
 }
 
 export function AdminAuditLogsPage() {
+  const { cache, updateCache } = useAdminPrefetch();
   const [rows, setRows] = useState<AuditLogRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
@@ -17,33 +21,60 @@ export function AdminAuditLogsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [summary, setSummary] = useState<AuditLogSummary | null>(null);
+  const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function load() {
-    setLoading(true);
+    setLoading(rows.length === 0);
+    setNoModuleAccess(false);
     setNotice(null);
+    let listLoaded = false;
     try {
-      const [list, metrics] = await Promise.all([
-        fetchAdminAuditLogs({
-          action: action.trim() || undefined,
-          targetType: targetType.trim() || undefined,
-          startAt: startAt || undefined,
-          endAt: endAt || undefined,
-          limit: 50,
-          page,
-        }),
-        fetchAdminAuditSummary(),
-      ]);
+      const list = await fetchAdminAuditLogs({
+        action: action.trim() || undefined,
+        targetType: targetType.trim() || undefined,
+        startAt: startAt || undefined,
+        endAt: endAt || undefined,
+        limit: 50,
+        page,
+      });
       setRows(list.rows);
       setTotalPages(list.totalPages);
-      setSummary(metrics);
-    } catch {
+      if (!action.trim() && !targetType.trim() && !startAt && !endAt && page === 1) {
+        updateCache({ auditLogs: list });
+      }
+      listLoaded = true;
+    } catch (err) {
+      if (isModuleForbiddenError(err)) {
+        setNoModuleAccess(true);
+        return;
+      }
       setNotice("Could not load audit logs.");
+    }
+    try {
+      const metrics = await fetchAdminAuditSummary();
+      setSummary(metrics);
+      updateCache({ auditSummary: metrics });
+    } catch (err) {
+      if (isModuleForbiddenError(err)) {
+        setNoModuleAccess(true);
+        return;
+      }
+      if (listLoaded) setNotice("Audit summary is temporarily unavailable.");
+      else setNotice("Could not load audit logs.");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
+    const isDefaultView = page === 1 && !action && !targetType && !startAt && !endAt;
+    if (cache.auditLogs && isDefaultView) {
+      setRows(cache.auditLogs.rows);
+      setTotalPages(cache.auditLogs.totalPages);
+      setLoading(false);
+    }
+    if (cache.auditSummary) setSummary(cache.auditSummary);
+    if (isDefaultView && cache.auditLogs && cache.auditSummary) return;
     void load();
   }, [page]);
 
@@ -52,6 +83,10 @@ export function AdminAuditLogsPage() {
     () => Array.from(new Set(rows.map((r) => r.targetType).filter(Boolean) as string[])).slice(0, 30),
     [rows],
   );
+
+  if (noModuleAccess) {
+    return <NoModuleAccess moduleLabel="Audit Logs" />;
+  }
 
   return (
     <div className="space-y-6">
@@ -126,8 +161,12 @@ export function AdminAuditLogsPage() {
                 setRows(list.rows);
                 setTotalPages(list.totalPages);
                 setSummary(metrics);
-              } catch {
-                setNotice("Could not load audit logs.");
+              } catch (err) {
+                if (isModuleForbiddenError(err)) {
+                  setNoModuleAccess(true);
+                } else {
+                  setNotice("Could not load audit logs.");
+                }
               } finally {
                 setLoading(false);
               }

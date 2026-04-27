@@ -1,13 +1,16 @@
 export type TicketStatus = "open" | "in_progress" | "resolved";
+export type TicketPriority = "low" | "medium" | "high" | "urgent";
 
 export interface SupportTicket {
   id: string;
   subject: string;
   description?: string;
   status: TicketStatus;
+  priority?: TicketPriority;
   createdAt: string;
   updatedAt: string;
   department?: string;
+  userPlan?: string;
   threadCount?: number;
 }
 
@@ -27,7 +30,9 @@ export interface AdminSupportTicketListItem {
   id: string;
   subject: string;
   status: TicketStatus;
+  priority?: TicketPriority;
   department: string;
+  userPlan?: string;
   createdAt: string;
   updatedAt: string;
   threadCount: number;
@@ -55,4 +60,5 @@ export interface CreateTicketInput {
   subject: string;
   description: string;
   departmentId?: string;
+  priority?: TicketPriority;
 }

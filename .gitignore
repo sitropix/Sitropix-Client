@@ -6,3 +6,4 @@ data/client-documents
 .env
 .env.*
 !.env.example
+.vercel

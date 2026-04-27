@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
+import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/Skeleton";
+import { isModuleForbiddenError } from "@/services/http";
 import { fetchAdminTickets } from "@/services/supportApi";
 import type { AdminSupportTicketListItem, TicketStatus } from "@/types/support";
 
@@ -18,34 +21,51 @@ const filters: { label: string; value: "all" | TicketStatus }[] = [
 ];
 
 export function AdminTicketsPage() {
+  const { cache, updateCache } = useAdminPrefetch();
   const [status, setStatus] = useState<"all" | TicketStatus>("all");
   const [rows, setRows] = useState<AdminSupportTicketListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      setLoading(true);
+      const hasPrefetchedAllRows = status === "all" && Boolean(cache.tickets?.length);
+      setLoading(!hasPrefetchedAllRows);
+      setNoModuleAccess(false);
       setError(null);
       try {
         const r = await fetchAdminTickets({ status: status === "all" ? undefined : status, limit: 100 });
         if (!cancelled) {
           setRows(r.items);
           setTotal(r.total);
+          if (status === "all") updateCache({ tickets: r.items });
         }
-      } catch {
-        if (!cancelled) setError("Unable to load tickets.");
+      } catch (err) {
+        if (!cancelled) {
+          if (isModuleForbiddenError(err)) setNoModuleAccess(true);
+          else setError("Unable to load tickets.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     void run();
+    if (status === "all" && cache.tickets) {
+      setRows(cache.tickets);
+      setTotal(cache.tickets.length);
+      setLoading(false);
+    }
     return () => {
       cancelled = true;
     };
   }, [status]);
+
+  if (noModuleAccess) {
+    return <NoModuleAccess moduleLabel="Support Tickets" />;
+  }
 
   return (
     <div className="space-y-8">

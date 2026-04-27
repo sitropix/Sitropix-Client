@@ -1,6 +1,7 @@
 import { startServer } from "./app.mjs";
+import { log } from "./observability/logger.mjs";
 
 startServer().catch((error) => {
-  console.error(JSON.stringify({ level: "fatal", msg: "api.start_failed", error: error?.message }));
+  log.fatal("api.start_failed", { error: error?.message });
   process.exit(1);
 });

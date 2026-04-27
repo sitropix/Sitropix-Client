@@ -9,9 +9,11 @@ import type {
   CustomerPortalPayload,
   EmailProviderId,
   EmailSettingsPayload,
+  SystemConfigPayload,
   FeatureFlagsAdminPayload,
   Plan,
   Subscription,
+  AdminCustomerProfilePayload,
 } from "@/types/subscription";
 import { api, getAccessToken } from "@/services/http";
 
@@ -209,6 +211,31 @@ export function postAdminEmailTest(to?: string) {
   });
 }
 
+export function fetchAdminSystemConfig() {
+  return api<SystemConfigPayload>("/api/admin/system-config");
+}
+
+export function saveAdminSystemConfig(items: Array<{ key: string; value: string; isSecret: boolean }>) {
+  return api<SystemConfigPayload>("/api/admin/system-config", {
+    method: "PUT",
+    body: JSON.stringify({ items }),
+  });
+}
+
+export function testAdminSystemConfigDb() {
+  return api<{ ok: boolean }>("/api/admin/system-config/test/db", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function testAdminSystemConfigStripe() {
+  return api<{ ok: boolean }>("/api/admin/system-config/test/stripe", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 export function fetchFeatureFlagsAdmin() {
   return api<FeatureFlagsAdminPayload>("/api/admin/feature-flags");
 }
@@ -238,6 +265,114 @@ export function fetchAdminUsers() {
   return api<AdminUserRow[]>("/api/admin/users");
 }
 
+export function fetchAdminUserManagement() {
+  return api<{
+    users: Array<
+      AdminUserRow & {
+        status: "active" | "deactivated";
+        moduleAccess?: Array<{ moduleKey: string; enabled: boolean }>;
+      }
+    >;
+    invites: Array<{
+      id: string;
+      email: string;
+      planId: string | null;
+      createdAt: string;
+      expiresAt: string;
+      status: "invite_pending";
+    }>;
+  }>("/api/admin/user-management/users");
+}
+
+export function inviteAdminUser(payload: { name: string; email: string; role: string }) {
+  return api<{ ok: boolean; id: string; email: string }>("/api/admin/user-management/invite", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function setAdminUserRole(userId: string, role: "user" | "manager" | "admin" | "master_admin" | "support") {
+  return api<{ ok: boolean; id: string; role: string }>(`/api/admin/user-management/users/${userId}/role`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export function deactivateAdminUser(userId: string) {
+  return api<{ ok: boolean }>(`/api/admin/user-management/users/${userId}/deactivate`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function reactivateAdminUser(userId: string) {
+  return api<{ ok: boolean }>(`/api/admin/user-management/users/${userId}/reactivate`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function sendAdminUserResetLink(userId: string) {
+  return api<{ ok: boolean }>(`/api/admin/user-management/users/${userId}/password-reset-link`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function setAdminUserPassword(userId: string, newPassword: string) {
+  return api<{ ok: boolean }>(`/api/admin/user-management/users/${userId}/set-password`, {
+    method: "POST",
+    body: JSON.stringify({ newPassword }),
+  });
+}
+
+export function setAdminUserModuleAccess(userId: string, modules: Array<{ moduleKey: string; enabled: boolean }>) {
+  return api<{ ok: boolean }>(`/api/admin/user-management/users/${userId}/module-access`, {
+    method: "PUT",
+    body: JSON.stringify({ modules }),
+  });
+}
+
+export function fetchAdminCustomerProfile(userId: string) {
+  return api<AdminCustomerProfilePayload>(`/api/admin/customers/${userId}/profile`);
+}
+
+export function fetchAdminCustomerDeletePreview(userId: string) {
+  return api<{
+    userId: string;
+    email: string;
+    counts: {
+      subscriptions: number;
+      payments: number;
+      tickets: number;
+      ticketMessages: number;
+      documents: number;
+      refreshTokens: number;
+    };
+  }>(`/api/admin/customers/${userId}/delete-preview`);
+}
+
+export function deactivateAdminCustomer(userId: string, reason?: string) {
+  return api<{ ok: boolean }>(`/api/admin/customers/${userId}/deactivate`, {
+    method: "POST",
+    body: JSON.stringify(reason ? { reason } : {}),
+  });
+}
+
+export function reactivateAdminCustomer(userId: string) {
+  return api<{ ok: boolean }>(`/api/admin/customers/${userId}/reactivate`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function deleteAdminCustomer(userId: string, confirm: string) {
+  return api<{ ok: boolean }>(`/api/admin/customers/${userId}`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirm }),
+  });
+}
+
 export function fetchAdminInvites() {
   return api<AdminInviteRow[]>("/api/admin/invites");
 }
@@ -251,6 +386,13 @@ export function createAdminInvite(payload: { email: string; planId?: string; mes
 
 export function revokeAdminInvite(id: string) {
   return api<{ ok: boolean }>(`/api/admin/invites/${id}`, { method: "DELETE", body: JSON.stringify({}) });
+}
+
+export function resendAdminInvite(id: string) {
+  return api<{ ok: boolean; id: string; email: string }>(`/api/admin/invites/${id}/resend`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
 }
 
 export function adminTriggerPasswordReset(userId: string) {

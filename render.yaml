@@ -6,4 +6,5 @@ services:
     autoDeploy: true
     buildCommand: npm install
     startCommand: node server/src/index.mjs
+    # Liveness: /api/health — database readiness: /api/health/ready
     healthCheckPath: /api/health

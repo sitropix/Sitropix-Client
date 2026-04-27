@@ -23,3 +23,29 @@ export function requireRole(...roles) {
     return next();
   };
 }
+
+export function requireModuleAccess(moduleKey) {
+  return async (req, res, next) => {
+    if (!req.auth) return res.status(401).json({ error: "unauthorized" });
+    if (req.auth.role === "master_admin") return next();
+    if (req.auth.role === "user") return res.status(403).json({ error: "forbidden" });
+    const row = await prisma.userModuleAccess.findUnique({
+      where: { userId_moduleKey: { userId: req.auth.userId, moduleKey } },
+    });
+    if (!row) {
+      return res.status(403).json({
+        error: "module_forbidden",
+        moduleKey,
+        message: "Your account does not currently have access to this admin module.",
+      });
+    }
+    if (!row.enabled) {
+      return res.status(403).json({
+        error: "module_forbidden",
+        moduleKey,
+        message: "Your account does not currently have access to this admin module.",
+      });
+    }
+    return next();
+  };
+}

@@ -1,12 +1,14 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
+import { NoModuleAccess } from "@/components/NoModuleAccess";
 import {
   clearAdminEmailSettings,
   fetchAdminEmailSettings,
   postAdminEmailTest,
   saveAdminEmailSettings,
 } from "@/services/subscriptionsApi";
-import { ApiRequestError } from "@/services/http";
+import { ApiRequestError, isModuleForbiddenError } from "@/services/http";
 import type { EmailProviderId, EmailSettingsPayload } from "@/types/subscription";
 
 const PROVIDERS: { id: EmailProviderId; label: string }[] = [
@@ -19,6 +21,7 @@ const PROVIDERS: { id: EmailProviderId; label: string }[] = [
 ];
 
 export function EmailSettingsPage() {
+  const { cache, updateCache } = useAdminPrefetch();
   const [payload, setPayload] = useState<EmailSettingsPayload | null>(null);
   const [provider, setProvider] = useState<EmailProviderId>("console");
   const [fromEmail, setFromEmail] = useState("");
@@ -37,11 +40,39 @@ export function EmailSettingsPage() {
   const [testTo, setTestTo] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function load() {
-    setLoading(true);
+    setLoading(!payload);
+    setNoModuleAccess(false);
     try {
       const p = await fetchAdminEmailSettings();
+      setPayload(p);
+      updateCache({ emailSettings: p });
+      setProvider(p.provider as EmailProviderId);
+      setFromEmail(p.fromEmail);
+      setFromName(p.fromName ?? "");
+      const s = p.settings ?? {};
+      setSmtpHost(String(s.smtpHost ?? ""));
+      setSmtpPort(String(s.smtpPort ?? 587));
+      setSmtpSecure(Boolean(s.smtpSecure));
+      setSmtpUser(String(s.smtpUser ?? ""));
+      setMailgunDomain(String(s.mailgunDomain ?? ""));
+      setMailgunRegion(s.mailgunRegion === "eu" ? "eu" : "us");
+    } catch (err) {
+      if (isModuleForbiddenError(err)) {
+        setNoModuleAccess(true);
+      } else {
+        setNotice("Could not load email settings.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (cache.emailSettings) {
+      const p = cache.emailSettings;
       setPayload(p);
       setProvider(p.provider as EmailProviderId);
       setFromEmail(p.fromEmail);
@@ -53,14 +84,15 @@ export function EmailSettingsPage() {
       setSmtpUser(String(s.smtpUser ?? ""));
       setMailgunDomain(String(s.mailgunDomain ?? ""));
       setMailgunRegion(s.mailgunRegion === "eu" ? "eu" : "us");
-    } finally {
       setLoading(false);
+      return;
     }
-  }
-
-  useEffect(() => {
     void load();
   }, []);
+
+  if (noModuleAccess) {
+    return <NoModuleAccess moduleLabel="Email Settings" />;
+  }
 
   function buildSettings(): Record<string, unknown> {
     if (provider === "smtp") {

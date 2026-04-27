@@ -4,6 +4,7 @@ import { prisma } from "../db/client.mjs";
 import { requireAuth } from "../middleware/auth.mjs";
 import { validate } from "../middleware/validate.mjs";
 import { createTicketSchema, replyTicketSchema } from "../schemas/supportSchemas.mjs";
+import { log } from "../observability/logger.mjs";
 import { sendTransactionalEmail } from "../services/emailService.mjs";
 
 const router = express.Router();
@@ -21,7 +22,9 @@ router.get("/tickets", async (req, res) => {
       subject: t.subject,
       description: t.description,
       status: t.status,
+      priority: t.priority,
       department: t.department,
+      userPlan: t.userPlan,
       threadCount: t._count.messages,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
@@ -42,7 +45,9 @@ router.get("/tickets/:id", async (req, res) => {
     subject: ticket.subject,
     description: ticket.description,
     status: ticket.status,
+    priority: ticket.priority,
     department: ticket.department,
+    userPlan: ticket.userPlan,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
     messages: ticket.messages.map((m) => ({
@@ -57,12 +62,21 @@ router.get("/tickets/:id", async (req, res) => {
 
 router.post("/tickets", validate(createTicketSchema), async (req, res) => {
   const payload = req.validatedBody;
+  
+  const subscription = await prisma.subscription.findUnique({
+    where: { userId: req.auth.userId },
+    include: { plan: { select: { name: true } } },
+  });
+  const userPlan = subscription?.plan?.name ?? "No Plan";
+  
   const ticket = await prisma.supportTicket.create({
     data: {
       userId: req.auth.userId,
       subject: payload.subject,
       description: payload.description,
       department: payload.departmentId ?? "General",
+      priority: payload.priority ?? "medium",
+      userPlan,
       messages: {
         create: {
           userId: req.auth.userId,
@@ -81,26 +95,39 @@ router.post("/tickets", validate(createTicketSchema), async (req, res) => {
     html: `<p>We received your request <strong>#${ticket.id}</strong>. Our team will respond shortly.</p>`,
   });
 
-  const admins = await prisma.user.findMany({ where: { role: "admin" }, select: { email: true } });
-  for (const a of admins) {
-    await sendTransactionalEmail({
-      to: a.email,
-      template: "ticket_notify_admin",
-      idempotencyKey: `ticket_admin_${ticket.id}_${a.email}`,
-      subject: `New ticket: ${ticket.subject}`,
-      html: `<p>New support ticket from ${req.auth.email}.</p><p><a href="${env.appUrl}/admin/tickets/${ticket.id}">Open in admin</a></p>`,
-    });
-  }
-
-  return res.status(201).json({
+  const responseBody = {
     id: ticket.id,
     subject: ticket.subject,
     status: ticket.status,
+    priority: ticket.priority,
+    department: ticket.department,
+    userPlan: ticket.userPlan,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
-    department: ticket.department,
     threadCount: 1,
+  };
+  res.status(201).json(responseBody);
+
+  // Notify admins outside the request path so ticket creation latency stays stable as admin count grows.
+  setImmediate(async () => {
+    try {
+      const admins = await prisma.user.findMany({ where: { role: "admin" }, select: { email: true } });
+      await Promise.all(
+        admins.map((a) =>
+          sendTransactionalEmail({
+            to: a.email,
+            template: "ticket_notify_admin",
+            idempotencyKey: `ticket_admin_${ticket.id}_${a.email}`,
+            subject: `New ticket: ${ticket.subject}`,
+            html: `<p>New support ticket from ${req.auth.email}.</p><p><a href="${env.appUrl}/admin/tickets/${ticket.id}">Open in admin</a></p>`,
+          }),
+        ),
+      );
+    } catch (e) {
+      log.error("ticket.admin_notify_failed", { ticketId: ticket.id, error: e?.message });
+    }
   });
+  return;
 });
 
 router.post("/tickets/:id/messages", validate(replyTicketSchema), async (req, res) => {

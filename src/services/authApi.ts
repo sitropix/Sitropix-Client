@@ -1,4 +1,4 @@
-import { api } from "@/services/http";
+import { api, type AuthUser } from "@/services/http";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -36,5 +36,12 @@ export function resetPasswordWithToken(token: string, newPassword: string) {
   return api<{ ok: boolean }>("/api/auth/reset-password", {
     method: "POST",
     body: JSON.stringify({ token, newPassword }),
+  });
+}
+
+export function patchProfile(payload: { email?: string; phoneNumber?: string }) {
+  return api<{ accessToken?: string; user: AuthUser }>("/api/auth/me", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
   });
 }

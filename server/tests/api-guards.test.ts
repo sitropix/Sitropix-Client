@@ -6,7 +6,13 @@ describe("API guardrails", () => {
   it("returns health status without auth", async () => {
     const res = await request(app).get("/api/health");
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ ok: true });
+    expect(res.body).toMatchObject({ ok: true, service: "zohoportal-api" });
+    expect(res.headers["x-request-id"]).toBeTruthy();
+  });
+
+  it("echoes incoming X-Request-Id", async () => {
+    const res = await request(app).get("/api/health").set("X-Request-Id", "client-trace-1");
+    expect(res.headers["x-request-id"]).toBe("client-trace-1");
   });
 
   it("blocks customer portal endpoint without bearer token", async () => {

@@ -3,6 +3,7 @@ export interface AccountProfile {
   firstName: string;
   lastName: string;
   email: string;
+  phoneNumber?: string | null;
   accountName?: string;
 }
 
@@ -12,4 +13,5 @@ export interface SubscriptionSummary {
   planName: string;
   state: SubscriptionState;
   renewsAt?: string;
+  planId?: string;
 }

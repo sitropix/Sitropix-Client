@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { Skeleton } from "@/components/Skeleton";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ApiRequestError } from "@/services/http";
 import { fetchTicketById, postTicketReply } from "@/services/supportApi";
 import type { SupportTicketDetail } from "@/types/support";
 
@@ -15,6 +16,7 @@ export function TicketDetailPage() {
   const [detail, setDetail] = useState<SupportTicketDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,15 +28,17 @@ export function TicketDetailPage() {
     async function load() {
       setLoading(true);
       setNotFound(false);
+      setLoadError(null);
       try {
         const d = await fetchTicketById(ticketId);
         if (!cancelled) {
           setDetail(d);
         }
-      } catch {
+      } catch (e) {
         if (!cancelled) {
-          setNotFound(true);
           setDetail(null);
+          if (e instanceof ApiRequestError && e.status === 404) setNotFound(true);
+          else setLoadError("Unable to load this ticket.");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -73,6 +77,44 @@ export function TicketDetailPage() {
     );
   }
 
+  if (loadError && !detail) {
+    return (
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center">
+        <h1 className="text-xl font-semibold text-white">{loadError}</h1>
+        <p className="mt-2 text-sm text-ink-muted">Check your connection and try again.</p>
+        <button
+          type="button"
+          onClick={() => {
+            setLoadError(null);
+            setLoading(true);
+            void (async () => {
+              if (!id) return;
+              try {
+                const d = await fetchTicketById(id);
+                setLoadError(null);
+                setNotFound(false);
+                setDetail(d);
+              } catch (e) {
+                if (e instanceof ApiRequestError && e.status === 404) setNotFound(true);
+                else setLoadError("Unable to load this ticket.");
+              } finally {
+                setLoading(false);
+              }
+            })();
+          }}
+          className="mt-6 inline-block rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:border-brand-lime/40"
+        >
+          Retry
+        </button>
+        <div className="mt-4">
+          <Link to="/requests" className="text-sm font-semibold text-brand-lime underline">
+            Back to my requests
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (notFound || !detail) {
     return (
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center">
@@ -89,7 +131,7 @@ export function TicketDetailPage() {
     <div className="space-y-8">
       <Breadcrumb
         items={[
-          { label: "Home", to: "/" },
+          { label: "Home", to: "/dashboard" },
           { label: "My requests", to: "/requests" },
           { label: `#${detail.id}` },
         ]}
