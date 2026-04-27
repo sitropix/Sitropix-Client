@@ -1,6 +1,6 @@
-import { NavLink } from "react-router-dom";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Link, NavLink } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import type { ReactNode } from "react";
 
 const sideNavClass = ({ isActive }: { isActive: boolean }) =>
   [
@@ -10,9 +10,124 @@ const sideNavClass = ({ isActive }: { isActive: boolean }) =>
       : "text-ink-muted hover:bg-white/[0.04] hover:text-white",
   ].join(" ");
 
-export function AdminPortalShell({ children }: { children: ReactNode }) {
-  const { logout } = useAuth();
+function ChevronDown({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
 
+function AdminProfileMenu() {
+  const { user, logout } = useAuth();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const displayName = user?.name || "Admin";
+  const roleLabel = user?.role?.replace("_", " ").toUpperCase() || "ADMIN";
+  const initials = displayName
+    .split(" ")
+    .map((n) => n.charAt(0))
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "A";
+
+  return (
+    <div className="relative" ref={rootRef}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((v) => !v)}
+        className={[
+          "flex items-center gap-2 rounded-full bg-white/[0.06] py-1 pl-1 pr-2 outline-none transition",
+          "hover:bg-white/[0.1]",
+          "focus-visible:ring-2 focus-visible:ring-brand-lime/35 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas",
+          open ? "bg-white/[0.11]" : "",
+        ].join(" ")}
+      >
+        <span className="sr-only">Open account menu</span>
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-brand-lime/30 to-brand-lime/15 text-[11px] font-bold tracking-tight text-canvas shadow-[0_0_14px_rgba(132,204,22,0.2)]">
+          {initials}
+        </span>
+        <span className="hidden min-w-0 flex-col items-stretch gap-0.5 py-0.5 text-left sm:flex">
+          <span className="truncate text-xs font-semibold leading-tight text-white">{displayName}</span>
+          <span className="inline-flex w-fit max-w-full">
+            <span className="truncate rounded-full bg-brand-lime/15 px-1.5 py-px text-[9px] font-bold uppercase tracking-[0.1em] text-brand-lime">
+              {roleLabel}
+            </span>
+          </span>
+        </span>
+        <ChevronDown
+          className={[
+            "h-3.5 w-3.5 shrink-0 text-ink-muted transition",
+            open ? "rotate-180 text-brand-lime" : "",
+          ].join(" ")}
+        />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-[60] mt-2 min-w-[200px] overflow-hidden rounded-xl border border-white/10 bg-[#12181f] py-1 shadow-glass ring-1 ring-black/40"
+        >
+          <div className="border-b border-white/10 px-4 py-3 sm:hidden">
+            <p className="truncate text-sm font-semibold text-white">{displayName}</p>
+            <p className="mt-1.5 inline-flex max-w-full truncate rounded-md border border-brand-lime/30 bg-brand-lime/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-brand-lime">
+              {roleLabel}
+            </p>
+          </div>
+          <Link
+            role="menuitem"
+            to="/admin/profile"
+            className="block px-4 py-2.5 text-sm font-medium text-white hover:bg-white/[0.06]"
+            onClick={() => setOpen(false)}
+          >
+            Profile
+          </Link>
+          <Link
+            role="menuitem"
+            to="/dashboard"
+            className="block px-4 py-2.5 text-sm font-medium text-ink-muted hover:bg-white/[0.06] hover:text-white"
+            onClick={() => setOpen(false)}
+          >
+            Client Portal
+          </Link>
+          <button
+            type="button"
+            role="menuitem"
+            className="w-full px-4 py-2.5 text-left text-sm font-medium text-ink-muted hover:bg-white/[0.06] hover:text-white"
+            onClick={() => {
+              setOpen(false);
+              void logout();
+            }}
+          >
+            Logout
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function AdminPortalShell({ children }: { children: ReactNode }) {
   const adminLinks = [
     { to: "/admin", label: "Dashboard", end: true },
     { to: "/admin/customers", label: "Customers" },
@@ -30,15 +145,7 @@ export function AdminPortalShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-canvas text-white">
       <header className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between border-b border-white/10 bg-canvas/95 px-6 backdrop-blur">
         <div className="text-lg font-black tracking-tight text-brand-lime">Sitropix Admin</div>
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => void logout()}
-            className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-ink-muted transition hover:border-brand-lime/35 hover:text-white"
-          >
-            Logout
-          </button>
-        </div>
+        <AdminProfileMenu />
       </header>
 
       <aside className="fixed bottom-0 left-0 top-16 w-64 border-r border-white/10 bg-[#15191C] p-4">
@@ -61,4 +168,3 @@ export function AdminPortalShell({ children }: { children: ReactNode }) {
     </div>
   );
 }
-

@@ -41,7 +41,7 @@ function PlanIcon() {
 }
 
 export function SubscriptionManagementPage() {
-  const { contact, subscription, portal, loading, error, refresh } = useUser();
+  const { contact, subscription, portal, loading, error } = useUser();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const pendingCount = subscription?.state === "past_due" ? 1 : 0;
@@ -76,21 +76,12 @@ export function SubscriptionManagementPage() {
     <div className="space-y-8 opacity-0 animate-fade-up [animation-fill-mode:forwards]">
       <Breadcrumb items={[{ label: "Home", to: "/dashboard" }, { label: "Subscription Management" }]} />
 
-      <header className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-lime">Billing & plan</p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl">Subscription Management</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink-muted">
-            Account, plan status, payment method, and invoices in one place.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:border-brand-lime/35 hover:bg-white/[0.07]"
-        >
-          Refresh
-        </button>
+      <header className="border-b border-white/10 pb-6">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-lime">Billing & plan</p>
+        <h1 className="mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl">Subscription Management</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink-muted">
+          Account, plan status, payment method, and invoices in one place.
+        </p>
       </header>
 
       {error && <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</p>}

@@ -6,10 +6,24 @@ import { RequireAdmin } from "@/components/RequireAdmin";
 import { RequireCustomer } from "@/components/RequireCustomer";
 import { AuthProvider } from "@/context/AuthContext";
 import { AuthzProvider } from "@/context/AuthzContext";
+import { AdminPrefetchProvider } from "@/context/AdminPrefetchContext";
 import { TicketsProvider } from "@/context/TicketsContext";
 import { UserProvider } from "@/context/UserContext";
 import { CommunityPage } from "@/pages/CommunityPage";
 import { HomePage } from "@/pages/HomePage";
+import { AdminAuditLogsPage } from "@/pages/admin/AdminAuditLogsPage";
+import { AdminDashboardPage } from "@/pages/admin/AdminDashboardPage";
+import { AdminProfilePage } from "@/pages/admin/AdminProfilePage";
+import { AdminTicketDetailPage } from "@/pages/admin/AdminTicketDetailPage";
+import { AdminTicketsPage } from "@/pages/admin/AdminTicketsPage";
+import { AdminUserDocumentsPage } from "@/pages/admin/AdminUserDocumentsPage";
+import { CustomerManagementPage } from "@/pages/admin/CustomerManagementPage";
+import { EmailSettingsPage } from "@/pages/admin/EmailSettingsPage";
+import { EnvironmentConfigPage } from "@/pages/admin/EnvironmentConfigPage";
+import { FeatureControlsPage } from "@/pages/admin/FeatureControlsPage";
+import { InvitesPage } from "@/pages/admin/InvitesPage";
+import { PlanManagementPage } from "@/pages/admin/PlanManagementPage";
+import { UserManagementPage } from "@/pages/admin/UserManagementPage";
 
 const LoginPage = lazy(() => import("@/pages/auth/LoginPage").then((m) => ({ default: m.LoginPage })));
 const SignupPage = lazy(() => import("@/pages/auth/SignupPage").then((m) => ({ default: m.SignupPage })));
@@ -47,41 +61,6 @@ const SubmitTicketPage = lazy(() =>
 );
 const ProfilePage = lazy(() => import("@/pages/ProfilePage").then((m) => ({ default: m.ProfilePage })));
 
-const AdminDashboardPage = lazy(() =>
-  import("@/pages/admin/AdminDashboardPage").then((m) => ({ default: m.AdminDashboardPage })),
-);
-const CustomerManagementPage = lazy(() =>
-  import("@/pages/admin/CustomerManagementPage").then((m) => ({ default: m.CustomerManagementPage })),
-);
-const PlanManagementPage = lazy(() =>
-  import("@/pages/admin/PlanManagementPage").then((m) => ({ default: m.PlanManagementPage })),
-);
-const AdminTicketsPage = lazy(() =>
-  import("@/pages/admin/AdminTicketsPage").then((m) => ({ default: m.AdminTicketsPage })),
-);
-const AdminTicketDetailPage = lazy(() =>
-  import("@/pages/admin/AdminTicketDetailPage").then((m) => ({ default: m.AdminTicketDetailPage })),
-);
-const FeatureControlsPage = lazy(() =>
-  import("@/pages/admin/FeatureControlsPage").then((m) => ({ default: m.FeatureControlsPage })),
-);
-const EmailSettingsPage = lazy(() =>
-  import("@/pages/admin/EmailSettingsPage").then((m) => ({ default: m.EmailSettingsPage })),
-);
-const InvitesPage = lazy(() => import("@/pages/admin/InvitesPage").then((m) => ({ default: m.InvitesPage })));
-const AdminUserDocumentsPage = lazy(() =>
-  import("@/pages/admin/AdminUserDocumentsPage").then((m) => ({ default: m.AdminUserDocumentsPage })),
-);
-const AdminAuditLogsPage = lazy(() =>
-  import("@/pages/admin/AdminAuditLogsPage").then((m) => ({ default: m.AdminAuditLogsPage })),
-);
-const UserManagementPage = lazy(() =>
-  import("@/pages/admin/UserManagementPage").then((m) => ({ default: m.UserManagementPage })),
-);
-const EnvironmentConfigPage = lazy(() =>
-  import("@/pages/admin/EnvironmentConfigPage").then((m) => ({ default: m.EnvironmentConfigPage })),
-);
-
 function AppRouteFallback() {
   return (
     <div className="flex min-h-[30vh] items-center justify-center px-4">
@@ -95,10 +74,11 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <AuthzProvider>
-          <UserProvider>
-            <TicketsProvider>
-              <Suspense fallback={<AppRouteFallback />}>
-                <Routes>
+          <AdminPrefetchProvider>
+            <UserProvider>
+              <TicketsProvider>
+                <Suspense fallback={<AppRouteFallback />}>
+                  <Routes>
                   <Route element={<AuthLayout />}>
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/signup" element={<SignupPage />} />
@@ -254,6 +234,14 @@ export default function App() {
                       }
                     />
                     <Route
+                      path="/admin/profile"
+                      element={
+                        <RequireAdmin>
+                          <AdminProfilePage />
+                        </RequireAdmin>
+                      }
+                    />
+                    <Route
                       path="/requests"
                       element={
                         <RequireCustomer>
@@ -312,10 +300,11 @@ export default function App() {
                     />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Route>
-                </Routes>
-              </Suspense>
-            </TicketsProvider>
-          </UserProvider>
+                  </Routes>
+                </Suspense>
+              </TicketsProvider>
+            </UserProvider>
+          </AdminPrefetchProvider>
         </AuthzProvider>
       </AuthProvider>
     </BrowserRouter>

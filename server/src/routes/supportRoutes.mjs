@@ -22,7 +22,9 @@ router.get("/tickets", async (req, res) => {
       subject: t.subject,
       description: t.description,
       status: t.status,
+      priority: t.priority,
       department: t.department,
+      userPlan: t.userPlan,
       threadCount: t._count.messages,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
@@ -43,7 +45,9 @@ router.get("/tickets/:id", async (req, res) => {
     subject: ticket.subject,
     description: ticket.description,
     status: ticket.status,
+    priority: ticket.priority,
     department: ticket.department,
+    userPlan: ticket.userPlan,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
     messages: ticket.messages.map((m) => ({
@@ -58,12 +62,21 @@ router.get("/tickets/:id", async (req, res) => {
 
 router.post("/tickets", validate(createTicketSchema), async (req, res) => {
   const payload = req.validatedBody;
+  
+  const subscription = await prisma.subscription.findUnique({
+    where: { userId: req.auth.userId },
+    include: { plan: { select: { name: true } } },
+  });
+  const userPlan = subscription?.plan?.name ?? "No Plan";
+  
   const ticket = await prisma.supportTicket.create({
     data: {
       userId: req.auth.userId,
       subject: payload.subject,
       description: payload.description,
       department: payload.departmentId ?? "General",
+      priority: payload.priority ?? "medium",
+      userPlan,
       messages: {
         create: {
           userId: req.auth.userId,
@@ -86,9 +99,11 @@ router.post("/tickets", validate(createTicketSchema), async (req, res) => {
     id: ticket.id,
     subject: ticket.subject,
     status: ticket.status,
+    priority: ticket.priority,
+    department: ticket.department,
+    userPlan: ticket.userPlan,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
-    department: ticket.department,
     threadCount: 1,
   };
   res.status(201).json(responseBody);

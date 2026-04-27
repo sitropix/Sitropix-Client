@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import {
   fetchAdminSystemConfig,
   saveAdminSystemConfig,
@@ -11,6 +12,7 @@ import { NoModuleAccess } from "@/components/NoModuleAccess";
 import type { SystemConfigItem } from "@/types/subscription";
 
 export function EnvironmentConfigPage() {
+  const { cache, updateCache } = useAdminPrefetch();
   const [items, setItems] = useState<SystemConfigItem[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -18,11 +20,12 @@ export function EnvironmentConfigPage() {
   const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function load() {
-    setLoading(true);
+    setLoading(items.length === 0);
     setNoModuleAccess(false);
     try {
       const data = await fetchAdminSystemConfig();
       setItems(data.items);
+      updateCache({ systemConfig: data });
     } catch (err) {
       if (isModuleForbiddenError(err)) {
         setNoModuleAccess(true);
@@ -35,6 +38,11 @@ export function EnvironmentConfigPage() {
   }
 
   useEffect(() => {
+    if (cache.systemConfig) {
+      setItems(cache.systemConfig.items);
+      setLoading(false);
+      return;
+    }
     void load();
   }, []);
 

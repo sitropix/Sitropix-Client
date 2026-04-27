@@ -1,10 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { isModuleForbiddenError } from "@/services/http";
 import { createAdminPlan, deleteAdminPlan, fetchAdminPlans, updateAdminPlan } from "@/services/subscriptionsApi";
 import type { Plan } from "@/types/subscription";
 
 export function PlanManagementPage() {
+  const { cache, updateCache } = useAdminPrefetch();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -23,10 +25,13 @@ export function PlanManagementPage() {
 
   async function load() {
     setNoModuleAccess(false);
-    setPlans(await fetchAdminPlans());
+    const next = await fetchAdminPlans();
+    setPlans(next);
+    updateCache({ plans: next });
   }
 
   useEffect(() => {
+    if (cache.plans) setPlans(cache.plans);
     void load().catch((err) => {
       if (isModuleForbiddenError(err)) {
         setNoModuleAccess(true);

@@ -16,11 +16,6 @@ import { ApiRequestError } from "@/services/http";
 import type { BillingCycle, SubscriptionStatus } from "@/types/subscription";
 import { useSubscriptionPortal } from "@/hooks/useSubscriptionPortal";
 
-function formatDate(iso?: string) {
-  if (!iso) return "—";
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(iso));
-}
-
 function subscriptionControlFlags(status: SubscriptionStatus) {
   const canPause = status === "active" || status === "trialing" || status === "past_due";
   const canResume = status === "paused";

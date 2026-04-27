@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import {
   clearAdminEmailSettings,
@@ -20,6 +21,7 @@ const PROVIDERS: { id: EmailProviderId; label: string }[] = [
 ];
 
 export function EmailSettingsPage() {
+  const { cache, updateCache } = useAdminPrefetch();
   const [payload, setPayload] = useState<EmailSettingsPayload | null>(null);
   const [provider, setProvider] = useState<EmailProviderId>("console");
   const [fromEmail, setFromEmail] = useState("");
@@ -41,11 +43,12 @@ export function EmailSettingsPage() {
   const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function load() {
-    setLoading(true);
+    setLoading(!payload);
     setNoModuleAccess(false);
     try {
       const p = await fetchAdminEmailSettings();
       setPayload(p);
+      updateCache({ emailSettings: p });
       setProvider(p.provider as EmailProviderId);
       setFromEmail(p.fromEmail);
       setFromName(p.fromName ?? "");
@@ -68,6 +71,22 @@ export function EmailSettingsPage() {
   }
 
   useEffect(() => {
+    if (cache.emailSettings) {
+      const p = cache.emailSettings;
+      setPayload(p);
+      setProvider(p.provider as EmailProviderId);
+      setFromEmail(p.fromEmail);
+      setFromName(p.fromName ?? "");
+      const s = p.settings ?? {};
+      setSmtpHost(String(s.smtpHost ?? ""));
+      setSmtpPort(String(s.smtpPort ?? 587));
+      setSmtpSecure(Boolean(s.smtpSecure));
+      setSmtpUser(String(s.smtpUser ?? ""));
+      setMailgunDomain(String(s.mailgunDomain ?? ""));
+      setMailgunRegion(s.mailgunRegion === "eu" ? "eu" : "us");
+      setLoading(false);
+      return;
+    }
     void load();
   }, []);
 

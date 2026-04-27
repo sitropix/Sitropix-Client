@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { isModuleForbiddenError } from "@/services/http";
 import {
@@ -15,20 +16,22 @@ const FLAG_KEYS = ["subscription_pause_resume", "subscription_self_cancel"] as c
 const FLAG_KEY_SET = new Set<string>(FLAG_KEYS);
 
 export function FeatureControlsPage() {
+  const { cache, updateCache } = useAdminPrefetch();
   const [payload, setPayload] = useState<FeatureFlagsAdminPayload | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [noModuleAccess, setNoModuleAccess] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  async function load() {
+    setLoading(!(payload || plans.length));
     setNoModuleAccess(false);
     setNotice(null);
     try {
       const [f, p] = await Promise.all([fetchFeatureFlagsAdmin(), fetchAdminPlans()]);
       setPayload(f);
       setPlans(p.filter((x) => !x.archivedAt));
+      updateCache({ featureFlags: f, plans: p });
     } catch (err) {
       if (isModuleForbiddenError(err)) {
         setNoModuleAccess(true);
@@ -38,11 +41,17 @@ export function FeatureControlsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }
 
   useEffect(() => {
+    if (cache.featureFlags) setPayload(cache.featureFlags);
+    if (cache.plans) setPlans(cache.plans.filter((x) => !x.archivedAt));
+    if (cache.featureFlags && cache.plans) {
+      setLoading(false);
+      return;
+    }
     void load();
-  }, [load]);
+  }, []);
 
   const overrideFor = useMemo(() => {
     const m = new Map<string, boolean>();

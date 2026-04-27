@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { isModuleForbiddenError } from "@/services/http";
 import {
@@ -27,6 +28,7 @@ function fmtDate(iso: string | null | undefined) {
 }
 
 export function CustomerManagementPage() {
+  const { cache, updateCache } = useAdminPrefetch();
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [filter, setFilter] = useState<string>("all");
@@ -45,9 +47,12 @@ export function CustomerManagementPage() {
     const [u, s] = await Promise.all([fetchAdminUsers(), fetchAdminSubscriptions()]);
     setUsers(u);
     setSubs(s);
+    updateCache({ users: u, subscriptions: s });
   }
 
   useEffect(() => {
+    if (cache.users) setUsers(cache.users);
+    if (cache.subscriptions) setSubs(cache.subscriptions);
     void load().catch((err) => {
       if (isModuleForbiddenError(err)) {
         setNoModuleAccess(true);

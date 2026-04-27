@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { isModuleForbiddenError } from "@/services/http";
 import {
@@ -12,6 +13,7 @@ import {
 import type { AdminInviteRow, Plan } from "@/types/subscription";
 
 export function InvitesPage() {
+  const { cache, updateCache } = useAdminPrefetch();
   const [invites, setInvites] = useState<AdminInviteRow[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [email, setEmail] = useState("");
@@ -27,9 +29,12 @@ export function InvitesPage() {
     const [i, p] = await Promise.all([fetchAdminInvites(), fetchAdminPlans()]);
     setInvites(i);
     setPlans(p);
+    updateCache({ invites: i, plans: p });
   }
 
   useEffect(() => {
+    if (cache.invites) setInvites(cache.invites);
+    if (cache.plans) setPlans(cache.plans);
     void load().catch((err) => {
       if (isModuleForbiddenError(err)) {
         setNoModuleAccess(true);

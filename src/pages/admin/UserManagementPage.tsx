@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import {
   deactivateAdminUser,
   fetchAdminUserManagement,
@@ -27,6 +28,7 @@ const modules = [
 ] as const;
 
 export function UserManagementPage() {
+  const { cache, updateCache } = useAdminPrefetch();
   const [data, setData] = useState<{
     users: Array<{
       id: string;
@@ -56,10 +58,13 @@ export function UserManagementPage() {
 
   async function load() {
     setNoModuleAccess(false);
-    setData(await fetchAdminUserManagement());
+    const next = await fetchAdminUserManagement();
+    setData(next);
+    updateCache({ userManagement: next });
   }
 
   useEffect(() => {
+    if (cache.userManagement) setData(cache.userManagement);
     void load().catch((err) => {
       if (isModuleForbiddenError(err)) {
         setNoModuleAccess(true);

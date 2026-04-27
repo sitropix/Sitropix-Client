@@ -3,17 +3,20 @@ import { Breadcrumb } from "@/components/Breadcrumb";
 import { Skeleton } from "@/components/Skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/context/UserContext";
-import { patchProfile } from "@/services/authApi";
+import { patchProfile, requestPasswordReset } from "@/services/authApi";
 import { ApiRequestError, setAccessToken } from "@/services/http";
 
 export function ProfilePage() {
   const { contact, loading, error, refresh } = useUser();
-  const { updateUser } = useAuth();
+  const { updateUser, user } = useAuth();
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!contact) return;
@@ -49,6 +52,22 @@ export function ProfilePage() {
       }
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handlePasswordReset() {
+    const emailToReset = user?.email || contact?.email;
+    if (!emailToReset) return;
+    setResetLoading(true);
+    setResetError(null);
+    setResetSent(false);
+    try {
+      await requestPasswordReset(emailToReset);
+      setResetSent(true);
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : "Could not send reset email.");
+    } finally {
+      setResetLoading(false);
     }
   }
 
@@ -140,6 +159,41 @@ export function ProfilePage() {
               {saving ? "Saving…" : "Save changes"}
             </button>
           </form>
+        </section>
+      )}
+
+      {!loading && contact && (
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+          <h2 className="text-sm font-semibold text-white">Security</h2>
+          <p className="mt-2 text-sm text-ink-muted">Manage your password and account security settings.</p>
+
+          {resetError && (
+            <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+              {resetError}
+            </div>
+          )}
+          {resetSent && (
+            <div className="mt-4 rounded-xl border border-brand-lime/30 bg-brand-lime/10 px-4 py-3 text-sm text-white">
+              Password reset email sent! Check your inbox for instructions.
+            </div>
+          )}
+
+          <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-white/10 bg-black/20 p-4">
+            <div>
+              <p className="text-sm font-medium text-white">Reset Password</p>
+              <p className="mt-1 text-xs text-ink-muted">
+                We'll send a password reset link to your email address.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handlePasswordReset()}
+              disabled={resetLoading}
+              className="shrink-0 rounded-lg border border-white/15 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-white transition hover:border-brand-lime/35 hover:bg-white/[0.07] disabled:opacity-50"
+            >
+              {resetLoading ? "Sending…" : "Send Reset Link"}
+            </button>
+          </div>
         </section>
       )}
     </div>

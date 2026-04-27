@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/Skeleton";
@@ -20,6 +21,7 @@ const filters: { label: string; value: "all" | TicketStatus }[] = [
 ];
 
 export function AdminTicketsPage() {
+  const { cache, updateCache } = useAdminPrefetch();
   const [status, setStatus] = useState<"all" | TicketStatus>("all");
   const [rows, setRows] = useState<AdminSupportTicketListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -30,7 +32,8 @@ export function AdminTicketsPage() {
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      setLoading(true);
+      const hasPrefetchedAllRows = status === "all" && Boolean(cache.tickets?.length);
+      setLoading(!hasPrefetchedAllRows);
       setNoModuleAccess(false);
       setError(null);
       try {
@@ -38,6 +41,7 @@ export function AdminTicketsPage() {
         if (!cancelled) {
           setRows(r.items);
           setTotal(r.total);
+          if (status === "all") updateCache({ tickets: r.items });
         }
       } catch (err) {
         if (!cancelled) {
@@ -49,6 +53,11 @@ export function AdminTicketsPage() {
       }
     }
     void run();
+    if (status === "all" && cache.tickets) {
+      setRows(cache.tickets);
+      setTotal(cache.tickets.length);
+      setLoading(false);
+    }
     return () => {
       cancelled = true;
     };

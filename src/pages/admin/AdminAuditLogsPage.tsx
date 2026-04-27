@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { isModuleForbiddenError } from "@/services/http";
 import { downloadAdminAuditLogsCsv, fetchAdminAuditLogs, fetchAdminAuditSummary } from "@/services/subscriptionsApi";
@@ -9,6 +10,7 @@ function fmtTs(value: string) {
 }
 
 export function AdminAuditLogsPage() {
+  const { cache, updateCache } = useAdminPrefetch();
   const [rows, setRows] = useState<AuditLogRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
@@ -22,7 +24,7 @@ export function AdminAuditLogsPage() {
   const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function load() {
-    setLoading(true);
+    setLoading(rows.length === 0);
     setNoModuleAccess(false);
     setNotice(null);
     let listLoaded = false;
@@ -37,6 +39,9 @@ export function AdminAuditLogsPage() {
       });
       setRows(list.rows);
       setTotalPages(list.totalPages);
+      if (!action.trim() && !targetType.trim() && !startAt && !endAt && page === 1) {
+        updateCache({ auditLogs: list });
+      }
       listLoaded = true;
     } catch (err) {
       if (isModuleForbiddenError(err)) {
@@ -48,6 +53,7 @@ export function AdminAuditLogsPage() {
     try {
       const metrics = await fetchAdminAuditSummary();
       setSummary(metrics);
+      updateCache({ auditSummary: metrics });
     } catch (err) {
       if (isModuleForbiddenError(err)) {
         setNoModuleAccess(true);
@@ -61,6 +67,14 @@ export function AdminAuditLogsPage() {
   }
 
   useEffect(() => {
+    const isDefaultView = page === 1 && !action && !targetType && !startAt && !endAt;
+    if (cache.auditLogs && isDefaultView) {
+      setRows(cache.auditLogs.rows);
+      setTotalPages(cache.auditLogs.totalPages);
+      setLoading(false);
+    }
+    if (cache.auditSummary) setSummary(cache.auditSummary);
+    if (isDefaultView && cache.auditLogs && cache.auditSummary) return;
     void load();
   }, [page]);
 
