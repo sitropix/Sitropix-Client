@@ -70,8 +70,19 @@ export async function seedIfEmpty() {
     "email",
     "environment",
     "tickets",
+    "forms",
+    "crm",
   ];
-  const MANAGER_MODULES = ["dashboard", "customers", "plans", "invites", "audit_logs", "tickets"];
+  const MANAGER_MODULES = [
+    "dashboard",
+    "customers",
+    "plans",
+    "invites",
+    "audit_logs",
+    "tickets",
+    "forms",
+    "crm",
+  ];
   const SUPPORT_MODULES = ["tickets", "customers", "dashboard"];
   const adminUsers = await prisma.user.findMany({
     where: { role: { in: ["admin", "master_admin", "manager", "support"] } },

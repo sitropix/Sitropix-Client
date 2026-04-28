@@ -28,6 +28,8 @@ const modules = [
   "email",
   "environment",
   "tickets",
+  "forms",
+  "crm",
 ] as const;
 
 export function UserManagementPage() {

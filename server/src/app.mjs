@@ -12,6 +12,8 @@ import { adminSupportRouter } from "./routes/adminSupportRoutes.mjs";
 import { supportRouter } from "./routes/supportRoutes.mjs";
 import { webhookRouter } from "./routes/webhookRoutes.mjs";
 import { healthRouter } from "./routes/healthRoutes.mjs";
+import { formPublicRouter } from "./routes/formPublicRoutes.mjs";
+import { adminFormCrmRouter } from "./routes/adminFormCrmRoutes.mjs";
 import { seedIfEmpty } from "./seed/seed.mjs";
 import { log } from "./observability/logger.mjs";
 import { sendAlert } from "./observability/alerts.mjs";
@@ -47,10 +49,13 @@ app.use(express.json({ limit: "1mb" }));
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 400 }));
 
 app.use("/api/auth", authRouter);
+app.use("/api/forms", formPublicRouter);
+app.use("/api/v1/forms", formPublicRouter);
 app.use("/api/subscriptions", subscriptionRouter);
 app.use("/api/documents", clientDocumentRouter);
 app.use("/api/admin", adminClientDocumentRouter);
 app.use("/api/admin", adminRouter);
+app.use("/api/admin", adminFormCrmRouter);
 app.use("/api/admin", adminSupportRouter);
 app.use("/api/support", supportRouter);
 
