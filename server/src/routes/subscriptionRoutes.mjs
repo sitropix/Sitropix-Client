@@ -1049,6 +1049,20 @@ adminRouter.get("/transactions", async (_req, res) => {
   return res.json(await prisma.payment.findMany({ orderBy: { createdAt: "desc" }, take: 200 }));
 });
 
+adminRouter.post("/customers/:id/sync-stripe", async (req, res) => {
+  const userId = String(req.params.id);
+  try {
+    const out = await syncSubscriptionFromStripeForUserId(userId);
+    return res.json(out);
+  } catch (e) {
+    const msg = e?.message ?? String(e);
+    if (msg.includes("stripe_not_configured")) {
+      return res.json({ ok: false, reason: "stripe_not_configured" });
+    }
+    return res.json({ ok: false, reason: "sync_failed", error: msg });
+  }
+});
+
 adminRouter.post("/payments/:id/retry", async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const payment = await prisma.payment.findUnique({ where: { id: req.params.id } });

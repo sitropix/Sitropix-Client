@@ -106,8 +106,23 @@ export async function syncSubscriptionFromStripeForUserId(userId) {
 }
 
 function stripeSubscriptionIdOnInvoice(invoice) {
+  // Try the direct subscription field (older API versions)
   const sub = invoice.subscription;
-  return typeof sub === "string" ? sub : sub?.id ?? null;
+  if (typeof sub === "string") return sub;
+  if (sub?.id) return sub.id;
+  
+  // Newer Stripe API: subscription ID is in line item parent details
+  const lines = invoice.lines?.data ?? [];
+  for (const line of lines) {
+    const subIdFromParent = line.parent?.subscription_item_details?.subscription;
+    if (subIdFromParent) return subIdFromParent;
+    // Also check legacy line.subscription field
+    if (line.subscription) {
+      return typeof line.subscription === "string" ? line.subscription : line.subscription?.id;
+    }
+  }
+  
+  return null;
 }
 
 /** Backfill payments from Stripe invoices when webhooks did not run. */

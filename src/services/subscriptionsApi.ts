@@ -373,6 +373,19 @@ export function deleteAdminCustomer(userId: string, confirm: string) {
   });
 }
 
+export function syncAdminCustomerStripe(userId: string) {
+  return api<{
+    ok: boolean;
+    reason?: string;
+    planCode?: string;
+    stripeSubscriptionId?: string;
+    error?: string;
+  }>(`/api/admin/customers/${userId}/sync-stripe`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 export function fetchAdminInvites() {
   return api<AdminInviteRow[]>("/api/admin/invites");
 }

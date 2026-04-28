@@ -14,6 +14,7 @@ import {
   fetchAdminSubscriptions,
   fetchAdminUsers,
   reactivateAdminCustomer,
+  syncAdminCustomerStripe,
   updateAdminSubscription,
 } from "@/services/subscriptionsApi";
 import type { AdminCustomerProfilePayload, AdminUserRow, Subscription } from "@/types/subscription";
@@ -639,6 +640,46 @@ export function CustomerManagementPage() {
 
               {tab === "transactions" && (
                 <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-neutral-500">
+                      {profile.transactions.length} transaction{profile.transactions.length !== 1 ? "s" : ""}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={actionLoading[`sync_${profile.overview.user.id}`]}
+                      onClick={async () => {
+                        setActionLoading((prev) => ({ ...prev, [`sync_${profile.overview.user.id}`]: true }));
+                        try {
+                          const result = await syncAdminCustomerStripe(profile.overview.user.id);
+                          if (result.ok) {
+                            setNotice("Synced from Stripe successfully.");
+                            setProfile(await fetchAdminCustomerProfile(profile.overview.user.id));
+                          } else {
+                            setNotice(`Sync failed: ${result.reason || "Unknown error"}`);
+                          }
+                        } catch {
+                          setNotice("Could not sync from Stripe.");
+                        } finally {
+                          setActionLoading((prev) => ({ ...prev, [`sync_${profile.overview.user.id}`]: false }));
+                        }
+                      }}
+                      className="flex items-center gap-1.5 rounded border border-brand-lime/40 bg-brand-lime/10 px-3 py-1.5 text-xs font-medium text-brand-lime transition hover:bg-brand-lime/20 disabled:opacity-50"
+                    >
+                      {actionLoading[`sync_${profile.overview.user.id}`] ? (
+                        <>
+                          <span className="h-3 w-3 animate-spin rounded-full border-2 border-brand-lime border-t-transparent" />
+                          Syncing...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Sync from Stripe
+                        </>
+                      )}
+                    </button>
+                  </div>
                   <div className="overflow-hidden rounded-lg border border-[#24292E]">
                     <div className="grid grid-cols-12 bg-[#1C2126] px-3 py-2 text-[11px] uppercase tracking-wide text-neutral-500">
                       <div className="col-span-3">Invoice ID</div>
@@ -647,7 +688,7 @@ export function CustomerManagementPage() {
                       <div className="col-span-3">Next billing</div>
                       <div className="col-span-2">Status</div>
                     </div>
-                    {profile.transactions.length === 0 && <p className="px-3 py-3 text-sm text-neutral-400">No transactions.</p>}
+                    {profile.transactions.length === 0 && <p className="px-3 py-3 text-sm text-neutral-400">No transactions. Click "Sync from Stripe" to fetch invoices.</p>}
                     {profile.transactions.slice((txPage - 1) * PAGE_SIZE, txPage * PAGE_SIZE).map((tx) => (
                       <div key={tx.id} className="grid grid-cols-12 border-t border-[#24292E] px-3 py-2 text-xs text-neutral-300">
                         <div className="col-span-3 font-mono text-white/80">{tx.invoiceNumber}</div>
