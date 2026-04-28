@@ -61,6 +61,10 @@ export const env = {
   alertingEnabled: (process.env.ALERTING_ENABLED ?? "true").toLowerCase() !== "false",
   /** When true, POST to alert webhook for unhandled express errors (can be noisy) */
   alertOnInternalError: (process.env.ALERT_ON_INTERNAL_ERROR ?? "false").toLowerCase() === "true",
+  /** HMAC/JWT signing for public form submit CSRF tokens (defaults to derived secret in dev). */
+  formCsrfSecret: String(process.env.FORM_CSRF_SECRET ?? "").trim() || `${String(process.env.JWT_ACCESS_SECRET ?? DEV_ACCESS_SECRET)}.form-csrf`,
+  /** Set to `true` to skip CSRF on POST /api/forms/.../submit (local testing only). */
+  formPublicCsrfDisabled: (process.env.FORM_PUBLIC_CSRF_DISABLED ?? "").toLowerCase() === "true",
 };
 env.allowedRedirectOrigins = parseAllowedRedirectOrigins(env.appUrl);
 
@@ -77,6 +81,10 @@ function assertProductionSecurity() {
 
   if (!String(env.appUrl || "").trim()) {
     throw new Error("APP_URL is required in production.");
+  }
+
+  if ((process.env.FORM_PUBLIC_CSRF_DISABLED ?? "").toLowerCase() === "true") {
+    throw new Error("FORM_PUBLIC_CSRF_DISABLED must not be enabled in production.");
   }
 }
 

@@ -51,6 +51,14 @@ enum TicketPriority {
   urgent
 }
 
+enum CrmLeadStatus {
+  NEW
+  MEETING_SCHEDULED
+  YET_TO_CONTACT
+  CONTACTED
+  HOLD
+}
+
 model User {
   id                       String    @id @default(cuid())
   email                    String    @unique
@@ -79,6 +87,9 @@ model User {
   invitesCreated   Invite[] @relation("InviteCreator")
   funnelEvents     FunnelEvent[]
   moduleAccess     UserModuleAccess[]
+  formDefinitions  FormDefinition[]   @relation("FormCreatedBy")
+  crmStatusChanges CrmLeadStatusLog[] @relation("CrmStatusChangedBy")
+  convertedLeads   CrmLead[]          @relation("CrmLeadConvertedCustomer")
 
   @@index([email])
   @@index([role])
@@ -418,4 +429,108 @@ model SystemConfig {
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("system_config")
+}
+
+model FormDefinition {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  isActive     Boolean  @default(true) @map("is_active")
+  embedKey     String   @unique @map("embed_key")
+  settingsJson Json     @default("{}") @map("settings_json")
+  createdById  String?  @map("created_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  createdBy   User?            @relation("FormCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  fields      FormField[]
+  submissions FormSubmission[]
+  leads       CrmLead[]
+
+  @@map("form_definitions")
+}
+
+model FormField {
+  id             String   @id @default(cuid())
+  formId         String   @map("form_id")
+  key            String
+  label          String
+  type           String
+  required       Boolean  @default(false)
+  fieldOrder     Int      @default(0) @map("field_order")
+  optionsJson    Json     @default("[]") @map("options_json")
+  validationJson Json     @default("{}") @map("validation_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  form FormDefinition @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId, fieldOrder])
+  @@map("form_fields")
+}
+
+model FormSubmission {
+  id               String   @id @default(cuid())
+  formId           String   @map("form_id")
+  payloadJson      Json     @map("payload_json")
+  sourceUrl        String?  @map("source_url")
+  sourceReferrer   String?  @map("source_referrer")
+  utmJson          Json     @default("{}") @map("utm_json")
+  submittedAt      DateTime @default(now()) @map("submitted_at")
+  ipHash           String?  @map("ip_hash")
+  userAgent        String?  @map("user_agent")
+  calBookingId     String?  @map("cal_booking_id")
+  meetingUrlAtSubmit String? @map("meeting_url_at_submit")
+
+  form FormDefinition @relation(fields: [formId], references: [id], onDelete: Cascade)
+  lead CrmLead?
+
+  @@index([formId, submittedAt(sort: Desc)])
+  @@map("form_submissions")
+}
+
+model CrmLead {
+  id                   String        @id @default(cuid())
+  formId               String        @map("form_id")
+  submissionId         String        @unique @map("submission_id")
+  fullName             String?       @map("full_name")
+  email                String?
+  phone                String?
+  company              String?
+  sourceLabel          String?       @map("source_label")
+  status               CrmLeadStatus @default(YET_TO_CONTACT)
+  meetingLink          String?       @map("meeting_link")
+  meetingScheduledAt   DateTime?     @map("meeting_scheduled_at")
+  assignedTo           String?       @map("assigned_to")
+  notes                String?       @db.Text
+  convertedAt          DateTime?     @map("converted_at")
+  convertedCustomerId  String?       @map("converted_customer_id")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+
+  form               FormDefinition     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  submission         FormSubmission     @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  convertedCustomer  User?              @relation("CrmLeadConvertedCustomer", fields: [convertedCustomerId], references: [id], onDelete: SetNull)
+  statusLogs         CrmLeadStatusLog[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([email])
+  @@map("crm_leads")
+}
+
+model CrmLeadStatusLog {
+  id           String         @id @default(cuid())
+  leadId       String         @map("lead_id")
+  fromStatus   CrmLeadStatus? @map("from_status")
+  toStatus     CrmLeadStatus  @map("to_status")
+  meetingLink  String?       @map("meeting_link")
+  changedById  String?       @map("changed_by_id")
+  changedAt    DateTime       @default(now()) @map("changed_at")
+  reason       String?       @db.Text
+
+  lead      CrmLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  changedBy User?   @relation("CrmStatusChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([leadId, changedAt(sort: Desc)])
+  @@map("crm_lead_status_logs")
 }

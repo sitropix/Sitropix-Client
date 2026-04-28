@@ -6,9 +6,16 @@ import type {
   AnalyticsSummary,
   BillingCycle,
   ClientDocumentRow,
+  CrmLeadDetailPayload,
   CustomerPortalPayload,
   EmailProviderId,
   EmailSettingsPayload,
+  FormDefinitionDetail,
+  FormDefinitionListItem,
+  FormEmbedPayload,
+  CrmLeadListItem,
+  FormFieldRow,
+  CrmLeadStatus,
   SystemConfigPayload,
   FeatureFlagsAdminPayload,
   Plan,
@@ -462,5 +469,85 @@ export function createBillingPortalSession(returnUrl?: string) {
   return api<{ url: string }>("/api/subscriptions/billing-portal", {
     method: "POST",
     body: JSON.stringify(returnUrl ? { returnUrl } : {}),
+  });
+}
+
+/** --- Forms (admin) --- */
+export function fetchAdminForms() {
+  return api<{ items: FormDefinitionListItem[] }>("/api/admin/forms");
+}
+
+export function fetchAdminFormDetail(formId: string) {
+  return api<FormDefinitionDetail>(`/api/admin/forms/${formId}`);
+}
+
+export function fetchAdminFormEmbed(formId: string) {
+  return api<FormEmbedPayload>(`/api/admin/forms/${formId}/embed`);
+}
+
+export function createAdminForm(payload: {
+  name: string;
+  slug: string;
+  isActive?: boolean;
+  settingsJson?: Record<string, unknown>;
+  fields: Omit<FormFieldRow, "id">[];
+}) {
+  return api<FormDefinitionDetail>("/api/admin/forms", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function patchAdminForm(formId: string, payload: Partial<{ name: string; slug: string; isActive: boolean; settingsJson: Record<string, unknown> }>) {
+  return api<FormDefinitionDetail>(`/api/admin/forms/${formId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function replaceAdminFormFields(formId: string, fields: Omit<FormFieldRow, "id">[]) {
+  return api<FormDefinitionDetail>(`/api/admin/forms/${formId}/fields`, {
+    method: "PUT",
+    body: JSON.stringify({ fields }),
+  });
+}
+
+/** --- CRM (admin) --- */
+export function fetchCrmLeads(params?: { status?: CrmLeadStatus; formId?: string; search?: string; limit?: number; offset?: number }) {
+  const sp = new URLSearchParams();
+  if (params?.status) sp.set("status", params.status);
+  if (params?.formId) sp.set("formId", params.formId);
+  if (params?.search?.trim()) sp.set("search", params.search.trim());
+  if (params?.limit != null) sp.set("limit", String(params.limit));
+  if (params?.offset != null) sp.set("offset", String(params.offset));
+  const q = sp.toString();
+  return api<{ items: CrmLeadListItem[]; total: number }>(`/api/admin/crm/leads${q ? `?${q}` : ""}`);
+}
+
+export function fetchCrmLeadDetail(leadId: string) {
+  return api<CrmLeadDetailPayload>(`/api/admin/crm/leads/${leadId}`);
+}
+
+export function patchCrmLeadStatus(
+  leadId: string,
+  payload: { toStatus: CrmLeadStatus; meetingLink?: string | null; reason?: string | null },
+) {
+  return api<{ id: string; status: CrmLeadStatus; meetingLink: string | null; meetingScheduledAt: string | null }>(
+    `/api/admin/crm/leads/${leadId}/status`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+  );
+}
+
+export function convertCrmLead(leadId: string, payload?: { createUserIfNeeded?: boolean }) {
+  return api<{
+    ok: boolean;
+    mode?: string;
+    userId?: string;
+    leadId?: string;
+    note?: string;
+    message?: string;
+  }>(`/api/admin/crm/leads/${leadId}/convert`, {
+    method: "POST",
+    body: JSON.stringify(payload ?? {}),
   });
 }

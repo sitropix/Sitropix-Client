@@ -258,3 +258,133 @@ export interface AuditLogSummary {
   failedLogins24h: number;
   adminMutations24h: number;
 }
+
+/** Admin — dynamic lead forms */
+export type CrmLeadStatus =
+  | "NEW"
+  | "MEETING_SCHEDULED"
+  | "YET_TO_CONTACT"
+  | "CONTACTED"
+  | "HOLD";
+
+export interface FormDefinitionListItem {
+  id: string;
+  name: string;
+  slug: string;
+  embedKey: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  submissionCount: number;
+  fieldCount: number;
+}
+
+export interface FormFieldRow {
+  id?: string;
+  key: string;
+  label: string;
+  type:
+    | "text"
+    | "email"
+    | "tel"
+    | "phone"
+    | "textarea"
+    | "select"
+    | "number"
+    | "url"
+    | "checkbox"
+    | "date"
+    | "hidden"
+    | "file";
+  required: boolean;
+  fieldOrder: number;
+  optionsJson?: string[];
+  validationJson?: Record<string, unknown>;
+}
+
+export interface FormDefinitionDetail {
+  id: string;
+  name: string;
+  slug: string;
+  embedKey: string;
+  isActive: boolean;
+  settingsJson: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  fields: FormFieldRow[];
+}
+
+export interface FormEmbedPayload {
+  formPublicToken?: string;
+  embedKey: string;
+  submitUrl: string;
+  submitUrlV1?: string;
+  configUrl: string;
+  configUrlV1?: string;
+  iframeSrc: string;
+  htmlSnippet: string;
+  scriptSnippet?: string;
+  cspNoncePlaceholder?: string;
+}
+
+export interface CrmLeadListItem {
+  id: string;
+  formId: string;
+  formName: string;
+  fullName: string | null;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  status: CrmLeadStatus;
+  meetingLink: string | null;
+  meetingScheduledAt: string | null;
+  convertedAt: string | null;
+  convertedCustomerId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CrmLeadDetailPayload {
+  lead: {
+    id: string;
+    status: CrmLeadStatus;
+    meetingLink: string | null;
+    meetingScheduledAt: string | null;
+    notes: string | null;
+    fullName: string | null;
+    email: string | null;
+    phone: string | null;
+    company: string | null;
+    convertedAt: string | null;
+    convertedCustomerId: string | null;
+    convertedCustomer?: {
+      id: string;
+      email: string;
+      name: string;
+      phoneNumber: string | null;
+      createdAt: string;
+    } | null;
+    createdAt: string;
+    updatedAt: string;
+    form: { id: string; name: string; slug: string; embedKey: string };
+  };
+  submission: {
+    id: string;
+    payloadJson: Record<string, unknown>;
+    sourceUrl: string | null;
+    sourceReferrer: string | null;
+    utmJson: Record<string, unknown>;
+    submittedAt: string;
+    calBookingId: string | null;
+    meetingUrlAtSubmit: string | null;
+  };
+  statusLogs: Array<{
+    id: string;
+    fromStatus: CrmLeadStatus | null;
+    toStatus: CrmLeadStatus;
+    meetingLink: string | null;
+    changedAt: string;
+    reason: string | null;
+    changedBy: { id: string; name: string; email: string } | null;
+  }>;
+}

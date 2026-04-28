@@ -60,6 +60,11 @@ const SubmitTicketPage = lazy(() =>
   import("@/pages/SubmitTicketPage").then((m) => ({ default: m.SubmitTicketPage })),
 );
 const ProfilePage = lazy(() => import("@/pages/ProfilePage").then((m) => ({ default: m.ProfilePage })));
+const FormBuilderPage = lazy(() => import("@/pages/admin/FormBuilderPage").then((m) => ({ default: m.FormBuilderPage })));
+const CrmManagementPage = lazy(() => import("@/pages/admin/CrmManagementPage").then((m) => ({ default: m.CrmManagementPage })));
+const PublicEmbedFormPage = lazy(() =>
+  import("@/pages/embed/PublicEmbedFormPage").then((m) => ({ default: m.PublicEmbedFormPage })),
+);
 
 function AppRouteFallback() {
   return (
@@ -79,6 +84,7 @@ export default function App() {
               <TicketsProvider>
                 <Suspense fallback={<AppRouteFallback />}>
                   <Routes>
+                  <Route path="/embed/form/:embedKey" element={<PublicEmbedFormPage />} />
                   <Route element={<AuthLayout />}>
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/signup" element={<SignupPage />} />
@@ -182,6 +188,22 @@ export default function App() {
                       element={
                         <RequireAdmin>
                           <PlanManagementPage />
+                        </RequireAdmin>
+                      }
+                    />
+                    <Route
+                      path="/admin/forms"
+                      element={
+                        <RequireAdmin>
+                          <FormBuilderPage />
+                        </RequireAdmin>
+                      }
+                    />
+                    <Route
+                      path="/admin/crm"
+                      element={
+                        <RequireAdmin>
+                          <CrmManagementPage />
                         </RequireAdmin>
                       }
                     />

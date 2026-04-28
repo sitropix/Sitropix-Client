@@ -7,12 +7,15 @@ export class ApiRequestError extends Error {
   readonly status: number;
   readonly code?: string;
   readonly moduleKey?: string;
-  constructor(message: string, status: number, code?: string, moduleKey?: string) {
+  /** Present when server returns Zod `flatten()` from validation middleware. */
+  readonly issues?: unknown;
+  constructor(message: string, status: number, code?: string, moduleKey?: string, issues?: unknown) {
     super(message);
     this.name = "ApiRequestError";
     this.status = status;
     this.code = code;
     this.moduleKey = moduleKey;
+    this.issues = issues;
   }
 }
 
@@ -64,8 +67,19 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     if (refreshed?.accessToken) res = await doFetch(refreshed.accessToken);
   }
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string; moduleKey?: string };
-    throw new ApiRequestError(body.message ?? body.error ?? "request_failed", res.status, body.error, body.moduleKey);
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      message?: string;
+      moduleKey?: string;
+      issues?: unknown;
+    };
+    throw new ApiRequestError(
+      body.message ?? body.error ?? "request_failed",
+      res.status,
+      body.error,
+      body.moduleKey,
+      body.issues,
+    );
   }
   return (await res.json()) as T;
 }
