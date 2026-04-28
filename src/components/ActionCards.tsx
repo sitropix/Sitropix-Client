@@ -78,16 +78,16 @@ export function ActionCards() {
         <Link
           key={card.to}
           to={card.to}
-          className="group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-6 shadow-glass transition duration-300 hover:-translate-y-1 hover:border-brand-lime/25 hover:bg-white/[0.05] hover:shadow-lift"
+          className="group relative overflow-hidden rounded-2xl border border-zinc-300 bg-white/80 p-6 shadow-glass transition duration-300 hover:-translate-y-1 hover:border-zinc-400 hover:bg-white hover:shadow-lift"
           style={{ animationDelay: `${i * 60}ms` }}
         >
           <div className="pointer-events-none absolute inset-0 bg-card-shine opacity-0 transition group-hover:opacity-100" />
-          <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-brand-lime/10 text-brand-lime ring-1 ring-brand-lime/20 transition group-hover:scale-105">
+          <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-zinc-200 text-zinc-800 ring-1 ring-zinc-300 transition group-hover:scale-105">
             {card.icon}
           </div>
-          <h3 className="text-base font-semibold text-white">{card.title}</h3>
-          <p className="mt-2 text-sm leading-relaxed text-ink-muted">{card.description}</p>
-          <span className="mt-5 inline-flex items-center gap-1 text-xs font-semibold text-brand-lime">
+          <h3 className="text-base font-semibold text-zinc-900">{card.title}</h3>
+          <p className="mt-2 text-sm leading-relaxed text-zinc-600">{card.description}</p>
+          <span className="mt-5 inline-flex items-center gap-1 text-xs font-semibold text-zinc-900">
             Open
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
               <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />

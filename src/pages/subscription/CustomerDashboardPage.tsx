@@ -13,7 +13,7 @@ function formatDate(iso?: string) {
 
 function IconBox({ children }: { children: ReactNode }) {
   return (
-    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-brand-lime/25 bg-brand-lime/[0.08] text-brand-lime transition group-hover:border-brand-lime/45 group-hover:bg-brand-lime/[0.12]">
+    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/65 bg-white/55 text-zinc-800 backdrop-blur-md transition group-hover:border-white/80 group-hover:bg-white/70">
       {children}
     </span>
   );
@@ -92,18 +92,18 @@ export function CustomerDashboardPage() {
   const recentInvoices = invoices.slice(0, 5);
 
   return (
-    <div className="space-y-8 opacity-0 animate-fade-up [animation-fill-mode:forwards]">
+    <div className="space-y-6 opacity-0 animate-fade-up [animation-fill-mode:forwards]">
       <Breadcrumb items={[{ label: "Home", to: "/dashboard" }, { label: "Dashboard" }]} />
 
-      <section className="relative overflow-hidden rounded-2xl border border-white/10 bg-hero-mesh shadow-lift ring-1 ring-white/[0.06]">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_35%,rgba(132,204,22,0.14),transparent_42%)]" />
-        <div className="pointer-events-none absolute inset-0 bg-card-shine opacity-40" />
-        <div className="relative px-6 py-8 sm:px-10 sm:py-10">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-lime">Sitropix Support</p>
-          <h1 className="mt-3 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl">
+      <section className="relative overflow-hidden rounded-2xl bg-white shadow-glass">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_35%,rgba(172,173,177,0.2),transparent_42%)]" />
+        <div className="pointer-events-none absolute inset-0 bg-card-shine opacity-20" />
+        <div className="relative px-6 py-7 sm:px-9 sm:py-8">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-600">Sitropix Support</p>
+          <h1 className="mt-2.5 text-balance text-3xl font-bold tracking-tight text-zinc-900 sm:text-4xl">
             Hi {greeting}, how can we help?
           </h1>
-          <p className="mt-3 max-w-2xl text-pretty text-sm leading-relaxed text-ink-muted sm:text-[15px]">
+          <p className="mt-2.5 max-w-2xl text-pretty text-sm leading-relaxed text-zinc-700 sm:text-[15px]">
             Search guides from the bar above, track requests, and manage your workspace from this hub.
           </p>
         </div>
@@ -119,7 +119,7 @@ export function CustomerDashboardPage() {
           <Skeleton className="h-40 w-full rounded-2xl" />
         </div>
       )}
-      {error && <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</p>}
+      {error && <p className="rounded-xl border border-rose-400/40 bg-rose-100 px-4 py-3 text-sm text-rose-800">{error}</p>}
 
       {!loading && !subscription && (
         <EmptyState
@@ -131,10 +131,10 @@ export function CustomerDashboardPage() {
 
       {!loading && subscription && (
         <>
-          <section className="rounded-2xl border border-white/10 bg-[#0c1016]/90 shadow-glass ring-1 ring-white/[0.04] backdrop-blur-sm">
-            <div className="border-b border-white/10 px-6 py-5 sm:px-7 sm:py-6">
-              <h2 className="text-lg font-semibold tracking-tight text-white sm:text-xl">Jump back in</h2>
-              <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-ink-muted">
+          <section className="rounded-2xl border border-zinc-300 bg-gradient-to-br from-zinc-200/70 via-zinc-100/70 to-zinc-200/65 shadow-glass backdrop-blur-sm">
+            <div className="border-b border-zinc-300 px-6 py-4 sm:px-7 sm:py-5">
+              <h2 className="text-lg font-semibold tracking-tight text-zinc-900 sm:text-xl">Jump back in</h2>
+              <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-zinc-700">
                 Self-serve first — we are here when you need a human.
               </p>
             </div>
@@ -143,38 +143,42 @@ export function CustomerDashboardPage() {
                 <Link
                   key={item.to}
                   to={item.to}
-                  className="group flex gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-4 shadow-sm transition hover:border-brand-lime/40 hover:bg-white/[0.05] hover:shadow-md"
+                  className="group relative flex gap-4 overflow-hidden rounded-xl border border-white/45 bg-white/24 p-4 shadow-[0_10px_24px_rgba(53,53,54,0.12)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-white/70 hover:bg-white/32"
                 >
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.42)_0%,rgba(255,255,255,0.06)_48%,rgba(255,255,255,0.3)_100%)] opacity-85"
+                  />
                   <IconBox>{item.icon}</IconBox>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-white">{item.title}</p>
-                    <p className="mt-1 text-xs leading-relaxed text-ink-muted">{item.description}</p>
+                  <div className="relative min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-zinc-900">{item.title}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-zinc-600">{item.description}</p>
                   </div>
-                  <ChevronRight className="mt-1 h-5 w-5 shrink-0 text-ink-subtle transition group-hover:translate-x-0.5 group-hover:text-brand-lime" />
+                  <ChevronRight className="relative mt-1 h-5 w-5 shrink-0 text-zinc-500 transition group-hover:translate-x-0.5 group-hover:text-zinc-900" />
                 </Link>
               ))}
             </div>
           </section>
 
-          <section className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.06] via-white/[0.02] to-transparent shadow-glass ring-1 ring-white/[0.05]">
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-lime/70 to-transparent" />
+          <section className="relative overflow-hidden rounded-2xl border border-zinc-300 bg-white shadow-glass">
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-zinc-500/60 to-transparent" />
             <div className="relative p-6 sm:flex sm:items-center sm:justify-between sm:gap-8 sm:p-7">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
+                  <h2 className="text-xl font-semibold tracking-tight text-zinc-900 sm:text-2xl">
                     {subscription.plan?.name ?? "Current plan"}
                   </h2>
                   <SubscriptionStatusBadge status={subscription.status} />
                 </div>
-                <p className="mt-3 text-sm text-ink-muted">
+                <p className="mt-2.5 text-sm text-zinc-700">
                   Next billing date{" "}
-                  <span className="font-medium text-white">{formatDate(subscription.nextBillingDate)}</span>
+                  <span className="font-medium text-zinc-900">{formatDate(subscription.nextBillingDate)}</span>
                 </p>
               </div>
               <div className="mt-5 shrink-0 sm:mt-0">
                 <Link
                   to="/subscription-management"
-                  className="inline-flex w-full items-center justify-center rounded-full bg-brand-lime px-6 py-2.5 text-sm font-semibold text-canvas shadow-glow transition hover:bg-brand-lime-dim sm:w-auto"
+                  className="inline-flex w-full items-center justify-center rounded-full bg-black px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-900 sm:w-auto"
                 >
                   Open Subscription Management
                 </Link>
@@ -184,9 +188,9 @@ export function CustomerDashboardPage() {
 
           <section className="space-y-3">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-              <h2 className="text-sm font-semibold text-white">Invoices</h2>
+              <h2 className="text-sm font-semibold text-zinc-900">Invoices</h2>
               {invoices.length > 5 ? (
-                <Link to="/subscription-management" className="text-xs font-semibold text-brand-lime hover:underline">
+                <Link to="/subscription-management" className="text-xs font-semibold text-zinc-800 hover:underline">
                   View all in Subscription Management
                 </Link>
               ) : null}

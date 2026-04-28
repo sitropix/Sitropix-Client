@@ -25,43 +25,43 @@ export function PricingCard({
       className={[
         "relative flex h-full flex-col overflow-hidden rounded-2xl border p-6 shadow-glass transition",
         isCurrent
-          ? "border-brand-lime/45 bg-gradient-to-b from-brand-lime/[0.12] via-[#0f1419] to-[#0b0f14] ring-1 ring-brand-lime/25"
-          : "border-white/10 bg-[#0c1016]/90 ring-1 ring-white/[0.04] hover:border-white/15 hover:ring-white/10",
+          ? "border-zinc-500 bg-gradient-to-b from-white to-zinc-100 ring-1 ring-zinc-300"
+          : "border-zinc-300 bg-white ring-1 ring-zinc-200 hover:border-zinc-400 hover:ring-zinc-300",
       ].join(" ")}
     >
       {isCurrent ? (
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-lime/70 to-transparent"
+          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-zinc-500 to-transparent"
           aria-hidden
         />
       ) : null}
 
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-lime">{plan.name}</p>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-700">{plan.name}</p>
         {isCurrent ? (
-          <span className="rounded-full border border-brand-lime/40 bg-brand-lime/15 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-lime">
+          <span className="rounded-full border border-zinc-400 bg-zinc-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-zinc-700">
             Current plan
           </span>
         ) : null}
       </div>
 
       <div className="mt-4 flex items-baseline gap-1.5">
-        <span className="text-3xl font-bold tabular-nums tracking-tight text-white">${(priceCents / 100).toFixed(2)}</span>
-        <span className="text-sm font-medium text-ink-muted">/{cycle === "yearly" ? "yr" : "mo"}</span>
+        <span className="text-3xl font-bold tabular-nums tracking-tight text-zinc-900">${(priceCents / 100).toFixed(2)}</span>
+        <span className="text-sm font-medium text-zinc-600">/{cycle === "yearly" ? "yr" : "mo"}</span>
       </div>
-      <p className="mt-1 text-xs text-ink-subtle">Billed {cycle === "yearly" ? "annually" : "each month"}</p>
+      <p className="mt-1 text-xs text-zinc-500">Billed {cycle === "yearly" ? "annually" : "each month"}</p>
 
-      {plan.description ? <p className="mt-3 text-sm leading-relaxed text-ink-muted">{plan.description}</p> : null}
+      {plan.description ? <p className="mt-3 text-sm leading-relaxed text-zinc-600">{plan.description}</p> : null}
 
-      <div className="mt-5 flex-1 rounded-xl border border-white/[0.06] bg-black/25 p-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">Includes</p>
-        <ul className="mt-3 space-y-2.5 text-sm text-ink-muted">
+      <div className="mt-5 flex-1 rounded-xl border border-zinc-300 bg-zinc-100 p-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Includes</p>
+        <ul className="mt-3 space-y-2.5 text-sm text-zinc-700">
           {plan.features.map((feature) => (
             <li key={feature} className="flex gap-2.5">
               <span
                 className={[
                   "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
-                  isCurrent ? "bg-brand-lime shadow-[0_0_8px_rgba(132,204,22,0.5)]" : "bg-brand-lime/80",
+                  isCurrent ? "bg-zinc-700" : "bg-zinc-500",
                 ].join(" ")}
               />
               <span className="leading-snug">{feature}</span>
@@ -72,7 +72,7 @@ export function PricingCard({
 
       {isCurrent ? (
         <div
-          className="mt-6 inline-flex w-full items-center justify-center rounded-xl border border-brand-lime/40 bg-brand-lime/15 px-5 py-2.5 text-sm font-semibold text-brand-lime"
+          className="mt-6 inline-flex w-full items-center justify-center rounded-xl border border-zinc-400 bg-zinc-100 px-5 py-2.5 text-sm font-semibold text-zinc-700"
           role="status"
         >
           Active
@@ -85,8 +85,8 @@ export function PricingCard({
           className={[
             "mt-6 inline-flex w-full items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold transition",
             isDowngrade
-              ? "border border-white/20 bg-white/[0.04] text-white hover:border-white/35 hover:bg-white/[0.07] disabled:opacity-50"
-              : "bg-brand-lime text-canvas shadow-glow hover:bg-brand-lime-dim disabled:opacity-50",
+              ? "border border-zinc-300 bg-zinc-100 text-zinc-800 hover:border-zinc-400 hover:bg-zinc-200 disabled:opacity-50"
+              : "bg-zinc-700 text-white shadow-sm hover:bg-zinc-600 disabled:opacity-50",
           ].join(" ")}
         >
           {loading ? "Applying…" : primaryActionLabel}

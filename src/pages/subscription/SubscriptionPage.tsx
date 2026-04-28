@@ -133,20 +133,20 @@ export function SubscriptionPage() {
   }
 
   return (
-    <div className="space-y-8 opacity-0 animate-fade-up [animation-fill-mode:forwards]">
+    <div className="space-y-8 opacity-0 animate-fade-up [animation-fill-mode:forwards] text-zinc-900">
       <Breadcrumb items={[{ label: "Home", to: "/dashboard" }, { label: "Subscriptions" }]} />
 
-      <header className="flex flex-col gap-5 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
+      <header className="flex flex-col gap-5 border-b border-zinc-300 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-lime">Plans and billing</p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl">Subscriptions</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink-muted">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">Plans and billing</p>
+          <h1 className="mt-2 text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl">Subscriptions</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-600">
             Upgrade, downgrade, pause, resume, or cancel with transparent billing.
           </p>
         </div>
-        <div className="shrink-0 rounded-xl border border-white/[0.09] bg-black/30 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-          <p className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">Billing cycle</p>
-          <div className="inline-flex rounded-lg border border-white/10 bg-white/[0.03] p-0.5">
+        <div className="shrink-0 rounded-xl border border-zinc-300 bg-white p-1.5 shadow-sm">
+          <p className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Billing cycle</p>
+          <div className="inline-flex rounded-lg border border-zinc-300 bg-zinc-100 p-0.5">
             {(["monthly", "yearly"] as const).map((cycle) => (
               <button
                 key={cycle}
@@ -154,8 +154,8 @@ export function SubscriptionPage() {
                 onClick={() => setBillingCycle(cycle)}
                 className={`rounded-md px-4 py-2 text-xs font-semibold transition sm:text-sm ${
                   billingCycle === cycle
-                    ? "bg-brand-lime text-canvas shadow-glow"
-                    : "text-ink-muted hover:text-white"
+                    ? "bg-zinc-700 text-white shadow-sm"
+                    : "text-zinc-600 hover:text-zinc-900"
                 }`}
               >
                 {cycle === "monthly" ? "Monthly" : "Yearly"}
@@ -165,8 +165,8 @@ export function SubscriptionPage() {
         </div>
       </header>
 
-      {error && <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</p>}
-      {notice && <p className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/90">{notice}</p>}
+      {error && <p className="rounded-xl border border-rose-400/40 bg-rose-100 px-4 py-3 text-sm text-rose-800">{error}</p>}
+      {notice && <p className="rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-700">{notice}</p>}
 
       {!loading && visiblePlans.length === 0 && (
         <EmptyState title="No plans available" description="Plans are currently unavailable. Try again shortly." />
@@ -183,8 +183,8 @@ export function SubscriptionPage() {
       {!loading && visiblePlans.length > 0 && (
         <section>
           <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-            <h2 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-subtle">Compare plans</h2>
-            <p className="text-xs text-ink-muted">Prices shown for your selected billing cycle.</p>
+            <h2 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Compare plans</h2>
+            <p className="text-xs text-zinc-600">Prices shown for your selected billing cycle.</p>
           </div>
           <div className="grid auto-rows-fr gap-5 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6">
             {visiblePlans.map((plan) => (
@@ -203,15 +203,15 @@ export function SubscriptionPage() {
       )}
 
       {data?.subscription && (
-        <section className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0c1016]/95 shadow-glass ring-1 ring-white/[0.04]">
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
-          <div className="border-b border-white/10 bg-black/25 px-5 py-4 sm:px-6">
-            <h2 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-subtle">Subscription controls</h2>
-            <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-ink-muted">
+        <section className="relative overflow-hidden rounded-2xl border border-zinc-300 bg-white shadow-glass">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-zinc-500/60 to-transparent" />
+          <div className="border-b border-zinc-300 bg-zinc-100 px-5 py-4 sm:px-6">
+            <h2 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Subscription controls</h2>
+            <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-zinc-600">
               Update payment method, view invoices, and manage renewal in the Stripe customer portal.
             </p>
             {(!fc.pauseResume || !fc.selfCancel) && (
-              <p className="mt-3 text-xs text-ink-subtle">
+              <p className="mt-3 text-xs text-zinc-500">
                 Some self-service actions are controlled by your workspace administrator.
               </p>
             )}
@@ -221,7 +221,7 @@ export function SubscriptionPage() {
               type="button"
               onClick={() => void openBillingPortal()}
               disabled={busy}
-              className="inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/[0.06] px-4 py-2.5 text-sm font-semibold text-white transition hover:border-brand-lime/35 hover:bg-white/[0.1] disabled:opacity-50"
+              className="inline-flex items-center justify-center rounded-xl border border-zinc-300 bg-zinc-100 px-4 py-2.5 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400 hover:bg-zinc-200 disabled:opacity-50"
             >
               Manage billing in Stripe
             </button>
@@ -232,7 +232,7 @@ export function SubscriptionPage() {
                   onClick={() => void handleState("pause")}
                   disabled={busy || !controls?.canPause}
                   title={!controls?.canPause ? "Pause is only available while the subscription is active." : undefined}
-                  className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-transparent px-4 py-2.5 text-sm font-medium text-white transition hover:border-white/30 hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Pause
                 </button>
@@ -241,7 +241,7 @@ export function SubscriptionPage() {
                   onClick={() => void handleState("resume")}
                   disabled={busy || !controls?.canResume}
                   title={!controls?.canResume ? "Resume is only available when billing is paused." : undefined}
-                  className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-transparent px-4 py-2.5 text-sm font-medium text-white transition hover:border-white/30 hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Resume
                 </button>
@@ -253,7 +253,7 @@ export function SubscriptionPage() {
                 onClick={() => void handleState("cancel")}
                 disabled={busy || !controls?.canCancel}
                 title={!controls?.canCancel ? "Nothing to cancel." : undefined}
-                className="inline-flex items-center justify-center rounded-xl border border-rose-500/40 bg-rose-500/[0.08] px-4 py-2.5 text-sm font-semibold text-rose-100 transition hover:border-rose-400/50 hover:bg-rose-500/15 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex items-center justify-center rounded-xl border border-rose-300 bg-rose-100 px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:border-rose-400 hover:bg-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Cancel subscription
               </button>

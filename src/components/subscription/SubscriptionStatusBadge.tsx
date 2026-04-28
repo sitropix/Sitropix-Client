@@ -1,11 +1,11 @@
 import type { SubscriptionStatus } from "@/types/subscription";
 
 const styles: Record<SubscriptionStatus, string> = {
-  active: "bg-emerald-500/10 text-emerald-200 ring-1 ring-emerald-400/20",
-  trialing: "bg-sky-500/15 text-sky-200 ring-1 ring-sky-400/25",
-  paused: "bg-amber-500/15 text-amber-200 ring-1 ring-amber-400/25",
-  canceled: "bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/25",
-  past_due: "bg-orange-500/15 text-orange-200 ring-1 ring-orange-400/25",
+  active: "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300",
+  trialing: "bg-sky-100 text-sky-700 ring-1 ring-sky-300",
+  paused: "bg-amber-100 text-amber-700 ring-1 ring-amber-300",
+  canceled: "bg-rose-100 text-rose-700 ring-1 ring-rose-300",
+  past_due: "bg-orange-100 text-orange-700 ring-1 ring-orange-300",
 };
 
 export function SubscriptionStatusBadge({ status }: { status: SubscriptionStatus }) {

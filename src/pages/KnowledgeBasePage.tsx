@@ -15,12 +15,12 @@ function ArticleCard({ article, categoryName }: { article: KBArticle; categoryNa
   return (
     <Link
       to={`/kb/article/${article.id}`}
-      className="group block rounded-2xl border border-white/10 bg-white/[0.03] p-6 transition hover:-translate-y-0.5 hover:border-brand-lime/25 hover:bg-white/[0.05] hover:shadow-lift"
+      className="group block rounded-2xl border border-zinc-300 bg-white p-6 transition hover:-translate-y-0.5 hover:border-zinc-400 hover:bg-zinc-50 hover:shadow-lift"
     >
-      <p className="text-xs font-semibold uppercase tracking-wide text-brand-lime/90">{categoryName}</p>
-      <h3 className="mt-2 text-lg font-semibold text-white group-hover:text-brand-lime">{article.title}</h3>
-      <p className="mt-2 line-clamp-2 text-sm text-ink-muted">{article.excerpt}</p>
-      <div className="mt-4 flex items-center justify-between text-xs text-ink-subtle">
+      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-600">{categoryName}</p>
+      <h3 className="mt-2 text-lg font-semibold text-zinc-900 group-hover:text-zinc-700">{article.title}</h3>
+      <p className="mt-2 line-clamp-2 text-sm text-zinc-600">{article.excerpt}</p>
+      <div className="mt-4 flex items-center justify-between text-xs text-zinc-500">
         <span>Updated {formatDate(article.updatedAt)}</span>
         <span>{article.readTimeMinutes} min read</span>
       </div>
@@ -75,15 +75,15 @@ export function KnowledgeBasePage() {
     <div className="space-y-8">
       <Breadcrumb items={[{ label: "Home", to: "/dashboard" }, { label: "Knowledge base" }]} />
       <header>
-        <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">Knowledge base</h1>
-        <p className="mt-2 max-w-2xl text-sm text-ink-muted">
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl">Knowledge base</h1>
+        <p className="mt-2 max-w-2xl text-sm text-zinc-600">
           Browse by category for faster answers — many questions are solved without opening a ticket.
         </p>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[240px_1fr]">
-        <aside className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">Categories</p>
+        <aside className="rounded-2xl border border-zinc-300 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Categories</p>
           <ul className="mt-3 space-y-1">
             <li>
               <button
@@ -91,11 +91,11 @@ export function KnowledgeBasePage() {
                 onClick={() => setSelectedCategory(undefined)}
                 className={[
                   "flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition",
-                  selectedCategory ? "text-ink-muted hover:bg-white/[0.06]" : "bg-white/10 text-white",
+                  selectedCategory ? "text-zinc-600 hover:bg-zinc-100" : "bg-zinc-100 text-zinc-900",
                 ].join(" ")}
               >
                 All articles
-                <span className="text-xs text-ink-subtle">{totalArticleCount || articles.length}</span>
+                <span className="text-xs text-zinc-500">{totalArticleCount || articles.length}</span>
               </button>
             </li>
             {categories.map((c) => (
@@ -105,11 +105,11 @@ export function KnowledgeBasePage() {
                   onClick={() => setSelectedCategory(c.id)}
                   className={[
                     "flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition",
-                    selectedCategory === c.id ? "bg-white/10 text-white" : "text-ink-muted hover:bg-white/[0.06]",
+                    selectedCategory === c.id ? "bg-zinc-100 text-zinc-900" : "text-zinc-600 hover:bg-zinc-100",
                   ].join(" ")}
                 >
                   {c.name}
-                  <span className="text-xs text-ink-subtle">{c.articleCount}</span>
+                  <span className="text-xs text-zinc-500">{c.articleCount}</span>
                 </button>
               </li>
             ))}
@@ -127,14 +127,14 @@ export function KnowledgeBasePage() {
                 value={localQ}
                 onChange={(e) => setLocalQ(e.target.value)}
                 placeholder="Filter articles…"
-                className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-lime/35 focus:ring-2 focus:ring-brand-lime/25"
+                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-400/35"
               />
             </div>
             {error && (
               <button
                 type="button"
                 onClick={() => void load(selectedCategory)}
-                className="text-sm font-semibold text-brand-lime underline"
+                className="text-sm font-semibold text-zinc-700 underline"
               >
                 Retry load
               </button>
