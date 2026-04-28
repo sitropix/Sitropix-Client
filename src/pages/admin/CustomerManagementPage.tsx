@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { isModuleForbiddenError } from "@/services/http";
@@ -18,6 +19,8 @@ import type { AdminCustomerProfilePayload, AdminUserRow, Subscription } from "@/
 
 type DetailTab = "overview" | "tickets" | "documents" | "transactions";
 
+const PAGE_SIZE = 5;
+
 function money(cents: number, currency = "USD") {
   return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(cents / 100);
 }
@@ -35,12 +38,16 @@ export function CustomerManagementPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<AdminCustomerProfilePayload | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [tab, setTab] = useState<DetailTab>("overview");
   const [deactivateReason, setDeactivateReason] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadTitle, setUploadTitle] = useState("");
   const [uploadCategory, setUploadCategory] = useState("General");
   const [noModuleAccess, setNoModuleAccess] = useState(false);
+  const [ticketsPage, setTicketsPage] = useState(1);
+  const [docsPage, setDocsPage] = useState(1);
+  const [txPage, setTxPage] = useState(1);
 
   async function load() {
     setNoModuleAccess(false);
@@ -65,8 +72,13 @@ export function CustomerManagementPage() {
   useEffect(() => {
     if (!selectedUserId) {
       setProfile(null);
+      setProfileLoading(false);
       return;
     }
+    setProfileLoading(true);
+    setTicketsPage(1);
+    setDocsPage(1);
+    setTxPage(1);
     void fetchAdminCustomerProfile(selectedUserId)
       .then(setProfile)
       .catch((err) => {
@@ -75,7 +87,8 @@ export function CustomerManagementPage() {
           return;
         }
         setNotice("Could not load customer details.");
-      });
+      })
+      .finally(() => setProfileLoading(false));
   }, [selectedUserId]);
 
   if (noModuleAccess) {
@@ -212,7 +225,7 @@ export function CustomerManagementPage() {
         })}
       </section>
 
-      {selectedUserId && profile && (
+      {selectedUserId && (
         <div
           className="fixed inset-0 z-50 flex items-start justify-center bg-black/65 p-4 pt-16 sm:p-6 sm:pt-20"
           onClick={() => setSelectedUserId(null)}
@@ -224,6 +237,16 @@ export function CustomerManagementPage() {
             onClick={(e) => e.stopPropagation()}
             className="max-h-[88vh] w-full max-w-5xl overflow-y-auto rounded-xl border border-[#24292E] bg-[#15191C] p-5 shadow-2xl"
           >
+            {profileLoading && (
+              <div className="flex items-center justify-center py-16">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand-lime border-t-transparent" />
+                  <p className="text-sm text-neutral-400">Loading customer data...</p>
+                </div>
+              </div>
+            )}
+            {!profileLoading && profile && (
+              <>
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#24292E] pb-4">
               <div>
                 <h2 className="text-xl font-bold text-white">{profile.overview.user.name}</h2>
@@ -358,20 +381,68 @@ export function CustomerManagementPage() {
               )}
 
               {tab === "tickets" && (
-                <ul className="space-y-2">
-                  {profile.tickets.length === 0 && <li className="text-sm text-neutral-400">No tickets yet.</li>}
-                  {profile.tickets.map((t) => (
-                    <li key={t.id} className="rounded-lg border border-[#24292E] bg-[#1C2126] px-4 py-3 text-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="font-medium text-white">{t.subject}</p>
-                        <p className="text-xs text-neutral-400">{t.status}</p>
-                      </div>
-                      <p className="mt-1 text-xs text-neutral-500">
-                        Updated {fmtDate(t.updatedAt)} · {t.department} · {t.threadCount} messages
+                <div className="space-y-3">
+                  {profile.tickets.length === 0 && <p className="text-sm text-neutral-400">No tickets yet.</p>}
+                  <ul className="space-y-2">
+                    {profile.tickets.slice((ticketsPage - 1) * PAGE_SIZE, ticketsPage * PAGE_SIZE).map((t) => (
+                      <li key={t.id} className="rounded-lg border border-[#24292E] bg-[#1C2126] px-4 py-3 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-white">{t.subject}</p>
+                            <p className="mt-1 text-xs text-neutral-500">
+                              Updated {fmtDate(t.updatedAt)} · {t.department} · {t.threadCount} messages
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                                t.status === "open"
+                                  ? "bg-amber-500/20 text-amber-300"
+                                  : t.status === "in_progress"
+                                    ? "bg-blue-500/20 text-blue-300"
+                                    : "bg-green-500/20 text-green-300"
+                              }`}
+                            >
+                              {t.status.replace("_", " ")}
+                            </span>
+                            <Link
+                              to={`/admin/tickets/${t.id}`}
+                              className="rounded border border-brand-lime/40 bg-brand-lime/10 px-3 py-1.5 text-xs font-medium text-brand-lime transition hover:bg-brand-lime/20"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Open
+                            </Link>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  {profile.tickets.length > PAGE_SIZE && (
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-neutral-500">
+                        Page {ticketsPage} of {Math.ceil(profile.tickets.length / PAGE_SIZE)} ({profile.tickets.length} total)
                       </p>
-                    </li>
-                  ))}
-                </ul>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={ticketsPage === 1}
+                          onClick={() => setTicketsPage((p) => p - 1)}
+                          className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          disabled={ticketsPage >= Math.ceil(profile.tickets.length / PAGE_SIZE)}
+                          onClick={() => setTicketsPage((p) => p + 1)}
+                          className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
               {tab === "documents" && (
@@ -392,6 +463,7 @@ export function CustomerManagementPage() {
                           setUploadTitle("");
                           setNotice("Document uploaded.");
                           setProfile(await fetchAdminCustomerProfile(selectedUserId));
+                          setDocsPage(1);
                         })
                         .catch(() => setNotice("Could not upload document."));
                     }}
@@ -417,9 +489,9 @@ export function CustomerManagementPage() {
                       Upload
                     </button>
                   </form>
+                  {profile.documents.length === 0 && <p className="text-sm text-neutral-400">No documents yet.</p>}
                   <ul className="space-y-2">
-                    {profile.documents.length === 0 && <li className="text-sm text-neutral-400">No documents yet.</li>}
-                    {profile.documents.map((d) => (
+                    {profile.documents.slice((docsPage - 1) * PAGE_SIZE, docsPage * PAGE_SIZE).map((d) => (
                       <li key={d.id} className="rounded-lg border border-[#24292E] bg-[#1C2126] px-4 py-3 text-sm text-neutral-300">
                         <p className="font-medium text-white">{d.title}</p>
                         <p className="text-xs text-neutral-500">
@@ -428,33 +500,87 @@ export function CustomerManagementPage() {
                       </li>
                     ))}
                   </ul>
+                  {profile.documents.length > PAGE_SIZE && (
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-neutral-500">
+                        Page {docsPage} of {Math.ceil(profile.documents.length / PAGE_SIZE)} ({profile.documents.length} total)
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={docsPage === 1}
+                          onClick={() => setDocsPage((p) => p - 1)}
+                          className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          disabled={docsPage >= Math.ceil(profile.documents.length / PAGE_SIZE)}
+                          onClick={() => setDocsPage((p) => p + 1)}
+                          className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {tab === "transactions" && (
-                <div className="overflow-hidden rounded-lg border border-[#24292E]">
-                  <div className="grid grid-cols-12 bg-[#1C2126] px-3 py-2 text-[11px] uppercase tracking-wide text-neutral-500">
-                    <div className="col-span-3">Invoice ID</div>
-                    <div className="col-span-2">Mode</div>
-                    <div className="col-span-2">Amount</div>
-                    <div className="col-span-3">Next billing</div>
-                    <div className="col-span-2">Status</div>
-                  </div>
-                  {profile.transactions.length === 0 && <p className="px-3 py-3 text-sm text-neutral-400">No transactions.</p>}
-                  {profile.transactions.map((tx) => (
-                    <div key={tx.id} className="grid grid-cols-12 border-t border-[#24292E] px-3 py-2 text-xs text-neutral-300">
-                      <div className="col-span-3 font-mono text-white/80">{tx.invoiceNumber}</div>
-                      <div className="col-span-2">{tx.paymentMode}</div>
-                      <div className="col-span-2">{money(tx.amountCents, tx.currency)}</div>
-                      <div className="col-span-3">
-                        {tx.nextBillingAmountCents == null ? "—" : money(tx.nextBillingAmountCents, tx.currency)}
-                      </div>
-                      <div className="col-span-2 capitalize">{tx.status.replace("_", " ")}</div>
+                <div className="space-y-3">
+                  <div className="overflow-hidden rounded-lg border border-[#24292E]">
+                    <div className="grid grid-cols-12 bg-[#1C2126] px-3 py-2 text-[11px] uppercase tracking-wide text-neutral-500">
+                      <div className="col-span-3">Invoice ID</div>
+                      <div className="col-span-2">Mode</div>
+                      <div className="col-span-2">Amount</div>
+                      <div className="col-span-3">Next billing</div>
+                      <div className="col-span-2">Status</div>
                     </div>
-                  ))}
+                    {profile.transactions.length === 0 && <p className="px-3 py-3 text-sm text-neutral-400">No transactions.</p>}
+                    {profile.transactions.slice((txPage - 1) * PAGE_SIZE, txPage * PAGE_SIZE).map((tx) => (
+                      <div key={tx.id} className="grid grid-cols-12 border-t border-[#24292E] px-3 py-2 text-xs text-neutral-300">
+                        <div className="col-span-3 font-mono text-white/80">{tx.invoiceNumber}</div>
+                        <div className="col-span-2">{tx.paymentMode}</div>
+                        <div className="col-span-2">{money(tx.amountCents, tx.currency)}</div>
+                        <div className="col-span-3">
+                          {tx.nextBillingAmountCents == null ? "—" : money(tx.nextBillingAmountCents, tx.currency)}
+                        </div>
+                        <div className="col-span-2 capitalize">{tx.status.replace("_", " ")}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {profile.transactions.length > PAGE_SIZE && (
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-neutral-500">
+                        Page {txPage} of {Math.ceil(profile.transactions.length / PAGE_SIZE)} ({profile.transactions.length} total)
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={txPage === 1}
+                          onClick={() => setTxPage((p) => p - 1)}
+                          className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          disabled={txPage >= Math.ceil(profile.transactions.length / PAGE_SIZE)}
+                          onClick={() => setTxPage((p) => p + 1)}
+                          className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
+              </>
+            )}
           </section>
         </div>
       )}
