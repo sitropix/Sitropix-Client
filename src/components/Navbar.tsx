@@ -85,6 +85,8 @@ export function Navbar() {
   const { isAdmin } = useAuthz();
   const [open, setOpen] = useState(false);
   const isHomeScreen = pathname === "/";
+  /** Public marketing landing: no search, no Home nav (Sign in / Sign up only). */
+  const isPublicLanding = isHomeScreen && !isAuthenticated;
 
   const displayName = loading
     ? "…"
@@ -99,16 +101,18 @@ export function Navbar() {
           <Logo />
         </Link>
 
-        {!isAuthenticated && (
+        {!isAuthenticated && !isPublicLanding && (
           <div className="hidden min-w-0 max-w-md flex-1 px-2 md:block">
             <SmartSearch compact />
           </div>
         )}
 
-        <nav className="hidden min-w-0 items-center gap-1 md:flex" aria-label="Primary">
-          <NavLink to="/" end className={navLinkClass}>
-            Home
-          </NavLink>
+        <nav className="hidden min-w-0 flex-1 items-center justify-end gap-1 md:flex" aria-label="Primary">
+          {!isPublicLanding && (
+            <NavLink to="/" end className={navLinkClass}>
+              Home
+            </NavLink>
+          )}
           {isAuthenticated && !isAdmin && (
             <>
               <NavLink to="/subscription-management" className={navLinkClass}>
@@ -209,15 +213,17 @@ export function Navbar() {
           id="mobile-nav"
           className="border-t border-white/10 bg-canvas/95 px-4 py-4 backdrop-blur-xl md:hidden"
         >
-          {!isAuthenticated && (
+          {!isAuthenticated && !isPublicLanding && (
             <div className="mb-4">
               <SmartSearch compact />
             </div>
           )}
           <nav className="flex flex-col gap-1" aria-label="Mobile primary">
-            <NavLink to="/" end className={navLinkClass} onClick={() => setOpen(false)}>
-              Home
-            </NavLink>
+            {!isPublicLanding && (
+              <NavLink to="/" end className={navLinkClass} onClick={() => setOpen(false)}>
+                Home
+              </NavLink>
+            )}
             {isAuthenticated && (
               <>
                 {!isAdmin && (

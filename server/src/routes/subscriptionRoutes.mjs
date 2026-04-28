@@ -1049,6 +1049,20 @@ adminRouter.get("/transactions", async (_req, res) => {
   return res.json(await prisma.payment.findMany({ orderBy: { createdAt: "desc" }, take: 200 }));
 });
 
+adminRouter.post("/customers/:id/sync-stripe", async (req, res) => {
+  const userId = String(req.params.id);
+  try {
+    const out = await syncSubscriptionFromStripeForUserId(userId);
+    return res.json(out);
+  } catch (e) {
+    const msg = e?.message ?? String(e);
+    if (msg.includes("stripe_not_configured")) {
+      return res.json({ ok: false, reason: "stripe_not_configured" });
+    }
+    return res.json({ ok: false, reason: "sync_failed", error: msg });
+  }
+});
+
 adminRouter.post("/payments/:id/retry", async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const payment = await prisma.payment.findUnique({ where: { id: req.params.id } });
@@ -1101,14 +1115,22 @@ adminRouter.delete("/email-settings", async (_req, res) => {
 
 adminRouter.post("/email-settings/test", validate(emailTestSchema), async (req, res) => {
   const to = req.validatedBody.to ?? req.auth.email;
-  await sendTransactionalEmail({
+  const out = await sendTransactionalEmail({
     to,
     subject: "Sitropix portal — email test",
     html: "<p>This is a test message from the admin email settings screen.</p>",
     template: "admin_email_test",
     idempotencyKey: `admin_email_test_${req.auth.userId}_${Date.now()}`,
   });
-  return res.json({ ok: true, to });
+  if (!out?.sent) {
+    return res.status(502).json({
+      error: "email_delivery_failed",
+      message: "Test email could not be delivered. Check provider credentials, sender verification, and server logs.",
+      to,
+      used: out?.used ?? "unknown",
+    });
+  }
+  return res.json({ ok: true, to, used: out.used });
 });
 
 adminRouter.get("/system-config", async (req, res) => {

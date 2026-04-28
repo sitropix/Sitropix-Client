@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   clearAdminEmailSettings,
   fetchAdminEmailSettings,
@@ -41,6 +42,10 @@ export function EmailSettingsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [noModuleAccess, setNoModuleAccess] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
   async function load() {
     setLoading(!payload);
@@ -122,31 +127,32 @@ export function EmailSettingsPage() {
   async function onSave(e: FormEvent) {
     e.preventDefault();
     setNotice(null);
+    const secrets = buildSecrets();
+    if (provider !== "console" && provider !== "smtp" && Object.keys(secrets).length === 0) {
+      const masks = payload?.secretMasks ?? {};
+      const hasAny = Object.keys(masks).some((k) => masks[k] && !String(masks[k]).startsWith("_"));
+      if (!hasAny) {
+        setNotice("Enter the API key (or other secret) for this provider, or it cannot send mail.");
+        return;
+      }
+    }
+    if (provider === "smtp" && (!smtpHost.trim() || !smtpUser.trim())) {
+      setNotice("SMTP requires host and username.");
+      return;
+    }
+    if (provider === "smtp" && !smtpPassword.trim()) {
+      const m = payload?.secretMasks?.smtpPassword;
+      if (!m) {
+        setNotice("SMTP requires a password (or leave blank only when updating an existing password).");
+        return;
+      }
+    }
+    if (provider === "mailgun" && !mailgunDomain.trim()) {
+      setNotice("Mailgun requires sending domain.");
+      return;
+    }
+    setSaving(true);
     try {
-      const secrets = buildSecrets();
-      if (provider !== "console" && provider !== "smtp" && Object.keys(secrets).length === 0) {
-        const masks = payload?.secretMasks ?? {};
-        const hasAny = Object.keys(masks).some((k) => masks[k] && !String(masks[k]).startsWith("_"));
-        if (!hasAny) {
-          setNotice("Enter the API key (or other secret) for this provider, or it cannot send mail.");
-          return;
-        }
-      }
-      if (provider === "smtp" && (!smtpHost.trim() || !smtpUser.trim())) {
-        setNotice("SMTP requires host and username.");
-        return;
-      }
-      if (provider === "smtp" && !smtpPassword.trim()) {
-        const m = payload?.secretMasks?.smtpPassword;
-        if (!m) {
-          setNotice("SMTP requires a password (or leave blank only when updating an existing password).");
-          return;
-        }
-      }
-      if (provider === "mailgun" && !mailgunDomain.trim()) {
-        setNotice("Mailgun requires sending domain.");
-        return;
-      }
       await saveAdminEmailSettings({
         provider,
         fromEmail: fromEmail.trim(),
@@ -169,24 +175,36 @@ export function EmailSettingsPage() {
       } else {
         setNotice("Save failed");
       }
+    } finally {
+      setSaving(false);
     }
   }
 
   async function onTest() {
     setNotice(null);
+    setTesting(true);
     try {
       const r = await postAdminEmailTest(testTo.trim() || undefined);
       setNotice(`Test sent to ${r.to}.`);
     } catch {
       setNotice("Test send failed. Check provider settings and server logs.");
+    } finally {
+      setTesting(false);
     }
   }
 
   async function onClearDb() {
-    if (!window.confirm("Remove database email settings and fall back to environment variables?")) return;
-    await clearAdminEmailSettings();
-    await load();
-    setNotice("Database email settings removed. Using .env until you save again.");
+    setClearing(true);
+    try {
+      await clearAdminEmailSettings();
+      await load();
+      setNotice("Database email settings removed. Using .env until you save again.");
+    } catch {
+      setNotice("Could not clear settings.");
+    } finally {
+      setClearing(false);
+      setClearConfirmOpen(false);
+    }
   }
 
   return (
@@ -350,21 +368,29 @@ export function EmailSettingsPage() {
           )}
 
           <div className="flex flex-wrap gap-2">
-            <button type="submit" className="rounded-full bg-brand-lime px-6 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim">
-              Save settings
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex items-center gap-2 rounded-full bg-brand-lime px-6 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim disabled:opacity-50"
+            >
+              {saving && <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />}
+              {saving ? "Saving..." : "Save settings"}
             </button>
             <button
               type="button"
+              disabled={testing}
               onClick={() => void onTest()}
-              className="rounded-full border border-white/15 px-6 py-2.5 text-sm font-medium text-white transition hover:border-brand-lime/35"
+              className="flex items-center gap-2 rounded-full border border-white/15 px-6 py-2.5 text-sm font-medium text-white transition hover:border-brand-lime/35 disabled:opacity-50"
             >
-              Send test email
+              {testing && <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />}
+              {testing ? "Sending..." : "Send test email"}
             </button>
             {payload.configuredInDatabase && (
               <button
                 type="button"
-                onClick={() => void onClearDb()}
-                className="rounded-full border border-rose-500/30 px-6 py-2.5 text-sm font-medium text-rose-100 transition hover:bg-rose-500/10"
+                disabled={clearing}
+                onClick={() => setClearConfirmOpen(true)}
+                className="flex items-center gap-2 rounded-full border border-rose-500/30 px-6 py-2.5 text-sm font-medium text-rose-100 transition hover:bg-rose-500/10 disabled:opacity-50"
               >
                 Clear DB settings
               </button>
@@ -382,6 +408,17 @@ export function EmailSettingsPage() {
           </div>
         </form>
       )}
+
+      <ConfirmDialog
+        open={clearConfirmOpen}
+        title="Clear database settings"
+        description="Remove email settings from database and fall back to environment variables? This cannot be undone."
+        confirmLabel="Clear settings"
+        variant="danger"
+        loading={clearing}
+        onConfirm={() => void onClearDb()}
+        onCancel={() => setClearConfirmOpen(false)}
+      />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { RichTextContent } from "@/components/RichTextContent";
 import { Skeleton } from "@/components/Skeleton";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ApiRequestError } from "@/services/http";
@@ -170,7 +171,7 @@ export function TicketDetailPage() {
                 {formatWhen(m.createdAt)}
               </time>
             </div>
-            <p className="mt-3 whitespace-pre-wrap text-sm text-ink-muted">{m.body}</p>
+            <RichTextContent content={m.body} className="mt-3 text-sm text-ink-muted" />
           </article>
         ))}
       </section>

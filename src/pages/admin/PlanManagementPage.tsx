@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { isModuleForbiddenError } from "@/services/http";
 import { createAdminPlan, deleteAdminPlan, fetchAdminPlans, updateAdminPlan } from "@/services/subscriptionsApi";
 import type { Plan } from "@/types/subscription";
@@ -22,6 +23,9 @@ export function PlanManagementPage() {
   const [eTrial, setETrial] = useState("14");
   const [eActive, setEActive] = useState(true);
   const [noModuleAccess, setNoModuleAccess] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; plan: Plan | null }>({ open: false, plan: null });
 
   async function load() {
     setNoModuleAccess(false);
@@ -59,21 +63,42 @@ export function PlanManagementPage() {
   async function saveEdit(e: FormEvent) {
     e.preventDefault();
     if (!editingId) return;
-    const features = eFeatures
-      .split(/\n|,/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    await updateAdminPlan(editingId, {
-      name: eName.trim(),
-      description: eDesc,
-      priceMonthlyCents: Math.round(Number(eMonthly) * 100),
-      priceYearlyCents: Math.round(Number(eYearly) * 100),
-      features,
-      trialDays: Math.max(0, parseInt(eTrial, 10) || 0),
-      isActive: eActive,
-    });
-    setEditingId(null);
-    await load();
+    setSaving(true);
+    try {
+      const features = eFeatures
+        .split(/\n|,/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      await updateAdminPlan(editingId, {
+        name: eName.trim(),
+        description: eDesc,
+        priceMonthlyCents: Math.round(Number(eMonthly) * 100),
+        priceYearlyCents: Math.round(Number(eYearly) * 100),
+        features,
+        trialDays: Math.max(0, parseInt(eTrial, 10) || 0),
+        isActive: eActive,
+      });
+      setEditingId(null);
+      await load();
+    } catch {
+      setNotice("Could not save plan changes.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeletePlan() {
+    if (!deleteConfirm.plan) return;
+    setDeletingPlanId(deleteConfirm.plan.id);
+    try {
+      await deleteAdminPlan(deleteConfirm.plan.id);
+      setDeleteConfirm({ open: false, plan: null });
+      await load();
+    } catch {
+      setNotice("Could not delete plan.");
+    } finally {
+      setDeletingPlanId(null);
+    }
   }
 
   async function addPlan() {
@@ -197,10 +222,20 @@ export function PlanManagementPage() {
                   <span className="text-xs text-ink-muted">trial days</span>
                 </div>
                 <div className="flex gap-2">
-                  <button type="submit" className="rounded-full bg-brand-lime px-4 py-2 text-xs font-semibold text-canvas">
-                    Save
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="flex items-center gap-2 rounded-full bg-brand-lime px-4 py-2 text-xs font-semibold text-canvas disabled:opacity-50"
+                  >
+                    {saving && <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />}
+                    {saving ? "Saving..." : "Save"}
                   </button>
-                  <button type="button" onClick={() => setEditingId(null)} className="rounded-full border border-white/15 px-4 py-2 text-xs text-white">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => setEditingId(null)}
+                    className="rounded-full border border-white/15 px-4 py-2 text-xs text-white disabled:opacity-50"
+                  >
                     Cancel
                   </button>
                 </div>
@@ -225,9 +260,13 @@ export function PlanManagementPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => void deleteAdminPlan(plan.id).then(load)}
-                      className="rounded-lg border border-rose-500/30 px-3 py-1.5 text-xs text-rose-100 transition hover:bg-rose-500/20"
+                      disabled={deletingPlanId === plan.id}
+                      onClick={() => setDeleteConfirm({ open: true, plan })}
+                      className="flex items-center gap-1 rounded-lg border border-rose-500/30 px-3 py-1.5 text-xs text-rose-100 transition hover:bg-rose-500/20 disabled:opacity-50"
                     >
+                      {deletingPlanId === plan.id && (
+                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                      )}
                       Delete
                     </button>
                   </div>
@@ -238,6 +277,22 @@ export function PlanManagementPage() {
           </article>
         ))}
       </section>
+
+      <ConfirmDialog
+        open={deleteConfirm.open}
+        title="Delete plan"
+        description={
+          <>
+            Are you sure you want to delete <span className="font-semibold text-white">{deleteConfirm.plan?.name}</span>?
+            This will remove the plan from the catalog. Existing subscriptions may be affected.
+          </>
+        }
+        confirmLabel="Delete plan"
+        variant="danger"
+        loading={deletingPlanId !== null}
+        onConfirm={() => void handleDeletePlan()}
+        onCancel={() => setDeleteConfirm({ open: false, plan: null })}
+      />
     </div>
   );
 }

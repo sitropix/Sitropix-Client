@@ -39,9 +39,35 @@ export function ForgotPasswordPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-full bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim disabled:opacity-60"
+            className="relative w-full rounded-full bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {submitting ? "Sending…" : "Send reset link"}
+            {submitting ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg
+                  className="h-4 w-4 animate-spin"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                Sending…
+              </span>
+            ) : (
+              "Send reset link"
+            )}
           </button>
         </form>
       )}

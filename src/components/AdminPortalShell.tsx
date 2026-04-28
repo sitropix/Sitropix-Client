@@ -128,10 +128,12 @@ function AdminProfileMenu() {
 }
 
 export function AdminPortalShell({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  const canManageTeamAccess = user?.role === "admin" || user?.role === "master_admin";
   const adminLinks = [
     { to: "/admin", label: "Dashboard", end: true },
     { to: "/admin/customers", label: "Customers" },
-    { to: "/admin/users", label: "Users" },
+    ...(canManageTeamAccess ? [{ to: "/admin/team-access", label: "Team Access" }] : []),
     { to: "/admin/plans", label: "Plans" },
     { to: "/admin/invites", label: "Invites" },
     { to: "/admin/forms", label: "Forms" },

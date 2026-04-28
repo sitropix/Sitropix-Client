@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { ConfirmDialog, DeleteConfirmDialog } from "@/components/ConfirmDialog";
 import { isModuleForbiddenError } from "@/services/http";
 import {
   adminTriggerPasswordReset,
@@ -12,11 +14,15 @@ import {
   fetchAdminSubscriptions,
   fetchAdminUsers,
   reactivateAdminCustomer,
+  syncAdminCustomerStripe,
   updateAdminSubscription,
 } from "@/services/subscriptionsApi";
 import type { AdminCustomerProfilePayload, AdminUserRow, Subscription } from "@/types/subscription";
 
 type DetailTab = "overview" | "tickets" | "documents" | "transactions";
+
+const PAGE_SIZE = 5;
+const CUSTOMERS_PAGE_SIZE = 10;
 
 function money(cents: number, currency = "USD") {
   return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(cents / 100);
@@ -35,12 +41,26 @@ export function CustomerManagementPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<AdminCustomerProfilePayload | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [tab, setTab] = useState<DetailTab>("overview");
   const [deactivateReason, setDeactivateReason] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadTitle, setUploadTitle] = useState("");
   const [uploadCategory, setUploadCategory] = useState("General");
   const [noModuleAccess, setNoModuleAccess] = useState(false);
+  const [ticketsPage, setTicketsPage] = useState(1);
+  const [docsPage, setDocsPage] = useState(1);
+  const [txPage, setTxPage] = useState(1);
+  const [customersPage, setCustomersPage] = useState(1);
+  const [deleteDialog, setDeleteDialog] = useState<{
+    open: boolean;
+    email: string;
+    userId: string;
+    counts: { subscriptions: number; payments: number; tickets: number; documents: number };
+  } | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deactivateDialog, setDeactivateDialog] = useState<{ open: boolean; userId: string; userName: string; isActive: boolean } | null>(null);
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
 
   async function load() {
     setNoModuleAccess(false);
@@ -65,8 +85,13 @@ export function CustomerManagementPage() {
   useEffect(() => {
     if (!selectedUserId) {
       setProfile(null);
+      setProfileLoading(false);
       return;
     }
+    setProfileLoading(true);
+    setTicketsPage(1);
+    setDocsPage(1);
+    setTxPage(1);
     void fetchAdminCustomerProfile(selectedUserId)
       .then(setProfile)
       .catch((err) => {
@@ -75,7 +100,8 @@ export function CustomerManagementPage() {
           return;
         }
         setNotice("Could not load customer details.");
-      });
+      })
+      .finally(() => setProfileLoading(false));
   }, [selectedUserId]);
 
   if (noModuleAccess) {
@@ -90,8 +116,57 @@ export function CustomerManagementPage() {
     });
   }, [users, subs, filter]);
 
+  const totalCustomersPages = Math.ceil(filteredUsers.length / CUSTOMERS_PAGE_SIZE);
+  const paginatedUsers = filteredUsers.slice(
+    (customersPage - 1) * CUSTOMERS_PAGE_SIZE,
+    customersPage * CUSTOMERS_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setCustomersPage(1);
+  }, [filter]);
+
   const activeCount = subs.filter((s) => s.status === "active").length;
   const totalMrr = subs.reduce((sum, s) => sum + (s.plan?.priceMonthlyCents ?? 0), 0);
+
+  async function handleDeleteCustomer(confirmEmail: string) {
+    if (!deleteDialog) return;
+    setDeleteLoading(true);
+    try {
+      await deleteAdminCustomer(deleteDialog.userId, confirmEmail);
+      setNotice("Customer deleted.");
+      setSelectedUserId(null);
+      setDeleteDialog(null);
+      await load();
+    } catch {
+      setNotice("Delete failed. Make sure the email matches exactly.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
+  async function handleDeactivateReactivate() {
+    if (!deactivateDialog) return;
+    setActionLoading((prev) => ({ ...prev, [deactivateDialog.userId]: true }));
+    try {
+      if (deactivateDialog.isActive) {
+        await deactivateAdminCustomer(deactivateDialog.userId, deactivateReason);
+        setNotice("Customer deactivated.");
+      } else {
+        await reactivateAdminCustomer(deactivateDialog.userId);
+        setNotice("Customer reactivated.");
+      }
+      await load();
+      if (selectedUserId === deactivateDialog.userId) {
+        setProfile(await fetchAdminCustomerProfile(deactivateDialog.userId));
+      }
+      setDeactivateDialog(null);
+    } catch {
+      setNotice(deactivateDialog.isActive ? "Could not deactivate customer." : "Could not reactivate customer.");
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [deactivateDialog.userId]: false }));
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -139,8 +214,12 @@ export function CustomerManagementPage() {
           <div className="col-span-2">Status</div>
           <div className="col-span-4 text-right">Actions</div>
         </div>
-        {filteredUsers.map((u) => {
+        {paginatedUsers.length === 0 && (
+          <p className="px-4 py-6 text-sm text-neutral-400">No customers found.</p>
+        )}
+        {paginatedUsers.map((u) => {
           const subRow = subs.find((s) => s.userId === u.id);
+          const isLoading = actionLoading[u.id];
           return (
             <article
               key={u.id}
@@ -168,39 +247,60 @@ export function CustomerManagementPage() {
               <div className="col-span-4 flex flex-wrap justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() =>
+                  disabled={isLoading}
+                  onClick={() => {
+                    setActionLoading((prev) => ({ ...prev, [u.id]: true }));
                     void adminTriggerPasswordReset(u.id)
                       .then(() => setNotice(`Password reset email queued for ${u.email}.`))
                       .catch(() => setNotice("Could not send reset email."))
-                  }
+                      .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
+                  }}
                   onClickCapture={(e) => e.stopPropagation()}
-                  className="rounded border border-[#24292E] bg-[#1C2126] px-2.5 py-1 text-xs text-white transition hover:border-brand-lime/35"
+                  className="rounded border border-[#24292E] bg-[#1C2126] px-2.5 py-1 text-xs text-white transition hover:border-brand-lime/35 disabled:opacity-50"
                 >
-                  Reset Password
+                  {isLoading ? "..." : "Reset Password"}
                 </button>
                 {subRow && (
                   <>
                     <button
                       type="button"
-                      onClick={() => void updateAdminSubscription(subRow.id, { status: "active" }).then(load)}
+                      disabled={isLoading}
+                      onClick={() => {
+                        setActionLoading((prev) => ({ ...prev, [u.id]: true }));
+                        void updateAdminSubscription(subRow.id, { status: "active" })
+                          .then(load)
+                          .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
+                      }}
                       onClickCapture={(e) => e.stopPropagation()}
-                      className="rounded border border-[#24292E] bg-[#1C2126] px-2.5 py-1 text-xs text-white"
+                      className="rounded border border-[#24292E] bg-[#1C2126] px-2.5 py-1 text-xs text-white disabled:opacity-50"
                     >
                       Set active
                     </button>
                     <button
                       type="button"
-                      onClick={() => void updateAdminSubscription(subRow.id, { status: "canceled" }).then(load)}
+                      disabled={isLoading}
+                      onClick={() => {
+                        setActionLoading((prev) => ({ ...prev, [u.id]: true }));
+                        void updateAdminSubscription(subRow.id, { status: "canceled" })
+                          .then(load)
+                          .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
+                      }}
                       onClickCapture={(e) => e.stopPropagation()}
-                      className="rounded border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-100"
+                      className="rounded border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-100 disabled:opacity-50"
                     >
                       Set canceled
                     </button>
                     <button
                       type="button"
-                      onClick={() => void updateAdminSubscription(subRow.id, { extendDays: 7 }).then(load)}
+                      disabled={isLoading}
+                      onClick={() => {
+                        setActionLoading((prev) => ({ ...prev, [u.id]: true }));
+                        void updateAdminSubscription(subRow.id, { extendDays: 7 })
+                          .then(load)
+                          .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
+                      }}
                       onClickCapture={(e) => e.stopPropagation()}
-                      className="rounded border border-brand-lime/40 bg-brand-lime/5 px-2.5 py-1 text-xs text-brand-lime"
+                      className="rounded border border-brand-lime/40 bg-brand-lime/5 px-2.5 py-1 text-xs text-brand-lime disabled:opacity-50"
                     >
                       Extend +7d
                     </button>
@@ -210,9 +310,34 @@ export function CustomerManagementPage() {
             </article>
           );
         })}
+        {filteredUsers.length > CUSTOMERS_PAGE_SIZE && (
+          <div className="flex items-center justify-between border-t border-[#24292E] px-4 py-3">
+            <p className="text-xs text-neutral-500">
+              Page {customersPage} of {totalCustomersPages} ({filteredUsers.length} total)
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={customersPage === 1}
+                onClick={() => setCustomersPage((p) => p - 1)}
+                className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={customersPage >= totalCustomersPages}
+                onClick={() => setCustomersPage((p) => p + 1)}
+                className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
-      {selectedUserId && profile && (
+      {selectedUserId && (
         <div
           className="fixed inset-0 z-50 flex items-start justify-center bg-black/65 p-4 pt-16 sm:p-6 sm:pt-20"
           onClick={() => setSelectedUserId(null)}
@@ -224,6 +349,16 @@ export function CustomerManagementPage() {
             onClick={(e) => e.stopPropagation()}
             className="max-h-[88vh] w-full max-w-5xl overflow-y-auto rounded-xl border border-[#24292E] bg-[#15191C] p-5 shadow-2xl"
           >
+            {profileLoading && (
+              <div className="flex items-center justify-center py-16">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand-lime border-t-transparent" />
+                  <p className="text-sm text-neutral-400">Loading customer data...</p>
+                </div>
+              </div>
+            )}
+            {!profileLoading && profile && (
+              <>
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#24292E] pb-4">
               <div>
                 <h2 className="text-xl font-bold text-white">{profile.overview.user.name}</h2>
@@ -292,57 +427,55 @@ export function CustomerManagementPage() {
                       {profile.overview.user.isActive ? (
                         <button
                           type="button"
+                          disabled={actionLoading[profile.overview.user.id]}
                           onClick={() =>
-                            void deactivateAdminCustomer(profile.overview.user.id, deactivateReason)
-                              .then(async () => {
-                                setNotice("Customer deactivated.");
-                                await load();
-                                setProfile(await fetchAdminCustomerProfile(profile.overview.user.id));
-                              })
-                              .catch(() => setNotice("Could not deactivate customer."))
+                            setDeactivateDialog({
+                              open: true,
+                              userId: profile.overview.user.id,
+                              userName: profile.overview.user.name,
+                              isActive: true,
+                            })
                           }
-                          className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-100"
+                          className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-100 disabled:opacity-50"
                         >
-                          Deactivate
+                          {actionLoading[profile.overview.user.id] ? "..." : "Deactivate"}
                         </button>
                       ) : (
                         <button
                           type="button"
+                          disabled={actionLoading[profile.overview.user.id]}
                           onClick={() =>
-                            void reactivateAdminCustomer(profile.overview.user.id)
-                              .then(async () => {
-                                setNotice("Customer reactivated.");
-                                await load();
-                                setProfile(await fetchAdminCustomerProfile(profile.overview.user.id));
-                              })
-                              .catch(() => setNotice("Could not reactivate customer."))
+                            setDeactivateDialog({
+                              open: true,
+                              userId: profile.overview.user.id,
+                              userName: profile.overview.user.name,
+                              isActive: false,
+                            })
                           }
-                          className="rounded border border-brand-lime/35 bg-brand-lime/10 px-3 py-1.5 text-xs text-brand-lime"
+                          className="rounded border border-brand-lime/35 bg-brand-lime/10 px-3 py-1.5 text-xs text-brand-lime disabled:opacity-50"
                         >
-                          Reactivate
+                          {actionLoading[profile.overview.user.id] ? "..." : "Reactivate"}
                         </button>
                       )}
                       <button
                         type="button"
+                        disabled={deleteLoading}
                         onClick={() =>
                           void (async () => {
                             try {
                               const preview = await fetchAdminCustomerDeletePreview(profile.overview.user.id);
-                              const ok = window.confirm(
-                                `Delete ${preview.email}?\nSubscriptions: ${preview.counts.subscriptions}\nPayments: ${preview.counts.payments}\nTickets: ${preview.counts.tickets}\nDocuments: ${preview.counts.documents}\n\nThis cannot be undone.`,
-                              );
-                              if (!ok) return;
-                              const entered = window.prompt(`Type the email to confirm delete:\n${preview.email}`) ?? "";
-                              await deleteAdminCustomer(profile.overview.user.id, entered.trim());
-                              setNotice("Customer deleted.");
-                              setSelectedUserId(null);
-                              await load();
+                              setDeleteDialog({
+                                open: true,
+                                email: preview.email,
+                                userId: profile.overview.user.id,
+                                counts: preview.counts,
+                              });
                             } catch {
-                              setNotice("Delete canceled or failed.");
+                              setNotice("Could not load delete preview.");
                             }
                           })()
                         }
-                        className="rounded border border-rose-500/35 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-100"
+                        className="rounded border border-rose-500/35 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-100 disabled:opacity-50"
                       >
                         Delete customer
                       </button>
@@ -358,20 +491,68 @@ export function CustomerManagementPage() {
               )}
 
               {tab === "tickets" && (
-                <ul className="space-y-2">
-                  {profile.tickets.length === 0 && <li className="text-sm text-neutral-400">No tickets yet.</li>}
-                  {profile.tickets.map((t) => (
-                    <li key={t.id} className="rounded-lg border border-[#24292E] bg-[#1C2126] px-4 py-3 text-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="font-medium text-white">{t.subject}</p>
-                        <p className="text-xs text-neutral-400">{t.status}</p>
-                      </div>
-                      <p className="mt-1 text-xs text-neutral-500">
-                        Updated {fmtDate(t.updatedAt)} · {t.department} · {t.threadCount} messages
+                <div className="space-y-3">
+                  {profile.tickets.length === 0 && <p className="text-sm text-neutral-400">No tickets yet.</p>}
+                  <ul className="space-y-2">
+                    {profile.tickets.slice((ticketsPage - 1) * PAGE_SIZE, ticketsPage * PAGE_SIZE).map((t) => (
+                      <li key={t.id} className="rounded-lg border border-[#24292E] bg-[#1C2126] px-4 py-3 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-white">{t.subject}</p>
+                            <p className="mt-1 text-xs text-neutral-500">
+                              Updated {fmtDate(t.updatedAt)} · {t.department} · {t.threadCount} messages
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                                t.status === "open"
+                                  ? "bg-amber-500/20 text-amber-300"
+                                  : t.status === "in_progress"
+                                    ? "bg-blue-500/20 text-blue-300"
+                                    : "bg-green-500/20 text-green-300"
+                              }`}
+                            >
+                              {t.status.replace("_", " ")}
+                            </span>
+                            <Link
+                              to={`/admin/tickets/${t.id}`}
+                              className="rounded border border-brand-lime/40 bg-brand-lime/10 px-3 py-1.5 text-xs font-medium text-brand-lime transition hover:bg-brand-lime/20"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Open
+                            </Link>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  {profile.tickets.length > PAGE_SIZE && (
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-neutral-500">
+                        Page {ticketsPage} of {Math.ceil(profile.tickets.length / PAGE_SIZE)} ({profile.tickets.length} total)
                       </p>
-                    </li>
-                  ))}
-                </ul>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={ticketsPage === 1}
+                          onClick={() => setTicketsPage((p) => p - 1)}
+                          className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          disabled={ticketsPage >= Math.ceil(profile.tickets.length / PAGE_SIZE)}
+                          onClick={() => setTicketsPage((p) => p + 1)}
+                          className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
               {tab === "documents" && (
@@ -392,6 +573,7 @@ export function CustomerManagementPage() {
                           setUploadTitle("");
                           setNotice("Document uploaded.");
                           setProfile(await fetchAdminCustomerProfile(selectedUserId));
+                          setDocsPage(1);
                         })
                         .catch(() => setNotice("Could not upload document."));
                     }}
@@ -417,9 +599,9 @@ export function CustomerManagementPage() {
                       Upload
                     </button>
                   </form>
+                  {profile.documents.length === 0 && <p className="text-sm text-neutral-400">No documents yet.</p>}
                   <ul className="space-y-2">
-                    {profile.documents.length === 0 && <li className="text-sm text-neutral-400">No documents yet.</li>}
-                    {profile.documents.map((d) => (
+                    {profile.documents.slice((docsPage - 1) * PAGE_SIZE, docsPage * PAGE_SIZE).map((d) => (
                       <li key={d.id} className="rounded-lg border border-[#24292E] bg-[#1C2126] px-4 py-3 text-sm text-neutral-300">
                         <p className="font-medium text-white">{d.title}</p>
                         <p className="text-xs text-neutral-500">
@@ -428,36 +610,166 @@ export function CustomerManagementPage() {
                       </li>
                     ))}
                   </ul>
+                  {profile.documents.length > PAGE_SIZE && (
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-neutral-500">
+                        Page {docsPage} of {Math.ceil(profile.documents.length / PAGE_SIZE)} ({profile.documents.length} total)
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={docsPage === 1}
+                          onClick={() => setDocsPage((p) => p - 1)}
+                          className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          disabled={docsPage >= Math.ceil(profile.documents.length / PAGE_SIZE)}
+                          onClick={() => setDocsPage((p) => p + 1)}
+                          className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {tab === "transactions" && (
-                <div className="overflow-hidden rounded-lg border border-[#24292E]">
-                  <div className="grid grid-cols-12 bg-[#1C2126] px-3 py-2 text-[11px] uppercase tracking-wide text-neutral-500">
-                    <div className="col-span-3">Invoice ID</div>
-                    <div className="col-span-2">Mode</div>
-                    <div className="col-span-2">Amount</div>
-                    <div className="col-span-3">Next billing</div>
-                    <div className="col-span-2">Status</div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-neutral-500">
+                      {profile.transactions.length} transaction{profile.transactions.length !== 1 ? "s" : ""}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={actionLoading[`sync_${profile.overview.user.id}`]}
+                      onClick={async () => {
+                        setActionLoading((prev) => ({ ...prev, [`sync_${profile.overview.user.id}`]: true }));
+                        try {
+                          const result = await syncAdminCustomerStripe(profile.overview.user.id);
+                          if (result.ok) {
+                            setNotice("Synced from Stripe successfully.");
+                            setProfile(await fetchAdminCustomerProfile(profile.overview.user.id));
+                          } else {
+                            setNotice(`Sync failed: ${result.reason || "Unknown error"}`);
+                          }
+                        } catch {
+                          setNotice("Could not sync from Stripe.");
+                        } finally {
+                          setActionLoading((prev) => ({ ...prev, [`sync_${profile.overview.user.id}`]: false }));
+                        }
+                      }}
+                      className="flex items-center gap-1.5 rounded border border-brand-lime/40 bg-brand-lime/10 px-3 py-1.5 text-xs font-medium text-brand-lime transition hover:bg-brand-lime/20 disabled:opacity-50"
+                    >
+                      {actionLoading[`sync_${profile.overview.user.id}`] ? (
+                        <>
+                          <span className="h-3 w-3 animate-spin rounded-full border-2 border-brand-lime border-t-transparent" />
+                          Syncing...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Sync from Stripe
+                        </>
+                      )}
+                    </button>
                   </div>
-                  {profile.transactions.length === 0 && <p className="px-3 py-3 text-sm text-neutral-400">No transactions.</p>}
-                  {profile.transactions.map((tx) => (
-                    <div key={tx.id} className="grid grid-cols-12 border-t border-[#24292E] px-3 py-2 text-xs text-neutral-300">
-                      <div className="col-span-3 font-mono text-white/80">{tx.invoiceNumber}</div>
-                      <div className="col-span-2">{tx.paymentMode}</div>
-                      <div className="col-span-2">{money(tx.amountCents, tx.currency)}</div>
-                      <div className="col-span-3">
-                        {tx.nextBillingAmountCents == null ? "—" : money(tx.nextBillingAmountCents, tx.currency)}
-                      </div>
-                      <div className="col-span-2 capitalize">{tx.status.replace("_", " ")}</div>
+                  <div className="overflow-hidden rounded-lg border border-[#24292E]">
+                    <div className="grid grid-cols-12 bg-[#1C2126] px-3 py-2 text-[11px] uppercase tracking-wide text-neutral-500">
+                      <div className="col-span-3">Invoice ID</div>
+                      <div className="col-span-2">Mode</div>
+                      <div className="col-span-2">Amount</div>
+                      <div className="col-span-3">Next billing</div>
+                      <div className="col-span-2">Status</div>
                     </div>
-                  ))}
+                    {profile.transactions.length === 0 && <p className="px-3 py-3 text-sm text-neutral-400">No transactions. Click "Sync from Stripe" to fetch invoices.</p>}
+                    {profile.transactions.slice((txPage - 1) * PAGE_SIZE, txPage * PAGE_SIZE).map((tx) => (
+                      <div key={tx.id} className="grid grid-cols-12 border-t border-[#24292E] px-3 py-2 text-xs text-neutral-300">
+                        <div className="col-span-3 font-mono text-white/80">{tx.invoiceNumber}</div>
+                        <div className="col-span-2">{tx.paymentMode}</div>
+                        <div className="col-span-2">{money(tx.amountCents, tx.currency)}</div>
+                        <div className="col-span-3">
+                          {tx.nextBillingAmountCents == null ? "—" : money(tx.nextBillingAmountCents, tx.currency)}
+                        </div>
+                        <div className="col-span-2 capitalize">{tx.status.replace("_", " ")}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {profile.transactions.length > PAGE_SIZE && (
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-neutral-500">
+                        Page {txPage} of {Math.ceil(profile.transactions.length / PAGE_SIZE)} ({profile.transactions.length} total)
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={txPage === 1}
+                          onClick={() => setTxPage((p) => p - 1)}
+                          className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          disabled={txPage >= Math.ceil(profile.transactions.length / PAGE_SIZE)}
+                          onClick={() => setTxPage((p) => p + 1)}
+                          className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
+              </>
+            )}
           </section>
         </div>
       )}
+
+      <DeleteConfirmDialog
+        open={deleteDialog?.open ?? false}
+        title="Delete customer"
+        itemName={deleteDialog?.email ?? ""}
+        itemType="customer"
+        details={
+          deleteDialog
+            ? [
+                { label: "Subscriptions", value: deleteDialog.counts.subscriptions },
+                { label: "Payments", value: deleteDialog.counts.payments },
+                { label: "Tickets", value: deleteDialog.counts.tickets },
+                { label: "Documents", value: deleteDialog.counts.documents },
+              ]
+            : []
+        }
+        confirmText={deleteDialog?.email}
+        loading={deleteLoading}
+        onConfirm={handleDeleteCustomer}
+        onCancel={() => setDeleteDialog(null)}
+      />
+
+      <ConfirmDialog
+        open={deactivateDialog?.open ?? false}
+        title={deactivateDialog?.isActive ? "Deactivate customer" : "Reactivate customer"}
+        description={
+          deactivateDialog?.isActive
+            ? `Are you sure you want to deactivate ${deactivateDialog?.userName}? They will lose access to the portal.`
+            : `Are you sure you want to reactivate ${deactivateDialog?.userName}? They will regain access to the portal.`
+        }
+        confirmLabel={deactivateDialog?.isActive ? "Deactivate" : "Reactivate"}
+        variant={deactivateDialog?.isActive ? "warning" : "default"}
+        loading={actionLoading[deactivateDialog?.userId ?? ""] ?? false}
+        onConfirm={handleDeactivateReactivate}
+        onCancel={() => setDeactivateDialog(null)}
+      />
     </div>
   );
 }

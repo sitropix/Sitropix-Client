@@ -12,7 +12,10 @@ import {
 } from "@/services/subscriptionsApi";
 import { ApiRequestError, isModuleForbiddenError } from "@/services/http";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import type { Role } from "@/types/subscription";
+
+const TEAM_PAGE_SIZE = 10;
 
 const modules = [
   "dashboard",
@@ -41,8 +44,7 @@ export function UserManagementPage() {
       moduleAccess?: Array<{ moduleKey: string; enabled: boolean }>;
       createdAt: string;
     }>;
-    invites: Array<{ id: string; email: string; createdAt: string; expiresAt: string; status: "invite_pending" }>;
-  }>({ users: [], invites: [] });
+  }>({ users: [] });
   const [notice, setNotice] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -52,6 +54,14 @@ export function UserManagementPage() {
   const [passwordDraft, setPasswordDraft] = useState("");
   const [savingAccessForUserId, setSavingAccessForUserId] = useState<string | null>(null);
   const [noModuleAccess, setNoModuleAccess] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
+  const [teamPage, setTeamPage] = useState(1);
+  const [deactivateConfirm, setDeactivateConfirm] = useState<{
+    open: boolean;
+    user: { id: string; name: string; email: string } | null;
+    isActive: boolean;
+  }>({ open: false, user: null, isActive: true });
 
   function toMessage(err: unknown, fallback: string) {
     if (err instanceof ApiRequestError) return err.message || fallback;
@@ -61,18 +71,18 @@ export function UserManagementPage() {
   async function load() {
     setNoModuleAccess(false);
     const next = await fetchAdminUserManagement();
-    setData(next);
+    setData({ users: next.users });
     updateCache({ userManagement: next });
   }
 
   useEffect(() => {
-    if (cache.userManagement) setData(cache.userManagement);
+    if (cache.userManagement) setData({ users: cache.userManagement.users });
     void load().catch((err) => {
       if (isModuleForbiddenError(err)) {
         setNoModuleAccess(true);
         return;
       }
-      setNotice("Could not load user management.");
+      setNotice("Could not load team access data.");
     });
   }, []);
 
@@ -109,16 +119,43 @@ export function UserManagementPage() {
     }
   }
 
+  const activeUsers = data.users.filter((u) => u.status === "active" || u.status === "deactivated");
+  const totalTeamPages = Math.ceil(activeUsers.length / TEAM_PAGE_SIZE);
+  const paginatedUsers = activeUsers.slice(
+    (teamPage - 1) * TEAM_PAGE_SIZE,
+    teamPage * TEAM_PAGE_SIZE
+  );
+
+  async function handleDeactivateReactivate() {
+    if (!deactivateConfirm.user) return;
+    setActionLoading((prev) => ({ ...prev, [deactivateConfirm.user!.id]: true }));
+    try {
+      if (deactivateConfirm.isActive) {
+        await deactivateAdminUser(deactivateConfirm.user.id);
+        setNotice(`${deactivateConfirm.user.name} has been deactivated.`);
+      } else {
+        await reactivateAdminUser(deactivateConfirm.user.id);
+        setNotice(`${deactivateConfirm.user.name} has been reactivated.`);
+      }
+      await load();
+      setDeactivateConfirm({ open: false, user: null, isActive: true });
+    } catch (err) {
+      setNotice(toMessage(err, deactivateConfirm.isActive ? "Could not deactivate user." : "Could not reactivate user."));
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [deactivateConfirm.user!.id]: false }));
+    }
+  }
+
   if (noModuleAccess) {
-    return <NoModuleAccess moduleLabel="User Management" />;
+    return <NoModuleAccess moduleLabel="Team Access" />;
   }
 
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="text-3xl font-black tracking-tight text-white">User Management</h1>
+        <h1 className="text-3xl font-black tracking-tight text-white">Team Access</h1>
         <p className="mt-2 text-sm text-neutral-400">
-          Manage invited users, access roles, deactivation, password actions, and module-level permissions.
+          Manage team members, access roles, deactivation, password actions, and module-level permissions.
         </p>
       </header>
 
@@ -151,7 +188,9 @@ export function UserManagementPage() {
           </select>
           <button
             type="button"
-            onClick={() =>
+            disabled={inviting}
+            onClick={() => {
+              setInviting(true);
               void inviteAdminUser({ name: name.trim(), email: email.trim(), role })
                 .then(async () => {
                   setNotice("Invite sent.");
@@ -160,24 +199,14 @@ export function UserManagementPage() {
                   await load();
                 })
                 .catch((err) => setNotice(toMessage(err, "Could not send invite.")))
-            }
-            className="rounded bg-brand-lime px-3 py-2 text-sm font-semibold text-canvas"
+                .finally(() => setInviting(false));
+            }}
+            className="flex items-center gap-2 rounded bg-brand-lime px-3 py-2 text-sm font-semibold text-canvas disabled:opacity-50"
           >
-            Send login details
+            {inviting && <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />}
+            {inviting ? "Sending..." : "Send login details"}
           </button>
         </div>
-      </section>
-
-      <section className="rounded-xl border border-[#24292E] bg-[#15191C] p-5">
-        <h2 className="text-sm font-semibold text-white">Invited users (pending)</h2>
-        <ul className="mt-3 space-y-2">
-          {data.invites.length === 0 && <li className="text-sm text-neutral-400">No pending invites.</li>}
-          {data.invites.map((inv) => (
-            <li key={inv.id} className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-neutral-300">
-              {inv.email} · Invite Pending · expires {new Date(inv.expiresAt).toLocaleDateString()}
-            </li>
-          ))}
-        </ul>
       </section>
 
       <section className="rounded-xl border border-[#24292E] bg-[#15191C]">
@@ -187,8 +216,12 @@ export function UserManagementPage() {
           <div className="col-span-2">Status</div>
           <div className="col-span-4 text-right">Actions</div>
         </div>
-        {data.users.map((u) => {
+        {paginatedUsers.length === 0 && (
+          <p className="px-4 py-6 text-sm text-neutral-400">No team members yet.</p>
+        )}
+        {paginatedUsers.map((u) => {
           const expanded = expandedUserId === u.id;
+          const isLoading = actionLoading[u.id];
           return (
             <div key={u.id} className="border-b border-[#24292E] last:border-b-0">
               <div className="grid grid-cols-12 items-center gap-2 px-4 py-3 text-sm">
@@ -199,12 +232,15 @@ export function UserManagementPage() {
                 <div className="col-span-2">
                   <select
                     value={u.role}
-                    onChange={(e) =>
+                    disabled={isLoading}
+                    onChange={(e) => {
+                      setActionLoading((prev) => ({ ...prev, [u.id]: true }));
                       void setAdminUserRole(u.id, e.target.value as Role)
                         .then(load)
                         .catch((err) => setNotice(toMessage(err, "Could not update role.")))
-                    }
-                    className="rounded border border-[#24292E] bg-[#1C2126] px-2 py-1 text-xs text-white"
+                        .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
+                    }}
+                    className="rounded border border-[#24292E] bg-[#1C2126] px-2 py-1 text-xs text-white disabled:opacity-50"
                   >
                     <option value="support">Support</option>
                     <option value="manager">Manager</option>
@@ -228,32 +264,37 @@ export function UserManagementPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() =>
+                    disabled={isLoading}
+                    onClick={() => {
+                      setActionLoading((prev) => ({ ...prev, [u.id]: true }));
                       void sendAdminUserResetLink(u.id)
                         .then(() => setNotice(`Password reset link sent to ${u.email}.`))
                         .catch((err) => setNotice(toMessage(err, "Could not send reset link.")))
-                    }
-                    className="rounded border border-[#24292E] bg-[#1C2126] px-2 py-1 text-xs text-white"
+                        .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
+                    }}
+                    className="rounded border border-[#24292E] bg-[#1C2126] px-2 py-1 text-xs text-white disabled:opacity-50"
                   >
-                    Send reset link
+                    {isLoading ? "..." : "Send reset link"}
                   </button>
                   {u.status === "active" ? (
                     <button
                       type="button"
+                      disabled={isLoading}
                       onClick={() =>
-                        void deactivateAdminUser(u.id).then(load).catch((err) => setNotice(toMessage(err, "Could not deactivate user.")))
+                        setDeactivateConfirm({ open: true, user: { id: u.id, name: u.name, email: u.email }, isActive: true })
                       }
-                      className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-100"
+                      className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-100 disabled:opacity-50"
                     >
                       Deactivate
                     </button>
                   ) : (
                     <button
                       type="button"
+                      disabled={isLoading}
                       onClick={() =>
-                        void reactivateAdminUser(u.id).then(load).catch((err) => setNotice(toMessage(err, "Could not reactivate user.")))
+                        setDeactivateConfirm({ open: true, user: { id: u.id, name: u.name, email: u.email }, isActive: false })
                       }
-                      className="rounded border border-brand-lime/35 bg-brand-lime/10 px-2 py-1 text-xs text-brand-lime"
+                      className="rounded border border-brand-lime/35 bg-brand-lime/10 px-2 py-1 text-xs text-brand-lime disabled:opacity-50"
                     >
                       Reactivate
                     </button>
@@ -305,8 +346,11 @@ export function UserManagementPage() {
                         type="button"
                         disabled={savingAccessForUserId === u.id}
                         onClick={() => void saveAccess(u.id)}
-                        className="ml-auto rounded bg-brand-lime px-4 py-2 text-xs font-semibold text-canvas disabled:opacity-50"
+                        className="ml-auto flex items-center gap-2 rounded bg-brand-lime px-4 py-2 text-xs font-semibold text-canvas disabled:opacity-50"
                       >
+                        {savingAccessForUserId === u.id && (
+                          <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                        )}
                         {savingAccessForUserId === u.id ? "Saving..." : "Save access"}
                       </button>
                     </div>
@@ -316,7 +360,47 @@ export function UserManagementPage() {
             </div>
           );
         })}
+        {activeUsers.length > TEAM_PAGE_SIZE && (
+          <div className="flex items-center justify-between border-t border-[#24292E] px-4 py-3">
+            <p className="text-xs text-neutral-500">
+              Page {teamPage} of {totalTeamPages} ({activeUsers.length} total)
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={teamPage === 1}
+                onClick={() => setTeamPage((p) => p - 1)}
+                className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={teamPage >= totalTeamPages}
+                onClick={() => setTeamPage((p) => p + 1)}
+                className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </section>
+
+      <ConfirmDialog
+        open={deactivateConfirm.open}
+        title={deactivateConfirm.isActive ? "Deactivate team member" : "Reactivate team member"}
+        description={
+          deactivateConfirm.isActive
+            ? `Are you sure you want to deactivate ${deactivateConfirm.user?.name}? They will lose access to the admin portal.`
+            : `Are you sure you want to reactivate ${deactivateConfirm.user?.name}? They will regain access to the admin portal.`
+        }
+        confirmLabel={deactivateConfirm.isActive ? "Deactivate" : "Reactivate"}
+        variant={deactivateConfirm.isActive ? "warning" : "default"}
+        loading={actionLoading[deactivateConfirm.user?.id ?? ""] ?? false}
+        onConfirm={() => void handleDeactivateReactivate()}
+        onCancel={() => setDeactivateConfirm({ open: false, user: null, isActive: true })}
+      />
     </div>
   );
 }

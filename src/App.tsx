@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthLayout } from "@/components/AuthLayout";
 import { Layout } from "@/components/Layout";
 import { RequireAdmin } from "@/components/RequireAdmin";
+import { RequireAdminRole } from "@/components/RequireAdminRole";
 import { RequireCustomer } from "@/components/RequireCustomer";
 import { AuthProvider } from "@/context/AuthContext";
 import { AuthzProvider } from "@/context/AuthzContext";
@@ -240,11 +241,19 @@ export default function App() {
                       }
                     />
                     <Route
+                      path="/admin/team-access"
+                      element={
+                        <RequireAdminRole>
+                          <UserManagementPage />
+                        </RequireAdminRole>
+                      }
+                    />
+                    <Route
                       path="/admin/users"
                       element={
-                        <RequireAdmin>
-                          <UserManagementPage />
-                        </RequireAdmin>
+                        <RequireAdminRole>
+                          <Navigate to="/admin/team-access" replace />
+                        </RequireAdminRole>
                       }
                     />
                     <Route
