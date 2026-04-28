@@ -11,7 +11,7 @@ export function NoModuleAccess({ moduleLabel }: NoModuleAccessProps) {
       <p className="mt-2 text-sm text-amber-100/90">
         Your account does not currently have permission to open{moduleLabel ? ` ${moduleLabel}` : " this admin module"}.
       </p>
-      <p className="mt-1 text-xs text-amber-100/80">Ask a master admin to enable this module in User Management.</p>
+      <p className="mt-1 text-xs text-amber-100/80">Ask a master admin to enable this module in Team Access.</p>
       <Link to="/admin" className="mt-4 inline-flex rounded-full border border-white/20 px-4 py-2 text-sm text-white transition hover:border-brand-lime/35">
         Back to admin dashboard
       </Link>

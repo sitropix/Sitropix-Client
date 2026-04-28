@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { ConfirmDialog, DeleteConfirmDialog } from "@/components/ConfirmDialog";
 import { isModuleForbiddenError } from "@/services/http";
 import {
   adminTriggerPasswordReset,
@@ -20,6 +21,7 @@ import type { AdminCustomerProfilePayload, AdminUserRow, Subscription } from "@/
 type DetailTab = "overview" | "tickets" | "documents" | "transactions";
 
 const PAGE_SIZE = 5;
+const CUSTOMERS_PAGE_SIZE = 10;
 
 function money(cents: number, currency = "USD") {
   return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(cents / 100);
@@ -48,6 +50,16 @@ export function CustomerManagementPage() {
   const [ticketsPage, setTicketsPage] = useState(1);
   const [docsPage, setDocsPage] = useState(1);
   const [txPage, setTxPage] = useState(1);
+  const [customersPage, setCustomersPage] = useState(1);
+  const [deleteDialog, setDeleteDialog] = useState<{
+    open: boolean;
+    email: string;
+    userId: string;
+    counts: { subscriptions: number; payments: number; tickets: number; documents: number };
+  } | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deactivateDialog, setDeactivateDialog] = useState<{ open: boolean; userId: string; userName: string; isActive: boolean } | null>(null);
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
 
   async function load() {
     setNoModuleAccess(false);
@@ -103,8 +115,57 @@ export function CustomerManagementPage() {
     });
   }, [users, subs, filter]);
 
+  const totalCustomersPages = Math.ceil(filteredUsers.length / CUSTOMERS_PAGE_SIZE);
+  const paginatedUsers = filteredUsers.slice(
+    (customersPage - 1) * CUSTOMERS_PAGE_SIZE,
+    customersPage * CUSTOMERS_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setCustomersPage(1);
+  }, [filter]);
+
   const activeCount = subs.filter((s) => s.status === "active").length;
   const totalMrr = subs.reduce((sum, s) => sum + (s.plan?.priceMonthlyCents ?? 0), 0);
+
+  async function handleDeleteCustomer(confirmEmail: string) {
+    if (!deleteDialog) return;
+    setDeleteLoading(true);
+    try {
+      await deleteAdminCustomer(deleteDialog.userId, confirmEmail);
+      setNotice("Customer deleted.");
+      setSelectedUserId(null);
+      setDeleteDialog(null);
+      await load();
+    } catch {
+      setNotice("Delete failed. Make sure the email matches exactly.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
+  async function handleDeactivateReactivate() {
+    if (!deactivateDialog) return;
+    setActionLoading((prev) => ({ ...prev, [deactivateDialog.userId]: true }));
+    try {
+      if (deactivateDialog.isActive) {
+        await deactivateAdminCustomer(deactivateDialog.userId, deactivateReason);
+        setNotice("Customer deactivated.");
+      } else {
+        await reactivateAdminCustomer(deactivateDialog.userId);
+        setNotice("Customer reactivated.");
+      }
+      await load();
+      if (selectedUserId === deactivateDialog.userId) {
+        setProfile(await fetchAdminCustomerProfile(deactivateDialog.userId));
+      }
+      setDeactivateDialog(null);
+    } catch {
+      setNotice(deactivateDialog.isActive ? "Could not deactivate customer." : "Could not reactivate customer.");
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [deactivateDialog.userId]: false }));
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -152,8 +213,12 @@ export function CustomerManagementPage() {
           <div className="col-span-2">Status</div>
           <div className="col-span-4 text-right">Actions</div>
         </div>
-        {filteredUsers.map((u) => {
+        {paginatedUsers.length === 0 && (
+          <p className="px-4 py-6 text-sm text-neutral-400">No customers found.</p>
+        )}
+        {paginatedUsers.map((u) => {
           const subRow = subs.find((s) => s.userId === u.id);
+          const isLoading = actionLoading[u.id];
           return (
             <article
               key={u.id}
@@ -181,39 +246,60 @@ export function CustomerManagementPage() {
               <div className="col-span-4 flex flex-wrap justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() =>
+                  disabled={isLoading}
+                  onClick={() => {
+                    setActionLoading((prev) => ({ ...prev, [u.id]: true }));
                     void adminTriggerPasswordReset(u.id)
                       .then(() => setNotice(`Password reset email queued for ${u.email}.`))
                       .catch(() => setNotice("Could not send reset email."))
-                  }
+                      .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
+                  }}
                   onClickCapture={(e) => e.stopPropagation()}
-                  className="rounded border border-[#24292E] bg-[#1C2126] px-2.5 py-1 text-xs text-white transition hover:border-brand-lime/35"
+                  className="rounded border border-[#24292E] bg-[#1C2126] px-2.5 py-1 text-xs text-white transition hover:border-brand-lime/35 disabled:opacity-50"
                 >
-                  Reset Password
+                  {isLoading ? "..." : "Reset Password"}
                 </button>
                 {subRow && (
                   <>
                     <button
                       type="button"
-                      onClick={() => void updateAdminSubscription(subRow.id, { status: "active" }).then(load)}
+                      disabled={isLoading}
+                      onClick={() => {
+                        setActionLoading((prev) => ({ ...prev, [u.id]: true }));
+                        void updateAdminSubscription(subRow.id, { status: "active" })
+                          .then(load)
+                          .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
+                      }}
                       onClickCapture={(e) => e.stopPropagation()}
-                      className="rounded border border-[#24292E] bg-[#1C2126] px-2.5 py-1 text-xs text-white"
+                      className="rounded border border-[#24292E] bg-[#1C2126] px-2.5 py-1 text-xs text-white disabled:opacity-50"
                     >
                       Set active
                     </button>
                     <button
                       type="button"
-                      onClick={() => void updateAdminSubscription(subRow.id, { status: "canceled" }).then(load)}
+                      disabled={isLoading}
+                      onClick={() => {
+                        setActionLoading((prev) => ({ ...prev, [u.id]: true }));
+                        void updateAdminSubscription(subRow.id, { status: "canceled" })
+                          .then(load)
+                          .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
+                      }}
                       onClickCapture={(e) => e.stopPropagation()}
-                      className="rounded border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-100"
+                      className="rounded border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-100 disabled:opacity-50"
                     >
                       Set canceled
                     </button>
                     <button
                       type="button"
-                      onClick={() => void updateAdminSubscription(subRow.id, { extendDays: 7 }).then(load)}
+                      disabled={isLoading}
+                      onClick={() => {
+                        setActionLoading((prev) => ({ ...prev, [u.id]: true }));
+                        void updateAdminSubscription(subRow.id, { extendDays: 7 })
+                          .then(load)
+                          .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
+                      }}
                       onClickCapture={(e) => e.stopPropagation()}
-                      className="rounded border border-brand-lime/40 bg-brand-lime/5 px-2.5 py-1 text-xs text-brand-lime"
+                      className="rounded border border-brand-lime/40 bg-brand-lime/5 px-2.5 py-1 text-xs text-brand-lime disabled:opacity-50"
                     >
                       Extend +7d
                     </button>
@@ -223,6 +309,31 @@ export function CustomerManagementPage() {
             </article>
           );
         })}
+        {filteredUsers.length > CUSTOMERS_PAGE_SIZE && (
+          <div className="flex items-center justify-between border-t border-[#24292E] px-4 py-3">
+            <p className="text-xs text-neutral-500">
+              Page {customersPage} of {totalCustomersPages} ({filteredUsers.length} total)
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={customersPage === 1}
+                onClick={() => setCustomersPage((p) => p - 1)}
+                className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={customersPage >= totalCustomersPages}
+                onClick={() => setCustomersPage((p) => p + 1)}
+                className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       {selectedUserId && (
@@ -315,57 +426,55 @@ export function CustomerManagementPage() {
                       {profile.overview.user.isActive ? (
                         <button
                           type="button"
+                          disabled={actionLoading[profile.overview.user.id]}
                           onClick={() =>
-                            void deactivateAdminCustomer(profile.overview.user.id, deactivateReason)
-                              .then(async () => {
-                                setNotice("Customer deactivated.");
-                                await load();
-                                setProfile(await fetchAdminCustomerProfile(profile.overview.user.id));
-                              })
-                              .catch(() => setNotice("Could not deactivate customer."))
+                            setDeactivateDialog({
+                              open: true,
+                              userId: profile.overview.user.id,
+                              userName: profile.overview.user.name,
+                              isActive: true,
+                            })
                           }
-                          className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-100"
+                          className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-100 disabled:opacity-50"
                         >
-                          Deactivate
+                          {actionLoading[profile.overview.user.id] ? "..." : "Deactivate"}
                         </button>
                       ) : (
                         <button
                           type="button"
+                          disabled={actionLoading[profile.overview.user.id]}
                           onClick={() =>
-                            void reactivateAdminCustomer(profile.overview.user.id)
-                              .then(async () => {
-                                setNotice("Customer reactivated.");
-                                await load();
-                                setProfile(await fetchAdminCustomerProfile(profile.overview.user.id));
-                              })
-                              .catch(() => setNotice("Could not reactivate customer."))
+                            setDeactivateDialog({
+                              open: true,
+                              userId: profile.overview.user.id,
+                              userName: profile.overview.user.name,
+                              isActive: false,
+                            })
                           }
-                          className="rounded border border-brand-lime/35 bg-brand-lime/10 px-3 py-1.5 text-xs text-brand-lime"
+                          className="rounded border border-brand-lime/35 bg-brand-lime/10 px-3 py-1.5 text-xs text-brand-lime disabled:opacity-50"
                         >
-                          Reactivate
+                          {actionLoading[profile.overview.user.id] ? "..." : "Reactivate"}
                         </button>
                       )}
                       <button
                         type="button"
+                        disabled={deleteLoading}
                         onClick={() =>
                           void (async () => {
                             try {
                               const preview = await fetchAdminCustomerDeletePreview(profile.overview.user.id);
-                              const ok = window.confirm(
-                                `Delete ${preview.email}?\nSubscriptions: ${preview.counts.subscriptions}\nPayments: ${preview.counts.payments}\nTickets: ${preview.counts.tickets}\nDocuments: ${preview.counts.documents}\n\nThis cannot be undone.`,
-                              );
-                              if (!ok) return;
-                              const entered = window.prompt(`Type the email to confirm delete:\n${preview.email}`) ?? "";
-                              await deleteAdminCustomer(profile.overview.user.id, entered.trim());
-                              setNotice("Customer deleted.");
-                              setSelectedUserId(null);
-                              await load();
+                              setDeleteDialog({
+                                open: true,
+                                email: preview.email,
+                                userId: profile.overview.user.id,
+                                counts: preview.counts,
+                              });
                             } catch {
-                              setNotice("Delete canceled or failed.");
+                              setNotice("Could not load delete preview.");
                             }
                           })()
                         }
-                        className="rounded border border-rose-500/35 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-100"
+                        className="rounded border border-rose-500/35 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-100 disabled:opacity-50"
                       >
                         Delete customer
                       </button>
@@ -584,6 +693,42 @@ export function CustomerManagementPage() {
           </section>
         </div>
       )}
+
+      <DeleteConfirmDialog
+        open={deleteDialog?.open ?? false}
+        title="Delete customer"
+        itemName={deleteDialog?.email ?? ""}
+        itemType="customer"
+        details={
+          deleteDialog
+            ? [
+                { label: "Subscriptions", value: deleteDialog.counts.subscriptions },
+                { label: "Payments", value: deleteDialog.counts.payments },
+                { label: "Tickets", value: deleteDialog.counts.tickets },
+                { label: "Documents", value: deleteDialog.counts.documents },
+              ]
+            : []
+        }
+        confirmText={deleteDialog?.email}
+        loading={deleteLoading}
+        onConfirm={handleDeleteCustomer}
+        onCancel={() => setDeleteDialog(null)}
+      />
+
+      <ConfirmDialog
+        open={deactivateDialog?.open ?? false}
+        title={deactivateDialog?.isActive ? "Deactivate customer" : "Reactivate customer"}
+        description={
+          deactivateDialog?.isActive
+            ? `Are you sure you want to deactivate ${deactivateDialog?.userName}? They will lose access to the portal.`
+            : `Are you sure you want to reactivate ${deactivateDialog?.userName}? They will regain access to the portal.`
+        }
+        confirmLabel={deactivateDialog?.isActive ? "Deactivate" : "Reactivate"}
+        variant={deactivateDialog?.isActive ? "warning" : "default"}
+        loading={actionLoading[deactivateDialog?.userId ?? ""] ?? false}
+        onConfirm={handleDeactivateReactivate}
+        onCancel={() => setDeactivateDialog(null)}
+      />
     </div>
   );
 }

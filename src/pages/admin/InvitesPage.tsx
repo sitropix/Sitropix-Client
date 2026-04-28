@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { isModuleForbiddenError } from "@/services/http";
 import {
   createAdminInvite,
@@ -11,6 +12,8 @@ import {
   revokeAdminInvite,
 } from "@/services/subscriptionsApi";
 import type { AdminInviteRow, Plan } from "@/types/subscription";
+
+const INVITES_PAGE_SIZE = 10;
 
 export function InvitesPage() {
   const { cache, updateCache } = useAdminPrefetch();
@@ -23,6 +26,9 @@ export function InvitesPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busyInviteId, setBusyInviteId] = useState<string | null>(null);
   const [noModuleAccess, setNoModuleAccess] = useState(false);
+  const [invitesPage, setInvitesPage] = useState(1);
+  const [creating, setCreating] = useState(false);
+  const [revokeConfirm, setRevokeConfirm] = useState<{ open: boolean; invite: AdminInviteRow | null }>({ open: false, invite: null });
 
   async function load() {
     setNoModuleAccess(false);
@@ -52,6 +58,7 @@ export function InvitesPage() {
     e.preventDefault();
     setNotice(null);
     if (!email.trim()) return;
+    setCreating(true);
     try {
       await createAdminInvite({
         email: email.trim(),
@@ -63,11 +70,35 @@ export function InvitesPage() {
       setMessage("");
       setPlanId("");
       setNotice("Invite email sent.");
+      setInvitesPage(1);
       await load();
     } catch {
       setNotice("Could not create invite.");
+    } finally {
+      setCreating(false);
     }
   }
+
+  async function handleRevokeInvite() {
+    if (!revokeConfirm.invite) return;
+    setBusyInviteId(revokeConfirm.invite.id);
+    setNotice(null);
+    try {
+      await revokeAdminInvite(revokeConfirm.invite.id);
+      setRevokeConfirm({ open: false, invite: null });
+      await load();
+    } catch {
+      setNotice("Could not revoke invite.");
+    } finally {
+      setBusyInviteId(null);
+    }
+  }
+
+  const totalInvitesPages = Math.ceil(invites.length / INVITES_PAGE_SIZE);
+  const paginatedInvites = invites.slice(
+    (invitesPage - 1) * INVITES_PAGE_SIZE,
+    invitesPage * INVITES_PAGE_SIZE
+  );
 
   return (
     <div className="space-y-8">
@@ -122,17 +153,20 @@ export function InvitesPage() {
           />
           <button
             type="submit"
-            className="rounded-full bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim md:col-span-2"
+            disabled={creating}
+            className="flex items-center justify-center gap-2 rounded-full bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim disabled:opacity-50 md:col-span-2"
           >
-            Send invite email
+            {creating && <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />}
+            {creating ? "Sending..." : "Send invite email"}
           </button>
         </form>
       </section>
 
       <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
         <h2 className="text-sm font-semibold text-white">Recent invites</h2>
+        {invites.length === 0 && <p className="mt-4 text-sm text-ink-muted">No invites yet.</p>}
         <ul className="mt-4 space-y-2">
-          {invites.map((inv) => (
+          {paginatedInvites.map((inv) => (
             <li
               key={inv.id}
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm"
@@ -140,8 +174,19 @@ export function InvitesPage() {
               <div>
                 <p className="font-medium text-white">{inv.email}</p>
                 <p className="text-xs text-ink-muted">
-                  {inv.plan?.name ?? "No plan"} · {inv.acceptedAt ? "Accepted" : inv.revokedAt ? "Revoked" : "Pending"} · expires{" "}
-                  {new Date(inv.expiresAt).toLocaleDateString()}
+                  {inv.plan?.name ?? "No plan"} ·{" "}
+                  <span
+                    className={
+                      inv.acceptedAt
+                        ? "text-green-400"
+                        : inv.revokedAt
+                          ? "text-neutral-500"
+                          : "text-amber-400"
+                    }
+                  >
+                    {inv.acceptedAt ? "Accepted" : inv.revokedAt ? "Revoked" : "Pending"}
+                  </span>{" "}
+                  · expires {new Date(inv.expiresAt).toLocaleDateString()}
                   {typeof inv.resendCount === "number" ? ` · resent ${inv.resendCount}x` : ""}
                   {inv.lastSentAt ? ` · last sent ${new Date(inv.lastSentAt).toLocaleDateString()}` : ""}
                 </p>
@@ -165,27 +210,17 @@ export function InvitesPage() {
                         }
                       })()
                     }
-                    className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                    className="flex items-center gap-1 rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white disabled:opacity-40"
                   >
+                    {busyInviteId === inv.id && (
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    )}
                     {busyInviteId === inv.id ? "Resending..." : "Resend"}
                   </button>
                   <button
                     type="button"
                     disabled={busyInviteId === inv.id}
-                    onClick={() =>
-                      void (async () => {
-                        setBusyInviteId(inv.id);
-                        setNotice(null);
-                        try {
-                          await revokeAdminInvite(inv.id);
-                          await load();
-                        } catch {
-                          setNotice("Could not revoke invite.");
-                        } finally {
-                          setBusyInviteId(null);
-                        }
-                      })()
-                    }
+                    onClick={() => setRevokeConfirm({ open: true, invite: inv })}
                     className="rounded-lg border border-rose-500/30 px-3 py-1.5 text-xs text-rose-100 disabled:opacity-40"
                   >
                     Revoke
@@ -195,7 +230,49 @@ export function InvitesPage() {
             </li>
           ))}
         </ul>
+        {invites.length > INVITES_PAGE_SIZE && (
+          <div className="mt-4 flex items-center justify-between">
+            <p className="text-xs text-ink-muted">
+              Page {invitesPage} of {totalInvitesPages} ({invites.length} total)
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={invitesPage === 1}
+                onClick={() => setInvitesPage((p) => p - 1)}
+                className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={invitesPage >= totalInvitesPages}
+                onClick={() => setInvitesPage((p) => p + 1)}
+                className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </section>
+
+      <ConfirmDialog
+        open={revokeConfirm.open}
+        title="Revoke invite"
+        description={
+          <>
+            Are you sure you want to revoke the invitation for{" "}
+            <span className="font-semibold text-white">{revokeConfirm.invite?.email}</span>?
+            They will no longer be able to use this invite link to sign up.
+          </>
+        }
+        confirmLabel="Revoke invite"
+        variant="warning"
+        loading={busyInviteId !== null}
+        onConfirm={() => void handleRevokeInvite()}
+        onCancel={() => setRevokeConfirm({ open: false, invite: null })}
+      />
     </div>
   );
 }

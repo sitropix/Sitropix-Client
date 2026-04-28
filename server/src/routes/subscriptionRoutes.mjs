@@ -1101,14 +1101,22 @@ adminRouter.delete("/email-settings", async (_req, res) => {
 
 adminRouter.post("/email-settings/test", validate(emailTestSchema), async (req, res) => {
   const to = req.validatedBody.to ?? req.auth.email;
-  await sendTransactionalEmail({
+  const out = await sendTransactionalEmail({
     to,
     subject: "Sitropix portal — email test",
     html: "<p>This is a test message from the admin email settings screen.</p>",
     template: "admin_email_test",
     idempotencyKey: `admin_email_test_${req.auth.userId}_${Date.now()}`,
   });
-  return res.json({ ok: true, to });
+  if (!out?.sent) {
+    return res.status(502).json({
+      error: "email_delivery_failed",
+      message: "Test email could not be delivered. Check provider credentials, sender verification, and server logs.",
+      to,
+      used: out?.used ?? "unknown",
+    });
+  }
+  return res.json({ ok: true, to, used: out.used });
 });
 
 adminRouter.get("/system-config", async (req, res) => {

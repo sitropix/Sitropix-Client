@@ -4,6 +4,27 @@ import { useAuth } from "@/context/AuthContext";
 import { ApiRequestError } from "@/services/http";
 import { fetchInviteInfo, type InviteInfoResponse } from "@/services/authApi";
 
+function getSignupErrorMessage(err: unknown) {
+  if (!(err instanceof ApiRequestError)) {
+    return "Something went wrong while creating your account. Please try again.";
+  }
+  switch (err.code) {
+    case "email_taken":
+      return "This email is already registered. Please sign in or use a different email.";
+    case "invite_email_mismatch":
+      return "This invite is tied to a different email address. Please use the invited email.";
+    case "invite_invalid":
+      return "This invitation link is invalid or expired. Ask your admin to send a new invite.";
+    case "validation_error":
+      return "Please check your details. Password must be at least 8 characters.";
+    default:
+      if (err.status >= 500) {
+        return "Server error while creating account. Please try again in a moment.";
+      }
+      return "Unable to create account. Please verify your details and try again.";
+  }
+}
+
 export function SignupPage() {
   const { signup } = useAuth();
   const navigate = useNavigate();
@@ -50,14 +71,7 @@ export function SignupPage() {
       );
       setTimeout(() => navigate("/login"), 1200);
     } catch (err) {
-      const code = err instanceof ApiRequestError ? err.message : "";
-      const msg =
-        code === "invite_email_mismatch"
-          ? "Email must match the invitation."
-          : code === "invite_invalid"
-            ? "Invalid invitation."
-            : "Unable to create account";
-      setError(msg);
+      setError(getSignupErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -89,6 +103,9 @@ export function SignupPage() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Full name"
+            minLength={2}
+            maxLength={120}
+            required
             className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white outline-none focus:border-brand-lime/35"
           />
           <input
@@ -96,14 +113,18 @@ export function SignupPage() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="Email"
             type="email"
+            required
             readOnly={Boolean(inviteToken && inviteInfo)}
             className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white outline-none focus:border-brand-lime/35 read-only:opacity-70"
           />
           <input
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
+            placeholder="Password (min 8 characters)"
             type="password"
+            minLength={8}
+            maxLength={200}
+            required
             className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white outline-none focus:border-brand-lime/35"
           />
           {error && <p className="text-sm text-rose-200">{error}</p>}
@@ -111,9 +132,35 @@ export function SignupPage() {
           <button
             type="submit"
             disabled={submitting || Boolean(inviteToken && !inviteInfo)}
-            className="w-full rounded-full bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim disabled:opacity-60"
+            className="relative w-full rounded-full bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {submitting ? "Creating..." : "Create account"}
+            {submitting ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg
+                  className="h-4 w-4 animate-spin"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                Creating account…
+              </span>
+            ) : (
+              "Create account"
+            )}
           </button>
         </form>
       )}
