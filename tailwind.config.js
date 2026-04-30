@@ -5,19 +5,32 @@ export default {
     extend: {
       colors: {
         brand: {
-          lime: "#84cc16",
-          "lime-dim": "#65a30d",
-          glow: "rgba(132, 204, 22, 0.35)",
+          lime: "#080808",
+          "lime-dim": "#353536",
+          glow: "rgba(8, 8, 8, 0.2)",
+        },
+        zinc: {
+          50: "#EBEDF1",
+          100: "#EBEDF1",
+          200: "#DDE0E6",
+          300: "#D4D8DF",
+          400: "#ACADB1",
+          500: "#8E8F93",
+          600: "#706F70",
+          700: "#706F70",
+          800: "#4A4A4D",
+          900: "#353536",
+          950: "#080808",
         },
         surface: {
-          DEFAULT: "rgba(255, 255, 255, 0.04)",
-          strong: "rgba(255, 255, 255, 0.07)",
-          border: "rgba(255, 255, 255, 0.08)",
+          DEFAULT: "rgba(255, 255, 255, 0.74)",
+          strong: "rgba(255, 255, 255, 0.9)",
+          border: "rgba(112, 111, 112, 0.3)",
         },
-        canvas: "#0b0f14",
+        canvas: "#EBEDF1",
         ink: {
-          muted: "#94a3b8",
-          subtle: "#64748b",
+          muted: "#706F70",
+          subtle: "#4A4A4D",
         },
       },
       fontFamily: {
@@ -34,13 +47,13 @@ export default {
         ],
       },
       boxShadow: {
-        glass: "0 8px 32px rgba(0, 0, 0, 0.45)",
-        lift: "0 20px 50px rgba(0, 0, 0, 0.55)",
-        glow: "0 0 0 1px rgba(132, 204, 22, 0.25), 0 0 40px rgba(132, 204, 22, 0.12)",
+        glass: "0 10px 26px rgba(53, 53, 54, 0.12)",
+        lift: "0 18px 40px rgba(53, 53, 54, 0.18)",
+        glow: "0 0 0 1px rgba(8, 8, 8, 0.2), 0 0 24px rgba(53, 53, 54, 0.12)",
       },
       backgroundImage: {
         "hero-mesh":
-          "radial-gradient(ellipse 80% 50% at 50% -20%, rgba(132, 204, 22, 0.18), transparent), radial-gradient(ellipse 60% 40% at 100% 0%, rgba(56, 189, 248, 0.08), transparent), radial-gradient(ellipse 50% 30% at 0% 20%, rgba(132, 204, 22, 0.06), transparent)",
+          "radial-gradient(ellipse 80% 50% at 50% -20%, rgba(172, 173, 177, 0.18), transparent), radial-gradient(ellipse 60% 40% at 100% 0%, rgba(212, 216, 223, 0.2), transparent), radial-gradient(ellipse 50% 30% at 0% 20%, rgba(112, 111, 112, 0.12), transparent)",
         "card-shine": "linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 50%)",
       },
       keyframes: {

@@ -48,11 +48,11 @@ export function WorkspacePage() {
     <div className="space-y-6">
       <Breadcrumb items={[{ label: "Home", to: "/dashboard" }, { label: "Workspace" }]} />
       <header>
-        <h1 className="text-2xl font-bold text-white sm:text-3xl">Workspace</h1>
-        <p className="mt-2 text-sm text-ink-muted">Project delivery view and documents your admin has shared with you.</p>
+        <h1 className="text-2xl font-bold text-zinc-900 sm:text-3xl">Workspace</h1>
+        <p className="mt-2 text-sm text-zinc-600">Project delivery view and documents your admin has shared with you.</p>
       </header>
 
-      <div className="inline-flex rounded-full border border-white/10 bg-white/[0.03] p-1">
+      <div className="inline-flex rounded-full border border-zinc-300 bg-white/80 p-1">
         {(
           [
             ["project", "Project"],
@@ -63,7 +63,7 @@ export function WorkspacePage() {
             key={id}
             type="button"
             onClick={() => setTab(id)}
-            className={`rounded-full px-4 py-2 text-sm font-medium transition ${tab === id ? "bg-brand-lime text-canvas" : "text-ink-muted hover:text-white"}`}
+            className={`rounded-full px-4 py-2 text-sm font-medium transition ${tab === id ? "bg-zinc-700 text-white" : "text-zinc-600 hover:text-zinc-900"}`}
           >
             {label}
           </button>
@@ -71,7 +71,7 @@ export function WorkspacePage() {
       </div>
 
       {tab === "project" && (
-        <section className="overflow-hidden rounded-2xl border border-white/10 bg-black/40 shadow-glass">
+        <section className="overflow-hidden rounded-2xl border border-zinc-300 bg-white/80 shadow-glass">
           {EMBED_URL ? (
             <iframe title="Project tracker" src={EMBED_URL} className="h-[min(72vh,720px)] w-full border-0" />
           ) : (
@@ -86,13 +86,13 @@ export function WorkspacePage() {
       )}
 
       {tab === "documents" && (
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-          <h2 className="text-sm font-semibold text-white">Your documents</h2>
-          <p className="mt-1 text-sm text-ink-muted">
+        <section className="rounded-2xl border border-zinc-300 bg-white/80 p-6">
+          <h2 className="text-sm font-semibold text-zinc-900">Your documents</h2>
+          <p className="mt-1 text-sm text-zinc-600">
             Files uploaded by your account team for your user appear here, grouped by category.
           </p>
           {docsError ? (
-            <p className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">{docsError}</p>
+            <p className="mt-4 rounded-lg border border-rose-400/40 bg-rose-100 px-3 py-2 text-sm text-rose-800">{docsError}</p>
           ) : null}
           {loadingDocs ? (
             <div className="mt-4 space-y-2">
@@ -100,24 +100,24 @@ export function WorkspacePage() {
               <Skeleton className="h-14 w-full rounded-xl" />
             </div>
           ) : docs.length === 0 ? (
-            <p className="mt-4 text-sm text-ink-muted">No documents yet. When an admin uploads files for you, they will show here.</p>
+            <p className="mt-4 text-sm text-zinc-600">No documents yet. When an admin uploads files for you, they will show here.</p>
           ) : (
             <ul className="mt-4 space-y-2">
               {docs.map((d) => (
                 <li
                   key={d.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/25 px-4 py-3"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-300 bg-white px-4 py-3"
                 >
                   <div>
-                    <p className="text-sm font-medium text-white">{d.title}</p>
-                    <p className="text-xs text-ink-muted">
+                    <p className="text-sm font-medium text-zinc-900">{d.title}</p>
+                    <p className="text-xs text-zinc-600">
                       {d.category} · {d.fileName}
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => void downloadClientDocumentFile(d.id)}
-                    className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium text-white transition hover:border-brand-lime/35"
+                    className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-800 transition hover:border-zinc-500"
                   >
                     Download
                   </button>

@@ -8,6 +8,7 @@ import { RequireCustomer } from "@/components/RequireCustomer";
 import { AuthProvider } from "@/context/AuthContext";
 import { AuthzProvider } from "@/context/AuthzContext";
 import { AdminPrefetchProvider } from "@/context/AdminPrefetchContext";
+import { ThemeProvider } from "@/context/ThemeContext";
 import { TicketsProvider } from "@/context/TicketsContext";
 import { UserProvider } from "@/context/UserContext";
 import { CommunityPage } from "@/pages/CommunityPage";
@@ -46,6 +47,18 @@ const SubscriptionPage = lazy(() =>
   import("@/pages/subscription/SubscriptionPage").then((m) => ({ default: m.SubscriptionPage })),
 );
 const WorkspacePage = lazy(() => import("@/pages/workspace/WorkspacePage").then((m) => ({ default: m.WorkspacePage })));
+const MyProjectsPage = lazy(() =>
+  import("@/pages/workspace/MyProjectsPage").then((m) => ({ default: m.MyProjectsPage })),
+);
+const ProjectSubscriptionPage = lazy(() =>
+  import("@/pages/workspace/ProjectSubscriptionPage").then((m) => ({ default: m.ProjectSubscriptionPage })),
+);
+const ProjectDashboardPage = lazy(() =>
+  import("@/pages/workspace/ProjectDashboardPage").then((m) => ({ default: m.ProjectDashboardPage })),
+);
+const AdminProjectsPage = lazy(() =>
+  import("@/pages/admin/AdminProjectsPage").then((m) => ({ default: m.AdminProjectsPage })),
+);
 const KnowledgeBasePage = lazy(() =>
   import("@/pages/KnowledgeBasePage").then((m) => ({ default: m.KnowledgeBasePage })),
 );
@@ -77,14 +90,15 @@ function AppRouteFallback() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <AuthzProvider>
-          <AdminPrefetchProvider>
-            <UserProvider>
-              <TicketsProvider>
-                <Suspense fallback={<AppRouteFallback />}>
-                  <Routes>
+    <ThemeProvider>
+      <BrowserRouter>
+        <AuthProvider>
+          <AuthzProvider>
+            <AdminPrefetchProvider>
+              <UserProvider>
+                <TicketsProvider>
+                  <Suspense fallback={<AppRouteFallback />}>
+                    <Routes>
                   <Route path="/embed/form/:embedKey" element={<PublicEmbedFormPage />} />
                   <Route element={<AuthLayout />}>
                     <Route path="/login" element={<LoginPage />} />
@@ -141,6 +155,30 @@ export default function App() {
                       element={
                         <RequireCustomer>
                           <WorkspacePage />
+                        </RequireCustomer>
+                      }
+                    />
+                    <Route
+                      path="/projects"
+                      element={
+                        <RequireCustomer>
+                          <MyProjectsPage />
+                        </RequireCustomer>
+                      }
+                    />
+                    <Route
+                      path="/projects/:projectId/subscription"
+                      element={
+                        <RequireCustomer>
+                          <ProjectSubscriptionPage />
+                        </RequireCustomer>
+                      }
+                    />
+                    <Route
+                      path="/projects/:projectId"
+                      element={
+                        <RequireCustomer>
+                          <ProjectDashboardPage />
                         </RequireCustomer>
                       }
                     />
@@ -241,6 +279,14 @@ export default function App() {
                       }
                     />
                     <Route
+                      path="/admin/projects"
+                      element={
+                        <RequireAdmin>
+                          <AdminProjectsPage />
+                        </RequireAdmin>
+                      }
+                    />
+                    <Route
                       path="/admin/team-access"
                       element={
                         <RequireAdminRole>
@@ -331,13 +377,14 @@ export default function App() {
                     />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Route>
-                  </Routes>
-                </Suspense>
-              </TicketsProvider>
-            </UserProvider>
-          </AdminPrefetchProvider>
-        </AuthzProvider>
-      </AuthProvider>
-    </BrowserRouter>
+                    </Routes>
+                  </Suspense>
+                </TicketsProvider>
+              </UserProvider>
+            </AdminPrefetchProvider>
+          </AuthzProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }
