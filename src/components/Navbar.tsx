@@ -132,6 +132,9 @@ export function Navbar() {
                   <NavLink to="/dashboard" className={navLinkClass}>
                     Subscription
                   </NavLink>
+                  <NavLink to="/projects" className={navLinkClass}>
+                    My Projects
+                  </NavLink>
                   <NavLink to="/workspace" className={navLinkClass}>
                     Workspace
                   </NavLink>
@@ -244,6 +247,9 @@ export function Navbar() {
                         </NavLink>
                         <NavLink to="/dashboard" className={navLinkClass} onClick={() => setOpen(false)}>
                           Subscription
+                        </NavLink>
+                        <NavLink to="/projects" className={navLinkClass} onClick={() => setOpen(false)}>
+                          My Projects
                         </NavLink>
                         <NavLink to="/workspace" className={navLinkClass} onClick={() => setOpen(false)}>
                           Workspace

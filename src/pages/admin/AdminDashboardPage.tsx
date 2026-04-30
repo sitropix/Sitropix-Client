@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { Skeleton } from "@/components/Skeleton";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
@@ -193,7 +194,12 @@ export function AdminDashboardPage() {
                   <button className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-3 text-xs text-neutral-300">Broadcast</button>
                   <button className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-3 text-xs text-neutral-300">Export CSV</button>
                   <button className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-3 text-xs text-neutral-300">Reset Access</button>
-                  <button className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-3 text-xs text-neutral-300">Permissions</button>
+                  <Link
+                    to="/admin/projects"
+                    className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-3 text-center text-xs text-neutral-300 transition hover:border-brand-lime/35 hover:text-white"
+                  >
+                    Projects
+                  </Link>
                 </div>
               </div>
             </div>

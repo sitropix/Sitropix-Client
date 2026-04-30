@@ -19,6 +19,7 @@ export function Layout() {
     "/subscription",
     "/billing",
     "/workspace",
+    "/projects",
     "/requests",
     "/support/tickets",
     "/kb",
