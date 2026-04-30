@@ -13,6 +13,7 @@ import {
 import { ApiRequestError, isModuleForbiddenError } from "@/services/http";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { useToast } from "@/components/Toast";
 import type { Role } from "@/types/subscription";
 
 const TEAM_PAGE_SIZE = 10;
@@ -34,6 +35,7 @@ const modules = [
 
 export function UserManagementPage() {
   const { cache, updateCache } = useAdminPrefetch();
+  const { showSuccess, showError } = useToast();
   const [data, setData] = useState<{
     users: Array<{
       id: string;
@@ -45,7 +47,6 @@ export function UserManagementPage() {
       createdAt: string;
     }>;
   }>({ users: [] });
-  const [notice, setNotice] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("support");
@@ -82,7 +83,7 @@ export function UserManagementPage() {
         setNoModuleAccess(true);
         return;
       }
-      setNotice("Could not load team access data.");
+      showError("Could not load team access data.");
     });
   }, []);
 
@@ -102,7 +103,6 @@ export function UserManagementPage() {
 
   async function saveAccess(userId: string) {
     setSavingAccessForUserId(userId);
-    setNotice(null);
     try {
       const next = modules.map((moduleKey) => ({
         moduleKey,
@@ -111,9 +111,9 @@ export function UserManagementPage() {
       await setAdminUserModuleAccess(userId, next);
       await load();
       setExpandedUserId(null);
-      setNotice("Access permissions updated.");
+      showSuccess("Access permissions updated.");
     } catch (err) {
-      setNotice(toMessage(err, "Could not update module access."));
+      showError(toMessage(err, "Could not update module access."));
     } finally {
       setSavingAccessForUserId(null);
     }
@@ -132,15 +132,15 @@ export function UserManagementPage() {
     try {
       if (deactivateConfirm.isActive) {
         await deactivateAdminUser(deactivateConfirm.user.id);
-        setNotice(`${deactivateConfirm.user.name} has been deactivated.`);
+        showSuccess(`${deactivateConfirm.user.name} has been deactivated.`);
       } else {
         await reactivateAdminUser(deactivateConfirm.user.id);
-        setNotice(`${deactivateConfirm.user.name} has been reactivated.`);
+        showSuccess(`${deactivateConfirm.user.name} has been reactivated.`);
       }
       await load();
       setDeactivateConfirm({ open: false, user: null, isActive: true });
     } catch (err) {
-      setNotice(toMessage(err, deactivateConfirm.isActive ? "Could not deactivate user." : "Could not reactivate user."));
+      showError(toMessage(err, deactivateConfirm.isActive ? "Could not deactivate user." : "Could not reactivate user."));
     } finally {
       setActionLoading((prev) => ({ ...prev, [deactivateConfirm.user!.id]: false }));
     }
@@ -158,8 +158,6 @@ export function UserManagementPage() {
           Manage team members, access roles, deactivation, password actions, and module-level permissions.
         </p>
       </header>
-
-      {notice && <p className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/90">{notice}</p>}
 
       <section className="rounded-xl border border-[#24292E] bg-[#15191C] p-5">
         <h2 className="text-sm font-semibold text-white">Invite user</h2>
@@ -193,12 +191,12 @@ export function UserManagementPage() {
               setInviting(true);
               void inviteAdminUser({ name: name.trim(), email: email.trim(), role })
                 .then(async () => {
-                  setNotice("Invite sent.");
+                  showSuccess("Invite sent successfully.");
                   setName("");
                   setEmail("");
                   await load();
                 })
-                .catch((err) => setNotice(toMessage(err, "Could not send invite.")))
+                .catch((err) => showError(toMessage(err, "Could not send invite.")))
                 .finally(() => setInviting(false));
             }}
             className="flex items-center gap-2 rounded bg-brand-lime px-3 py-2 text-sm font-semibold text-canvas disabled:opacity-50"
@@ -236,8 +234,11 @@ export function UserManagementPage() {
                     onChange={(e) => {
                       setActionLoading((prev) => ({ ...prev, [u.id]: true }));
                       void setAdminUserRole(u.id, e.target.value as Role)
-                        .then(load)
-                        .catch((err) => setNotice(toMessage(err, "Could not update role.")))
+                        .then(() => {
+                          showSuccess("Role updated successfully.");
+                          return load();
+                        })
+                        .catch((err) => showError(toMessage(err, "Could not update role.")))
                         .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
                     }}
                     className="rounded border border-[#24292E] bg-[#1C2126] px-2 py-1 text-xs text-white disabled:opacity-50"
@@ -268,8 +269,8 @@ export function UserManagementPage() {
                     onClick={() => {
                       setActionLoading((prev) => ({ ...prev, [u.id]: true }));
                       void sendAdminUserResetLink(u.id)
-                        .then(() => setNotice(`Password reset link sent to ${u.email}.`))
-                        .catch((err) => setNotice(toMessage(err, "Could not send reset link.")))
+                        .then(() => showSuccess(`Password reset link sent to ${u.email}.`))
+                        .catch((err) => showError(toMessage(err, "Could not send reset link.")))
                         .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
                     }}
                     className="rounded border border-[#24292E] bg-[#1C2126] px-2 py-1 text-xs text-white disabled:opacity-50"
@@ -334,9 +335,9 @@ export function UserManagementPage() {
                           void setAdminUserPassword(u.id, passwordDraft)
                             .then(() => {
                               setPasswordDraft("");
-                              setNotice("Password updated and user notified.");
+                              showSuccess("Password updated and user notified.");
                             })
-                            .catch((err) => setNotice(toMessage(err, "Could not set password.")))
+                            .catch((err) => showError(toMessage(err, "Could not set password.")))
                         }
                         className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-2 text-xs text-white"
                       >

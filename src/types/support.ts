@@ -1,4 +1,4 @@
-export type TicketStatus = "open" | "in_progress" | "resolved";
+export type TicketStatus = "open" | "in_progress" | "hold" | "resolved";
 export type TicketPriority = "low" | "medium" | "high" | "urgent";
 
 export interface SupportTicket {
@@ -20,6 +20,14 @@ export interface TicketMessageView {
   isStaff: boolean;
   createdAt: string;
   author: { id: string; name: string; email: string } | null;
+  attachments?: {
+    id: string;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    createdAt: string;
+    downloadUrl: string;
+  }[];
 }
 
 export interface SupportTicketDetail extends SupportTicket {
@@ -61,4 +69,5 @@ export interface CreateTicketInput {
   description: string;
   departmentId?: string;
   priority?: TicketPriority;
+  attachments?: File[];
 }

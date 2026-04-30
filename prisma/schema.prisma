@@ -41,6 +41,7 @@ enum PaymentStatus {
 enum TicketStatus {
   open
   in_progress
+  hold
   resolved
 }
 
@@ -87,6 +88,7 @@ model User {
   invitesCreated   Invite[] @relation("InviteCreator")
   funnelEvents     FunnelEvent[]
   moduleAccess     UserModuleAccess[]
+  ticketAttachments TicketAttachment[]
   formDefinitions  FormDefinition[]   @relation("FormCreatedBy")
   crmStatusChanges CrmLeadStatusLog[] @relation("CrmStatusChangedBy")
   convertedLeads   CrmLead[]          @relation("CrmLeadConvertedCustomer")
@@ -229,6 +231,7 @@ model SupportTicket {
 
   user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages TicketMessage[]
+  attachments TicketAttachment[]
 
   @@index([userId])
   @@index([status])
@@ -246,9 +249,30 @@ model TicketMessage {
 
   ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   user   User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  attachments TicketAttachment[]
 
   @@index([ticketId])
   @@map("ticket_messages")
+}
+
+model TicketAttachment {
+  id               String   @id @default(cuid())
+  ticketId         String   @map("ticket_id")
+  messageId        String?  @map("message_id")
+  uploadedByUserId String?  @map("uploaded_by_user_id")
+  fileName         String   @map("file_name")
+  mimeType         String   @map("mime_type")
+  storagePath      String   @map("storage_path")
+  sizeBytes        Int      @default(0) @map("size_bytes")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  ticket         SupportTicket  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  message        TicketMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploadedByUser User?          @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId])
+  @@index([messageId])
+  @@map("ticket_attachments")
 }
 
 model KBCategory {

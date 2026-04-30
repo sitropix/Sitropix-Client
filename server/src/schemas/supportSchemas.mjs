@@ -12,5 +12,5 @@ export const replyTicketSchema = z.object({
 });
 
 export const updateTicketStatusSchema = z.object({
-  status: z.enum(["open", "in_progress", "resolved"]),
+  status: z.enum(["open", "in_progress", "hold", "resolved"]),
 });

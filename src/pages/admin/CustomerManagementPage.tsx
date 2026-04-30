@@ -3,9 +3,10 @@ import { Link } from "react-router-dom";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { ConfirmDialog, DeleteConfirmDialog } from "@/components/ConfirmDialog";
+import { useToast } from "@/components/Toast";
 import { isModuleForbiddenError } from "@/services/http";
 import {
-  adminTriggerPasswordReset,
+  adminTriggerCustomerPasswordReset,
   adminUploadClientDocument,
   deactivateAdminCustomer,
   deleteAdminCustomer,
@@ -35,10 +36,10 @@ function fmtDate(iso: string | null | undefined) {
 
 export function CustomerManagementPage() {
   const { cache, updateCache } = useAdminPrefetch();
+  const { showSuccess, showError } = useToast();
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [filter, setFilter] = useState<string>("all");
-  const [notice, setNotice] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<AdminCustomerProfilePayload | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -78,7 +79,7 @@ export function CustomerManagementPage() {
         setNoModuleAccess(true);
         return;
       }
-      setNotice("Could not load directory.");
+      showError("Could not load directory.");
     });
   }, []);
 
@@ -99,14 +100,10 @@ export function CustomerManagementPage() {
           setNoModuleAccess(true);
           return;
         }
-        setNotice("Could not load customer details.");
+        showError("Could not load customer details.");
       })
       .finally(() => setProfileLoading(false));
   }, [selectedUserId]);
-
-  if (noModuleAccess) {
-    return <NoModuleAccess moduleLabel="Customers" />;
-  }
 
   const filteredUsers = useMemo(() => {
     if (filter === "all") return users;
@@ -126,6 +123,10 @@ export function CustomerManagementPage() {
     setCustomersPage(1);
   }, [filter]);
 
+  if (noModuleAccess) {
+    return <NoModuleAccess moduleLabel="Customers" />;
+  }
+
   const activeCount = subs.filter((s) => s.status === "active").length;
   const totalMrr = subs.reduce((sum, s) => sum + (s.plan?.priceMonthlyCents ?? 0), 0);
 
@@ -134,12 +135,12 @@ export function CustomerManagementPage() {
     setDeleteLoading(true);
     try {
       await deleteAdminCustomer(deleteDialog.userId, confirmEmail);
-      setNotice("Customer deleted.");
+      showSuccess("Customer deleted successfully.");
       setSelectedUserId(null);
       setDeleteDialog(null);
       await load();
     } catch {
-      setNotice("Delete failed. Make sure the email matches exactly.");
+      showError("Delete failed. Make sure the email matches exactly.");
     } finally {
       setDeleteLoading(false);
     }
@@ -151,10 +152,10 @@ export function CustomerManagementPage() {
     try {
       if (deactivateDialog.isActive) {
         await deactivateAdminCustomer(deactivateDialog.userId, deactivateReason);
-        setNotice("Customer deactivated.");
+        showSuccess("Customer deactivated successfully.");
       } else {
         await reactivateAdminCustomer(deactivateDialog.userId);
-        setNotice("Customer reactivated.");
+        showSuccess("Customer reactivated successfully.");
       }
       await load();
       if (selectedUserId === deactivateDialog.userId) {
@@ -162,7 +163,7 @@ export function CustomerManagementPage() {
       }
       setDeactivateDialog(null);
     } catch {
-      setNotice(deactivateDialog.isActive ? "Could not deactivate customer." : "Could not reactivate customer.");
+      showError(deactivateDialog.isActive ? "Could not deactivate customer." : "Could not reactivate customer.");
     } finally {
       setActionLoading((prev) => ({ ...prev, [deactivateDialog.userId]: false }));
     }
@@ -186,10 +187,6 @@ export function CustomerManagementPage() {
           </div>
         </div>
       </header>
-
-      {notice && (
-        <p className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/90">{notice}</p>
-      )}
 
       <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#24292E] bg-[#15191C] p-4">
         <span className="text-xs uppercase text-neutral-500">Filter by:</span>
@@ -250,9 +247,9 @@ export function CustomerManagementPage() {
                   disabled={isLoading}
                   onClick={() => {
                     setActionLoading((prev) => ({ ...prev, [u.id]: true }));
-                    void adminTriggerPasswordReset(u.id)
-                      .then(() => setNotice(`Password reset email queued for ${u.email}.`))
-                      .catch(() => setNotice("Could not send reset email."))
+                    void adminTriggerCustomerPasswordReset(u.id)
+                      .then(() => showSuccess(`Password reset email queued for ${u.email}.`))
+                      .catch(() => showError("Could not send reset email."))
                       .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
                   }}
                   onClickCapture={(e) => e.stopPropagation()}
@@ -268,7 +265,14 @@ export function CustomerManagementPage() {
                       onClick={() => {
                         setActionLoading((prev) => ({ ...prev, [u.id]: true }));
                         void updateAdminSubscription(subRow.id, { status: "active" })
-                          .then(load)
+                          .then(async () => {
+                            showSuccess(`Subscription set to active for ${u.email}.`);
+                            await load();
+                            if (selectedUserId === u.id) {
+                              setProfile(await fetchAdminCustomerProfile(u.id));
+                            }
+                          })
+                          .catch(() => showError("Could not set subscription to active."))
                           .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
                       }}
                       onClickCapture={(e) => e.stopPropagation()}
@@ -282,7 +286,14 @@ export function CustomerManagementPage() {
                       onClick={() => {
                         setActionLoading((prev) => ({ ...prev, [u.id]: true }));
                         void updateAdminSubscription(subRow.id, { status: "canceled" })
-                          .then(load)
+                          .then(async () => {
+                            showSuccess(`Subscription set to canceled for ${u.email}.`);
+                            await load();
+                            if (selectedUserId === u.id) {
+                              setProfile(await fetchAdminCustomerProfile(u.id));
+                            }
+                          })
+                          .catch(() => showError("Could not set subscription to canceled."))
                           .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
                       }}
                       onClickCapture={(e) => e.stopPropagation()}
@@ -296,7 +307,14 @@ export function CustomerManagementPage() {
                       onClick={() => {
                         setActionLoading((prev) => ({ ...prev, [u.id]: true }));
                         void updateAdminSubscription(subRow.id, { extendDays: 7 })
-                          .then(load)
+                          .then(async () => {
+                            showSuccess(`Extended subscription by 7 days for ${u.email}.`);
+                            await load();
+                            if (selectedUserId === u.id) {
+                              setProfile(await fetchAdminCustomerProfile(u.id));
+                            }
+                          })
+                          .catch(() => showError("Could not extend subscription by 7 days."))
                           .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
                       }}
                       onClickCapture={(e) => e.stopPropagation()}
@@ -471,7 +489,7 @@ export function CustomerManagementPage() {
                                 counts: preview.counts,
                               });
                             } catch {
-                              setNotice("Could not load delete preview.");
+                              showError("Could not load delete preview.");
                             }
                           })()
                         }
@@ -504,17 +522,22 @@ export function CustomerManagementPage() {
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
+                            {(() => {
+                              const ticketStatusClass: Record<string, string> = {
+                                open: "bg-amber-500/20 text-amber-300",
+                                in_progress: "bg-blue-500/20 text-blue-300",
+                                hold: "bg-violet-500/20 text-violet-300",
+                                resolved: "bg-green-500/20 text-green-300",
+                              };
+                              const statusClass = ticketStatusClass[t.status] ?? "bg-neutral-500/20 text-neutral-300";
+                              return (
                             <span
-                              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                                t.status === "open"
-                                  ? "bg-amber-500/20 text-amber-300"
-                                  : t.status === "in_progress"
-                                    ? "bg-blue-500/20 text-blue-300"
-                                    : "bg-green-500/20 text-green-300"
-                              }`}
+                              className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass}`}
                             >
                               {t.status.replace("_", " ")}
                             </span>
+                              );
+                            })()}
                             <Link
                               to={`/admin/tickets/${t.id}`}
                               className="rounded border border-brand-lime/40 bg-brand-lime/10 px-3 py-1.5 text-xs font-medium text-brand-lime transition hover:bg-brand-lime/20"
@@ -571,11 +594,11 @@ export function CustomerManagementPage() {
                         .then(async () => {
                           setUploadFile(null);
                           setUploadTitle("");
-                          setNotice("Document uploaded.");
+                          showSuccess("Document uploaded successfully.");
                           setProfile(await fetchAdminCustomerProfile(selectedUserId));
                           setDocsPage(1);
                         })
-                        .catch(() => setNotice("Could not upload document."));
+                        .catch(() => showError("Could not upload document."));
                     }}
                   >
                     <input
@@ -652,13 +675,13 @@ export function CustomerManagementPage() {
                         try {
                           const result = await syncAdminCustomerStripe(profile.overview.user.id);
                           if (result.ok) {
-                            setNotice("Synced from Stripe successfully.");
+                            showSuccess("Synced from Stripe successfully.");
                             setProfile(await fetchAdminCustomerProfile(profile.overview.user.id));
                           } else {
-                            setNotice(`Sync failed: ${result.reason || "Unknown error"}`);
+                            showError(`Sync failed: ${result.reason || "Unknown error"}`);
                           }
                         } catch {
-                          setNotice("Could not sync from Stripe.");
+                          showError("Could not sync from Stripe.");
                         } finally {
                           setActionLoading((prev) => ({ ...prev, [`sync_${profile.overview.user.id}`]: false }));
                         }

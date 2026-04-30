@@ -1,4 +1,7 @@
 import express from "express";
+import multer from "multer";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { env } from "../config/env.mjs";
 import { prisma } from "../db/client.mjs";
 import { requireAuth } from "../middleware/auth.mjs";
@@ -6,9 +9,18 @@ import { validate } from "../middleware/validate.mjs";
 import { createTicketSchema, replyTicketSchema } from "../schemas/supportSchemas.mjs";
 import { log } from "../observability/logger.mjs";
 import { sendTransactionalEmail } from "../services/emailService.mjs";
+import {
+  absoluteTicketAttachmentPath,
+  ensureTicketAttachmentsDir,
+  safeTicketAttachmentRelativePath,
+} from "../services/ticketAttachmentPaths.mjs";
 
 const router = express.Router();
 router.use(requireAuth);
+const ticketUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024, files: 5 },
+});
 
 router.get("/tickets", async (req, res) => {
   const tickets = await prisma.supportTicket.findMany({
@@ -37,6 +49,7 @@ router.get("/tickets/:id", async (req, res) => {
     where: { id: req.params.id, userId: req.auth.userId },
     include: {
       messages: { orderBy: { createdAt: "asc" }, include: { user: { select: { id: true, name: true, email: true } } } },
+      attachments: { orderBy: { createdAt: "asc" } },
     },
   });
   if (!ticket) return res.status(404).json({ error: "not_found" });
@@ -56,12 +69,32 @@ router.get("/tickets/:id", async (req, res) => {
       isStaff: m.isStaff,
       createdAt: m.createdAt,
       author: m.user ? { id: m.user.id, name: m.user.name, email: m.user.email } : null,
+      attachments: ticket.attachments
+        .filter((a) => a.messageId === m.id)
+        .map((a) => ({
+          id: a.id,
+          fileName: a.fileName,
+          mimeType: a.mimeType,
+          sizeBytes: a.sizeBytes,
+          createdAt: a.createdAt,
+          downloadUrl: `/api/support/tickets/${ticket.id}/attachments/${a.id}/download`,
+        })),
     })),
   });
 });
 
-router.post("/tickets", validate(createTicketSchema), async (req, res) => {
-  const payload = req.validatedBody;
+router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) => {
+  const payloadResult = createTicketSchema.safeParse({
+    subject: req.body?.subject,
+    description: req.body?.description,
+    departmentId: req.body?.departmentId,
+    priority: req.body?.priority,
+  });
+  if (!payloadResult.success) {
+    return res.status(400).json({ error: "validation_error", issues: payloadResult.error.issues });
+  }
+  const payload = payloadResult.data;
+  const files = Array.isArray(req.files) ? req.files : [];
   
   const subscription = await prisma.subscription.findUnique({
     where: { userId: req.auth.userId },
@@ -85,7 +118,35 @@ router.post("/tickets", validate(createTicketSchema), async (req, res) => {
         },
       },
     },
+    include: { messages: { orderBy: { createdAt: "asc" } } },
   });
+  const firstMessage = ticket.messages[0];
+
+  if (files.length > 0 && firstMessage) {
+    await ensureTicketAttachmentsDir();
+    for (const file of files) {
+      if (!file?.buffer?.length) continue;
+      const attachment = await prisma.ticketAttachment.create({
+        data: {
+          ticketId: ticket.id,
+          messageId: firstMessage.id,
+          uploadedByUserId: req.auth.userId,
+          fileName: file.originalname || "attachment",
+          mimeType: file.mimetype || "application/octet-stream",
+          sizeBytes: file.size,
+          storagePath: "_pending_",
+        },
+      });
+      const rel = safeTicketAttachmentRelativePath(ticket.id, attachment.id, file.originalname || "attachment");
+      const abs = absoluteTicketAttachmentPath(rel);
+      await mkdir(dirname(abs), { recursive: true });
+      await writeFile(abs, file.buffer);
+      await prisma.ticketAttachment.update({
+        where: { id: attachment.id },
+        data: { storagePath: rel, sizeBytes: file.size },
+      });
+    }
+  }
 
   await sendTransactionalEmail({
     to: req.auth.email,
@@ -128,6 +189,29 @@ router.post("/tickets", validate(createTicketSchema), async (req, res) => {
     }
   });
   return;
+});
+
+router.get("/tickets/:id/attachments/:attachmentId/download", async (req, res) => {
+  const ticket = await prisma.supportTicket.findFirst({
+    where: { id: req.params.id, userId: req.auth.userId },
+    select: { id: true },
+  });
+  if (!ticket) return res.status(404).json({ error: "not_found" });
+  const attachment = await prisma.ticketAttachment.findFirst({
+    where: { id: req.params.attachmentId, ticketId: ticket.id },
+  });
+  if (!attachment) return res.status(404).json({ error: "not_found" });
+
+  const abs = absoluteTicketAttachmentPath(attachment.storagePath);
+  try {
+    await access(abs);
+  } catch {
+    return res.status(404).json({ error: "file_missing" });
+  }
+  const buf = await readFile(abs);
+  res.setHeader("Content-Type", attachment.mimeType || "application/octet-stream");
+  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(attachment.fileName)}"`);
+  return res.send(buf);
 });
 
 router.post("/tickets/:id/messages", validate(replyTicketSchema), async (req, res) => {

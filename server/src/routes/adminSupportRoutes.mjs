@@ -1,10 +1,12 @@
 import express from "express";
+import { access, readFile } from "node:fs/promises";
 import { prisma } from "../db/client.mjs";
 import { requireAuth, requireModuleAccess, requireRole } from "../middleware/auth.mjs";
 import { validate } from "../middleware/validate.mjs";
 import { replyTicketSchema, updateTicketStatusSchema } from "../schemas/supportSchemas.mjs";
 import { sendTransactionalEmail } from "../services/emailService.mjs";
 import { env } from "../config/env.mjs";
+import { absoluteTicketAttachmentPath } from "../services/ticketAttachmentPaths.mjs";
 
 const router = express.Router();
 router.use(requireAuth, requireRole("admin", "master_admin"), requireModuleAccess("tickets"));
@@ -12,7 +14,7 @@ router.use(requireAuth, requireRole("admin", "master_admin"), requireModuleAcces
 router.get("/tickets", async (req, res) => {
   const { status, userId, limit = "50", offset = "0" } = req.query;
   const where = {};
-  if (status && ["open", "in_progress", "resolved"].includes(String(status))) {
+  if (status && ["open", "in_progress", "hold", "resolved"].includes(String(status))) {
     where.status = String(status);
   }
   if (userId) where.userId = String(userId);
@@ -62,6 +64,7 @@ router.get("/tickets/:id", async (req, res) => {
         orderBy: { createdAt: "asc" },
         include: { user: { select: { id: true, name: true, email: true } } },
       },
+      attachments: { orderBy: { createdAt: "asc" } },
     },
   });
   if (!ticket) return res.status(404).json({ error: "not_found" });
@@ -82,8 +85,41 @@ router.get("/tickets/:id", async (req, res) => {
       isStaff: m.isStaff,
       createdAt: m.createdAt,
       author: m.user ? { id: m.user.id, name: m.user.name, email: m.user.email } : null,
+      attachments: ticket.attachments
+        .filter((a) => a.messageId === m.id)
+        .map((a) => ({
+          id: a.id,
+          fileName: a.fileName,
+          mimeType: a.mimeType,
+          sizeBytes: a.sizeBytes,
+          createdAt: a.createdAt,
+          downloadUrl: `/api/admin/tickets/${ticket.id}/attachments/${a.id}/download`,
+        })),
     })),
   });
+});
+
+router.get("/tickets/:id/attachments/:attachmentId/download", async (req, res) => {
+  const ticket = await prisma.supportTicket.findUnique({
+    where: { id: req.params.id },
+    select: { id: true },
+  });
+  if (!ticket) return res.status(404).json({ error: "not_found" });
+  const attachment = await prisma.ticketAttachment.findFirst({
+    where: { id: req.params.attachmentId, ticketId: ticket.id },
+  });
+  if (!attachment) return res.status(404).json({ error: "not_found" });
+
+  const abs = absoluteTicketAttachmentPath(attachment.storagePath);
+  try {
+    await access(abs);
+  } catch {
+    return res.status(404).json({ error: "file_missing" });
+  }
+  const buf = await readFile(abs);
+  res.setHeader("Content-Type", attachment.mimeType || "application/octet-stream");
+  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(attachment.fileName)}"`);
+  return res.send(buf);
 });
 
 router.patch("/tickets/:id", validate(updateTicketStatusSchema), async (req, res) => {

@@ -5,6 +5,7 @@ import { Layout } from "@/components/Layout";
 import { RequireAdmin } from "@/components/RequireAdmin";
 import { RequireAdminRole } from "@/components/RequireAdminRole";
 import { RequireCustomer } from "@/components/RequireCustomer";
+import { ToastProvider } from "@/components/Toast";
 import { AuthProvider } from "@/context/AuthContext";
 import { AuthzProvider } from "@/context/AuthzContext";
 import { AdminPrefetchProvider } from "@/context/AdminPrefetchContext";
@@ -92,6 +93,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <BrowserRouter>
+        <ToastProvider>
         <AuthProvider>
           <AuthzProvider>
             <AdminPrefetchProvider>
@@ -377,13 +379,14 @@ export default function App() {
                     />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Route>
-                    </Routes>
-                  </Suspense>
+                  </Routes>
+                </Suspense>
                 </TicketsProvider>
               </UserProvider>
             </AdminPrefetchProvider>
           </AuthzProvider>
         </AuthProvider>
+        </ToastProvider>
       </BrowserRouter>
     </ThemeProvider>
   );

@@ -50,12 +50,13 @@ export async function refreshAccessToken() {
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAccessToken();
+  const isFormDataBody = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const doFetch = async (bearer?: string) =>
     fetch(`${API_BASE}${path}`, {
       ...init,
       credentials: "include",
       headers: {
-        "Content-Type": "application/json",
+        ...(isFormDataBody ? {} : { "Content-Type": "application/json" }),
         ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
         ...(init?.headers ?? {}),
       },
@@ -82,6 +83,41 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     );
   }
   return (await res.json()) as T;
+}
+
+export async function apiBlob(path: string, init?: RequestInit): Promise<Blob> {
+  const token = getAccessToken();
+  const doFetch = async (bearer?: string) =>
+    fetch(`${API_BASE}${path}`, {
+      ...init,
+      credentials: "include",
+      headers: {
+        ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+        ...(init?.headers ?? {}),
+      },
+    });
+
+  let res = await doFetch(token ?? undefined);
+  if (res.status === 401 && token) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed?.accessToken) res = await doFetch(refreshed.accessToken);
+  }
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      message?: string;
+      moduleKey?: string;
+      issues?: unknown;
+    };
+    throw new ApiRequestError(
+      body.message ?? body.error ?? "request_failed",
+      res.status,
+      body.error,
+      body.moduleKey,
+      body.issues,
+    );
+  }
+  return res.blob();
 }
 
 export function isModuleForbiddenError(err: unknown): err is ApiRequestError {

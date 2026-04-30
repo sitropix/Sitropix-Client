@@ -157,7 +157,7 @@ export interface AdminCustomerProfilePayload {
   tickets: Array<{
     id: string;
     subject: string;
-    status: "open" | "in_progress" | "resolved";
+    status: "open" | "in_progress" | "hold" | "resolved";
     department: string;
     createdAt: string;
     updatedAt: string;

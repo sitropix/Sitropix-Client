@@ -15,6 +15,7 @@ const filters: { label: string; value: "all" | TicketStatus }[] = [
   { label: "All", value: "all" },
   { label: "Open", value: "open" },
   { label: "In progress", value: "in_progress" },
+  { label: "Hold", value: "hold" },
   { label: "Resolved", value: "resolved" },
 ];
 

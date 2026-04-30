@@ -1063,6 +1063,37 @@ adminRouter.post("/customers/:id/sync-stripe", async (req, res) => {
   }
 });
 
+adminRouter.post("/customers/:id/password-reset", async (req, res) => {
+  const auditCtx = requestAuditContext(req);
+  const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+  if (!user) return res.status(404).json({ error: "user_not_found" });
+  const resetToken = randomToken(24);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordResetToken: sha256(resetToken),
+      passwordResetExpiresAt: new Date(Date.now() + 1000 * 60 * 60 * 2),
+    },
+  });
+  await sendTransactionalEmail({
+    to: user.email,
+    template: "password_reset",
+    idempotencyKey: `admin_customer_pwd_reset_${user.id}_${Date.now()}`,
+    subject: "Password reset",
+    html: `<p>Hi ${user.name},</p><p>An administrator requested a password reset for your account.</p><p><a href="${env.appUrl}/reset-password?token=${resetToken}">Set new password</a> (link expires in 2 hours).</p>`,
+  });
+  await logAuditEvent({
+    action: "admin.password_reset_requested_for_customer",
+    actorUserId: req.auth.userId,
+    actorRole: req.auth.role,
+    targetType: "user",
+    targetId: user.id,
+    metadata: { email: user.email },
+    ...auditCtx,
+  });
+  return res.json({ ok: true });
+});
+
 adminRouter.post("/payments/:id/retry", async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const payment = await prisma.payment.findUnique({ where: { id: req.params.id } });

@@ -3,6 +3,7 @@ import { Breadcrumb } from "@/components/Breadcrumb";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { useToast } from "@/components/Toast";
 import { isModuleForbiddenError } from "@/services/http";
 import {
   createAdminInvite,
@@ -17,13 +18,13 @@ const INVITES_PAGE_SIZE = 10;
 
 export function InvitesPage() {
   const { cache, updateCache } = useAdminPrefetch();
+  const { showSuccess, showError } = useToast();
   const [invites, setInvites] = useState<AdminInviteRow[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [email, setEmail] = useState("");
   const [planId, setPlanId] = useState("");
   const [message, setMessage] = useState("");
   const [expiresDays, setExpiresDays] = useState("14");
-  const [notice, setNotice] = useState<string | null>(null);
   const [busyInviteId, setBusyInviteId] = useState<string | null>(null);
   const [noModuleAccess, setNoModuleAccess] = useState(false);
   const [invitesPage, setInvitesPage] = useState(1);
@@ -46,7 +47,7 @@ export function InvitesPage() {
         setNoModuleAccess(true);
         return;
       }
-      setNotice("Could not load invites.");
+      showError("Could not load invites.");
     });
   }, []);
 
@@ -56,7 +57,6 @@ export function InvitesPage() {
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
-    setNotice(null);
     if (!email.trim()) return;
     setCreating(true);
     try {
@@ -69,11 +69,11 @@ export function InvitesPage() {
       setEmail("");
       setMessage("");
       setPlanId("");
-      setNotice("Invite email sent.");
+      showSuccess("Invite email sent successfully.");
       setInvitesPage(1);
       await load();
     } catch {
-      setNotice("Could not create invite.");
+      showError("Could not create invite. Please try again.");
     } finally {
       setCreating(false);
     }
@@ -82,13 +82,13 @@ export function InvitesPage() {
   async function handleRevokeInvite() {
     if (!revokeConfirm.invite) return;
     setBusyInviteId(revokeConfirm.invite.id);
-    setNotice(null);
     try {
       await revokeAdminInvite(revokeConfirm.invite.id);
+      showSuccess("Invite revoked successfully.");
       setRevokeConfirm({ open: false, invite: null });
       await load();
     } catch {
-      setNotice("Could not revoke invite.");
+      showError("Could not revoke invite. Please try again.");
     } finally {
       setBusyInviteId(null);
     }
@@ -109,8 +109,6 @@ export function InvitesPage() {
           Send a secure signup link by email. Optional plan pre-assigns a trial subscription after they register with the same email.
         </p>
       </header>
-
-      {notice && <p className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/90">{notice}</p>}
 
       <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
         <h2 className="text-sm font-semibold text-white">New invite</h2>
@@ -199,12 +197,11 @@ export function InvitesPage() {
                     onClick={() =>
                       void (async () => {
                         setBusyInviteId(inv.id);
-                        setNotice(null);
                         try {
                           await resendAdminInvite(inv.id);
-                          setNotice(`Invite re-sent to ${inv.email}.`);
+                          showSuccess(`Invite re-sent to ${inv.email}.`);
                         } catch {
-                          setNotice("Could not resend invite.");
+                          showError("Could not resend invite. Please try again.");
                         } finally {
                           setBusyInviteId(null);
                         }

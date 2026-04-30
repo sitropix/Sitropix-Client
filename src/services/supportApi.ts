@@ -5,8 +5,9 @@ import type {
   KBCategory,
   SupportTicket,
   SupportTicketDetail,
+  TicketStatus,
 } from "@/types/support";
-import { api } from "@/services/http";
+import { api, apiBlob } from "@/services/http";
 
 export function fetchTickets() {
   return api<SupportTicket[]>("/api/support/tickets");
@@ -24,9 +25,29 @@ export function postTicketReply(id: string, body: string) {
 }
 
 export function createTicket(input: CreateTicketInput) {
+  const hasAttachments = Array.isArray(input.attachments) && input.attachments.length > 0;
+  if (hasAttachments) {
+    const form = new FormData();
+    form.set("subject", input.subject);
+    form.set("description", input.description);
+    if (input.departmentId) form.set("departmentId", input.departmentId);
+    if (input.priority) form.set("priority", input.priority);
+    for (const file of input.attachments ?? []) {
+      form.append("attachments", file);
+    }
+    return api<SupportTicket>("/api/support/tickets", {
+      method: "POST",
+      body: form,
+    });
+  }
   return api<SupportTicket>("/api/support/tickets", {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      subject: input.subject,
+      description: input.description,
+      departmentId: input.departmentId,
+      priority: input.priority,
+    }),
   });
 }
 
@@ -67,9 +88,21 @@ export function postAdminTicketReply(id: string, body: string) {
   });
 }
 
-export function patchAdminTicketStatus(id: string, status: "open" | "in_progress" | "resolved") {
+export function patchAdminTicketStatus(id: string, status: TicketStatus) {
   return api<{ id: string; status: string; updatedAt: string }>(`/api/admin/tickets/${id}`, {
     method: "PATCH",
     body: JSON.stringify({ status }),
   });
+}
+
+export async function downloadTicketAttachment(downloadUrl: string, fileName: string) {
+  const blob = await apiBlob(downloadUrl);
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objectUrl);
 }

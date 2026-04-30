@@ -35,6 +35,7 @@ export function SubmitTicketPage() {
   const [description, setDescription] = useState("");
   const [department, setDepartment] = useState("General");
   const [priority, setPriority] = useState<TicketPriority>("medium");
+  const [attachments, setAttachments] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,6 +56,7 @@ export function SubmitTicketPage() {
         description: description.trim(),
         departmentId: department,
         priority,
+        attachments,
       });
       navigate("/requests");
     } catch {
@@ -159,6 +161,47 @@ export function SubmitTicketPage() {
                 placeholder="What you expected, what happened, timestamps, request IDs, and any screenshots..."
                 minHeight="180px"
               />
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="ticket-attachments" className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">
+              Attach Documents (optional)
+            </label>
+            <p className="mt-1 text-xs text-ink-muted">
+              Add up to 5 files (each up to 12MB). Supported: screenshots, PDFs, logs, and text files.
+            </p>
+            <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
+              <input
+                id="ticket-attachments"
+                type="file"
+                multiple
+                onChange={(e) => {
+                  const picked = Array.from(e.target.files ?? []);
+                  setAttachments((prev) => [...prev, ...picked].slice(0, 5));
+                  e.currentTarget.value = "";
+                }}
+                className="w-full text-xs text-ink-muted file:mr-2 file:rounded-lg file:border-0 file:bg-brand-lime file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-canvas"
+              />
+              {attachments.length > 0 && (
+                <ul className="mt-3 space-y-2">
+                  {attachments.map((file, idx) => (
+                    <li key={`${file.name}-${idx}`} className="flex items-start justify-between gap-3 rounded-lg border border-white/10 bg-black/30 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="break-all text-xs text-white">{file.name}</p>
+                        <p className="text-[11px] text-ink-muted">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                        className="shrink-0 rounded border border-white/15 px-2 py-1 text-[11px] text-ink-muted transition hover:text-white"
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
 

@@ -1,11 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { ButtonLoader } from "@/components/ButtonLoader";
 import { RichTextContent } from "@/components/RichTextContent";
 import { Skeleton } from "@/components/Skeleton";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useToast } from "@/components/Toast";
 import { ApiRequestError } from "@/services/http";
-import { fetchTicketById, postTicketReply } from "@/services/supportApi";
+import { downloadTicketAttachment, fetchTicketById, postTicketReply } from "@/services/supportApi";
 import type { SupportTicketDetail } from "@/types/support";
 
 function formatWhen(iso: string) {
@@ -14,13 +16,13 @@ function formatWhen(iso: string) {
 
 export function TicketDetailPage() {
   const { id } = useParams();
+  const { showSuccess, showError } = useToast();
   const [detail, setDetail] = useState<SupportTicketDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (id === undefined) return;
@@ -54,15 +56,15 @@ export function TicketDetailPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!id || !body.trim()) return;
-    setError(null);
     setSending(true);
     try {
       await postTicketReply(id, body.trim());
       setBody("");
       const d = await fetchTicketById(id);
       setDetail(d);
+      showSuccess("Reply sent successfully.");
     } catch {
-      setError("Could not send your message.");
+      showError("Could not send your message. Please try again.");
     } finally {
       setSending(false);
     }
@@ -172,6 +174,28 @@ export function TicketDetailPage() {
               </time>
             </div>
             <RichTextContent content={m.body} className="mt-3 text-sm text-ink-muted" />
+            {(m.attachments?.length ?? 0) > 0 && (
+              <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">Attachments</p>
+                <ul className="mt-2 space-y-2">
+                  {(m.attachments ?? []).map((attachment) => (
+                    <li key={attachment.id} className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/30 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="break-all text-xs text-white">{attachment.fileName}</p>
+                        <p className="text-[11px] text-ink-muted">{(attachment.sizeBytes / 1024).toFixed(1)} KB</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void downloadTicketAttachment(attachment.downloadUrl, attachment.fileName)}
+                        className="shrink-0 rounded border border-brand-lime/35 bg-brand-lime/10 px-2.5 py-1 text-[11px] font-medium text-brand-lime transition hover:bg-brand-lime/20"
+                      >
+                        Download
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </article>
         ))}
       </section>
@@ -188,12 +212,12 @@ export function TicketDetailPage() {
           className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white outline-none transition focus:border-brand-lime/35 focus:ring-2 focus:ring-brand-lime/25"
           placeholder="More context, logs, or questions…"
         />
-        {error && <p className="text-sm text-rose-200">{error}</p>}
         <button
           type="submit"
           disabled={sending || !body.trim()}
-          className="inline-flex items-center justify-center rounded-full bg-brand-lime px-6 py-2.5 text-sm font-semibold text-canvas shadow-glow transition enabled:hover:scale-[1.02] enabled:hover:bg-brand-lime-dim disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center justify-center gap-2 rounded-full bg-brand-lime px-6 py-2.5 text-sm font-semibold text-canvas shadow-glow transition enabled:hover:scale-[1.02] enabled:hover:bg-brand-lime-dim disabled:cursor-not-allowed disabled:opacity-60"
         >
+          {sending && <ButtonLoader size="sm" />}
           {sending ? "Sending…" : "Send reply"}
         </button>
       </form>

@@ -2,18 +2,19 @@ import { FormEvent, useEffect, useState } from "react";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { useToast } from "@/components/Toast";
 import { isModuleForbiddenError } from "@/services/http";
 import { createAdminPlan, deleteAdminPlan, fetchAdminPlans, updateAdminPlan } from "@/services/subscriptionsApi";
 import type { Plan } from "@/types/subscription";
 
 export function PlanManagementPage() {
   const { cache, updateCache } = useAdminPrefetch();
+  const { showSuccess, showError } = useToast();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [monthly, setMonthly] = useState("29");
   const [creating, setCreating] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [eName, setEName] = useState("");
   const [eDesc, setEDesc] = useState("");
@@ -41,7 +42,7 @@ export function PlanManagementPage() {
         setNoModuleAccess(true);
         return;
       }
-      setNotice("Could not load plans.");
+      showError("Could not load plans.");
     });
   }, []);
 
@@ -78,10 +79,11 @@ export function PlanManagementPage() {
         trialDays: Math.max(0, parseInt(eTrial, 10) || 0),
         isActive: eActive,
       });
+      showSuccess("Plan updated successfully.");
       setEditingId(null);
       await load();
     } catch {
-      setNotice("Could not save plan changes.");
+      showError("Could not save plan changes. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -92,10 +94,11 @@ export function PlanManagementPage() {
     setDeletingPlanId(deleteConfirm.plan.id);
     try {
       await deleteAdminPlan(deleteConfirm.plan.id);
+      showSuccess("Plan deleted successfully.");
       setDeleteConfirm({ open: false, plan: null });
       await load();
     } catch {
-      setNotice("Could not delete plan.");
+      showError("Could not delete plan. Please try again.");
     } finally {
       setDeletingPlanId(null);
     }
@@ -104,7 +107,6 @@ export function PlanManagementPage() {
   async function addPlan() {
     if (!name.trim()) return;
     setCreating(true);
-    setNotice(null);
     try {
       await createAdminPlan({
         code: name.toLowerCase().replace(/\s+/g, "-"),
@@ -117,12 +119,13 @@ export function PlanManagementPage() {
         isActive: true,
         trialDays: 14,
       });
+      showSuccess("Plan created successfully.");
       setName("");
       setDescription("");
       setMonthly("29");
       await load();
     } catch {
-      setNotice("Plan creation failed. Check Stripe configuration and plan fields.");
+      showError("Plan creation failed. Check Stripe configuration and plan fields.");
     } finally {
       setCreating(false);
     }
@@ -136,8 +139,6 @@ export function PlanManagementPage() {
           Create plans in Stripe and the app catalog together, and edit pricing/catalog details from one place.
         </p>
       </header>
-      {notice && <p className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/90">{notice}</p>}
-
       <section className="rounded-xl border border-[#24292E] bg-[#15191C] p-6">
         <h2 className="text-sm font-semibold text-white">Create plan</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-4">

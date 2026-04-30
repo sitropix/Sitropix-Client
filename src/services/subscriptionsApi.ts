@@ -422,6 +422,13 @@ export function adminTriggerPasswordReset(userId: string) {
   });
 }
 
+export function adminTriggerCustomerPasswordReset(userId: string) {
+  return api<{ ok: boolean }>(`/api/admin/customers/${userId}/password-reset`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 export function fetchMyDocuments() {
   return api<ClientDocumentRow[]>("/api/documents");
 }

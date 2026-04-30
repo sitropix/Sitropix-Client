@@ -1,12 +1,19 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { ButtonLoader } from "@/components/ButtonLoader";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { RichTextContent } from "@/components/RichTextContent";
 import { Skeleton } from "@/components/Skeleton";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useToast } from "@/components/Toast";
 import { isModuleForbiddenError } from "@/services/http";
-import { fetchAdminTicketById, patchAdminTicketStatus, postAdminTicketReply } from "@/services/supportApi";
+import {
+  downloadTicketAttachment,
+  fetchAdminTicketById,
+  patchAdminTicketStatus,
+  postAdminTicketReply,
+} from "@/services/supportApi";
 import type { SupportTicketDetail, TicketStatus } from "@/types/support";
 
 type AdminDetail = SupportTicketDetail & { user: { id: string; name: string; email: string } };
@@ -17,13 +24,14 @@ function formatWhen(iso: string) {
 
 export function AdminTicketDetailPage() {
   const { id } = useParams();
+  const { showSuccess, showError } = useToast();
   const [detail, setDetail] = useState<AdminDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
+  const [statusSaving, setStatusSaving] = useState(false);
   const [statusChoice, setStatusChoice] = useState<TicketStatus | "">("");
-  const [error, setError] = useState<string | null>(null);
   const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function reload() {
@@ -69,7 +77,6 @@ export function AdminTicketDetailPage() {
   async function onSend(e: FormEvent) {
     e.preventDefault();
     if (!id || !body.trim()) return;
-    setError(null);
     setSending(true);
     try {
       const r = await postAdminTicketReply(id, body.trim());
@@ -78,8 +85,9 @@ export function AdminTicketDetailPage() {
       if (r.status && detail) {
         setStatusChoice(r.status as TicketStatus);
       }
+      showSuccess("Reply sent and customer notified.");
     } catch {
-      setError("Could not send reply.");
+      showError("Could not send reply. Please try again.");
     } finally {
       setSending(false);
     }
@@ -87,12 +95,15 @@ export function AdminTicketDetailPage() {
 
   async function onStatusSave() {
     if (!id || !statusChoice || !detail || statusChoice === detail.status) return;
-    setError(null);
+    setStatusSaving(true);
     try {
       await patchAdminTicketStatus(id, statusChoice);
       await reload();
+      showSuccess(`Ticket status updated to "${statusChoice.replace("_", " ")}".`);
     } catch {
-      setError("Could not update status.");
+      showError("Could not update status. Please try again.");
+    } finally {
+      setStatusSaving(false);
     }
   }
 
@@ -156,16 +167,18 @@ export function AdminTicketDetailPage() {
             >
               <option value="open">Open</option>
               <option value="in_progress">In progress</option>
+              <option value="hold">Hold</option>
               <option value="resolved">Resolved</option>
             </select>
           </div>
           <button
             type="button"
             onClick={() => void onStatusSave()}
-            disabled={statusChoice === detail.status}
-            className="rounded-full border border-white/15 px-4 py-2 text-sm text-white transition enabled:hover:border-brand-lime/35 disabled:opacity-40"
+            disabled={statusSaving || statusChoice === detail.status}
+            className="inline-flex items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-sm text-white transition enabled:hover:border-brand-lime/35 disabled:opacity-40"
           >
-            Save status
+            {statusSaving && <ButtonLoader size="sm" />}
+            {statusSaving ? "Saving…" : "Save status"}
           </button>
         </div>
       </header>
@@ -189,6 +202,28 @@ export function AdminTicketDetailPage() {
               </time>
             </div>
             <RichTextContent content={m.body} className="mt-3 text-sm text-ink-muted" />
+            {(m.attachments?.length ?? 0) > 0 && (
+              <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">Attachments</p>
+                <ul className="mt-2 space-y-2">
+                  {(m.attachments ?? []).map((attachment) => (
+                    <li key={attachment.id} className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/30 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="break-all text-xs text-white">{attachment.fileName}</p>
+                        <p className="text-[11px] text-ink-muted">{(attachment.sizeBytes / 1024).toFixed(1)} KB</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void downloadTicketAttachment(attachment.downloadUrl, attachment.fileName)}
+                        className="shrink-0 rounded border border-brand-lime/35 bg-brand-lime/10 px-2.5 py-1 text-[11px] font-medium text-brand-lime transition hover:bg-brand-lime/20"
+                      >
+                        Download
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </article>
         ))}
       </section>
@@ -205,12 +240,12 @@ export function AdminTicketDetailPage() {
           className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white outline-none transition focus:border-brand-lime/35"
           placeholder="Your response to the customer…"
         />
-        {error && <p className="text-sm text-rose-200">{error}</p>}
         <button
           type="submit"
           disabled={sending || !body.trim()}
-          className="inline-flex items-center justify-center rounded-full bg-brand-lime px-6 py-2.5 text-sm font-semibold text-canvas disabled:opacity-60"
+          className="inline-flex items-center justify-center gap-2 rounded-full bg-brand-lime px-6 py-2.5 text-sm font-semibold text-canvas disabled:opacity-60"
         >
+          {sending && <ButtonLoader size="sm" />}
           {sending ? "Sending…" : "Send and notify customer"}
         </button>
       </form>
