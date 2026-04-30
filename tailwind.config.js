@@ -9,6 +9,16 @@ export default {
           "lime-dim": "#353536",
           glow: "rgba(8, 8, 8, 0.2)",
         },
+        admin: {
+          lime: "#84CC16",
+          "lime-dim": "#65a30d",
+          glow: "rgba(132, 204, 22, 0.25)",
+          canvas: "#0a0a0a",
+          surface: "#15191C",
+          "surface-alt": "#1C2126",
+          border: "#24292E",
+          "border-alt": "#2b3137",
+        },
         zinc: {
           50: "#EBEDF1",
           100: "#EBEDF1",

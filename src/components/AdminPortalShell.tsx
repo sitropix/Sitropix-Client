@@ -146,7 +146,7 @@ export function AdminPortalShell({ children }: { children: ReactNode }) {
   ];
 
   return (
-    <div className="min-h-screen bg-canvas text-white">
+    <div className="admin-theme min-h-screen bg-canvas text-white">
       <header className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between border-b border-white/10 bg-canvas/95 px-6 backdrop-blur">
         <div className="text-lg font-black tracking-tight text-brand-lime">Sitropix Admin</div>
         <AdminProfileMenu />
