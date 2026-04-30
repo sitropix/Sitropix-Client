@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
+import { ButtonLoader } from "@/components/ButtonLoader";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { ConfirmDialog, DeleteConfirmDialog } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
@@ -245,24 +246,26 @@ export function CustomerManagementPage() {
                 <button
                   type="button"
                   disabled={isLoading}
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setActionLoading((prev) => ({ ...prev, [u.id]: true }));
                     void adminTriggerCustomerPasswordReset(u.id)
                       .then(() => showSuccess(`Password reset email queued for ${u.email}.`))
                       .catch(() => showError("Could not send reset email."))
                       .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
                   }}
-                  onClickCapture={(e) => e.stopPropagation()}
-                  className="rounded border border-[#24292E] bg-[#1C2126] px-2.5 py-1 text-xs text-white transition hover:border-brand-lime/35 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded border border-[#24292E] bg-[#1C2126] px-2.5 py-1 text-xs text-white transition hover:border-brand-lime/35 disabled:opacity-50"
                 >
-                  {isLoading ? "..." : "Reset Password"}
+                  {isLoading && <ButtonLoader size="sm" />}
+                  Reset Password
                 </button>
                 {subRow && (
                   <>
                     <button
                       type="button"
                       disabled={isLoading}
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setActionLoading((prev) => ({ ...prev, [u.id]: true }));
                         void updateAdminSubscription(subRow.id, { status: "active" })
                           .then(async () => {
@@ -275,15 +278,16 @@ export function CustomerManagementPage() {
                           .catch(() => showError("Could not set subscription to active."))
                           .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
                       }}
-                      onClickCapture={(e) => e.stopPropagation()}
-                      className="rounded border border-[#24292E] bg-[#1C2126] px-2.5 py-1 text-xs text-white disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded border border-[#24292E] bg-[#1C2126] px-2.5 py-1 text-xs text-white disabled:opacity-50"
                     >
+                      {isLoading && <ButtonLoader size="sm" />}
                       Set active
                     </button>
                     <button
                       type="button"
                       disabled={isLoading}
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setActionLoading((prev) => ({ ...prev, [u.id]: true }));
                         void updateAdminSubscription(subRow.id, { status: "canceled" })
                           .then(async () => {
@@ -296,15 +300,16 @@ export function CustomerManagementPage() {
                           .catch(() => showError("Could not set subscription to canceled."))
                           .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
                       }}
-                      onClickCapture={(e) => e.stopPropagation()}
-                      className="rounded border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-100 disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-100 disabled:opacity-50"
                     >
+                      {isLoading && <ButtonLoader size="sm" />}
                       Set canceled
                     </button>
                     <button
                       type="button"
                       disabled={isLoading}
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setActionLoading((prev) => ({ ...prev, [u.id]: true }));
                         void updateAdminSubscription(subRow.id, { extendDays: 7 })
                           .then(async () => {
@@ -317,9 +322,9 @@ export function CustomerManagementPage() {
                           .catch(() => showError("Could not extend subscription by 7 days."))
                           .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
                       }}
-                      onClickCapture={(e) => e.stopPropagation()}
-                      className="rounded border border-brand-lime/40 bg-brand-lime/5 px-2.5 py-1 text-xs text-brand-lime disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded border border-brand-lime/40 bg-brand-lime/5 px-2.5 py-1 text-xs text-brand-lime disabled:opacity-50"
                     >
+                      {isLoading && <ButtonLoader size="sm" />}
                       Extend +7d
                     </button>
                   </>

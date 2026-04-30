@@ -19,6 +19,7 @@ import { log } from "./observability/logger.mjs";
 import { sendAlert } from "./observability/alerts.mjs";
 import { requestContext } from "./middleware/requestContext.mjs";
 import { httpMetrics } from "./middleware/httpMetrics.mjs";
+import { reloadStripeFromSystemConfig } from "./services/stripeService.mjs";
 
 export const app = express();
 
@@ -77,6 +78,7 @@ app.use((err, req, res, _next) => {
 
 export async function startServer() {
   await connectDb();
+  await reloadStripeFromSystemConfig();
   await seedIfEmpty();
   if (env.stripeSecretKey && !String(env.stripeWebhookSecret || "").trim()) {
     log.warn("stripe.webhook_secret_missing", {

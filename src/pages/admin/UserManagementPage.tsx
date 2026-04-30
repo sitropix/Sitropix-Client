@@ -6,8 +6,8 @@ import {
   inviteAdminUser,
   reactivateAdminUser,
   sendAdminUserResetLink,
-  setAdminUserModuleAccess,
   setAdminUserPassword,
+  setAdminUserModuleAccess,
   setAdminUserRole,
 } from "@/services/subscriptionsApi";
 import { ApiRequestError, isModuleForbiddenError } from "@/services/http";
@@ -52,12 +52,18 @@ export function UserManagementPage() {
   const [role, setRole] = useState<Role>("support");
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [moduleDraft, setModuleDraft] = useState<Record<string, boolean>>({});
-  const [passwordDraft, setPasswordDraft] = useState("");
   const [savingAccessForUserId, setSavingAccessForUserId] = useState<string | null>(null);
+  const [moduleAccessSaving, setModuleAccessSaving] = useState(false);
   const [noModuleAccess, setNoModuleAccess] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [teamPage, setTeamPage] = useState(1);
+  const [resetPasswordDialog, setResetPasswordDialog] = useState<{
+    open: boolean;
+    user: { id: string; name: string; email: string } | null;
+  }>({ open: false, user: null });
+  const [customPasswordDraft, setCustomPasswordDraft] = useState("");
+  const [resetActionLoading, setResetActionLoading] = useState<"set_password" | "send_link" | null>(null);
   const [deactivateConfirm, setDeactivateConfirm] = useState<{
     open: boolean;
     user: { id: string; name: string; email: string } | null;
@@ -97,12 +103,12 @@ export function UserManagementPage() {
       next[key] = user.moduleAccess?.find((x) => x.moduleKey === key)?.enabled ?? false;
     }
     setModuleDraft(next);
-    setPasswordDraft("");
     setExpandedUserId(user.id);
   }
 
   async function saveAccess(userId: string) {
     setSavingAccessForUserId(userId);
+    setModuleAccessSaving(true);
     try {
       const next = modules.map((moduleKey) => ({
         moduleKey,
@@ -116,6 +122,56 @@ export function UserManagementPage() {
       showError(toMessage(err, "Could not update module access."));
     } finally {
       setSavingAccessForUserId(null);
+      setModuleAccessSaving(false);
+    }
+  }
+
+  function openResetPasswordDialog(user: { id: string; name: string; email: string }) {
+    setCustomPasswordDraft("");
+    setResetActionLoading(null);
+    setResetPasswordDialog({ open: true, user });
+  }
+
+  function closeResetPasswordDialog() {
+    if (resetActionLoading) return;
+    setResetPasswordDialog({ open: false, user: null });
+    setCustomPasswordDraft("");
+  }
+
+  async function handleSendResetLink() {
+    const user = resetPasswordDialog.user;
+    if (!user) return;
+    setResetActionLoading("send_link");
+    try {
+      await sendAdminUserResetLink(user.id);
+      showSuccess(`Password reset link sent to ${user.email}.`);
+      setResetPasswordDialog({ open: false, user: null });
+      setCustomPasswordDraft("");
+    } catch (err) {
+      showError(toMessage(err, "Could not send reset link."));
+    } finally {
+      setResetActionLoading(null);
+    }
+  }
+
+  async function handleSetCustomPassword() {
+    const user = resetPasswordDialog.user;
+    if (!user) return;
+    const nextPassword = customPasswordDraft.trim();
+    if (nextPassword.length < 8) {
+      showError("Password must be at least 8 characters.");
+      return;
+    }
+    setResetActionLoading("set_password");
+    try {
+      await setAdminUserPassword(user.id, nextPassword);
+      showSuccess(`Password updated for ${user.email}.`);
+      setResetPasswordDialog({ open: false, user: null });
+      setCustomPasswordDraft("");
+    } catch (err) {
+      showError(toMessage(err, "Could not set password."));
+    } finally {
+      setResetActionLoading(null);
     }
   }
 
@@ -266,16 +322,10 @@ export function UserManagementPage() {
                   <button
                     type="button"
                     disabled={isLoading}
-                    onClick={() => {
-                      setActionLoading((prev) => ({ ...prev, [u.id]: true }));
-                      void sendAdminUserResetLink(u.id)
-                        .then(() => showSuccess(`Password reset link sent to ${u.email}.`))
-                        .catch((err) => showError(toMessage(err, "Could not send reset link.")))
-                        .finally(() => setActionLoading((prev) => ({ ...prev, [u.id]: false })));
-                    }}
+                    onClick={() => openResetPasswordDialog({ id: u.id, name: u.name, email: u.email })}
                     className="rounded border border-[#24292E] bg-[#1C2126] px-2 py-1 text-xs text-white disabled:opacity-50"
                   >
-                    {isLoading ? "..." : "Send reset link"}
+                    Reset password
                   </button>
                   {u.status === "active" ? (
                     <button
@@ -322,30 +372,9 @@ export function UserManagementPage() {
                     </div>
 
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#2b3137] pt-3">
-                      <input
-                        value={passwordDraft}
-                        onChange={(e) => setPasswordDraft(e.target.value)}
-                        type="password"
-                        placeholder="Set temporary password"
-                        className="rounded border border-[#24292E] bg-[#15191C] px-3 py-2 text-sm text-white"
-                      />
                       <button
                         type="button"
-                        onClick={() =>
-                          void setAdminUserPassword(u.id, passwordDraft)
-                            .then(() => {
-                              setPasswordDraft("");
-                              showSuccess("Password updated and user notified.");
-                            })
-                            .catch((err) => showError(toMessage(err, "Could not set password.")))
-                        }
-                        className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-2 text-xs text-white"
-                      >
-                        Set password directly
-                      </button>
-                      <button
-                        type="button"
-                        disabled={savingAccessForUserId === u.id}
+                        disabled={savingAccessForUserId === u.id || moduleAccessSaving}
                         onClick={() => void saveAccess(u.id)}
                         className="ml-auto flex items-center gap-2 rounded bg-brand-lime px-4 py-2 text-xs font-semibold text-canvas disabled:opacity-50"
                       >
@@ -387,6 +416,36 @@ export function UserManagementPage() {
           </div>
         )}
       </section>
+
+      <ConfirmDialog
+        open={resetPasswordDialog.open}
+        title={resetPasswordDialog.user ? `Reset password for ${resetPasswordDialog.user.name}` : "Reset password"}
+        description="Choose one action below. Set a custom password directly, or send a reset link to the user email."
+        confirmLabel="Send reset link"
+        cancelLabel="Close"
+        loading={resetActionLoading === "send_link"}
+        onConfirm={() => void handleSendResetLink()}
+        onCancel={closeResetPasswordDialog}
+      >
+        <div className="space-y-3">
+          <input
+            type="password"
+            value={customPasswordDraft}
+            onChange={(e) => setCustomPasswordDraft(e.target.value)}
+            placeholder="Set custom password (min 8 chars)"
+            disabled={Boolean(resetActionLoading)}
+            className="w-full rounded border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white disabled:opacity-50"
+          />
+          <button
+            type="button"
+            onClick={() => void handleSetCustomPassword()}
+            disabled={Boolean(resetActionLoading)}
+            className="w-full rounded border border-brand-lime/35 bg-brand-lime/10 px-3 py-2 text-sm font-semibold text-brand-lime disabled:opacity-50"
+          >
+            {resetActionLoading === "set_password" ? "Setting password..." : "Set custom password"}
+          </button>
+        </div>
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={deactivateConfirm.open}

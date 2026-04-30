@@ -4,16 +4,6 @@ import { assertSecretsKeyConfiguredForAdminSave, decryptSecretsJson, encryptSecr
 const DEFS = [
   { key: "DATABASE_URL", isSecret: true },
   { key: "STRIPE_SECRET_KEY", isSecret: true },
-  { key: "STRIPE_WEBHOOK_SECRET", isSecret: true },
-  { key: "STRIPE_SUCCESS_URL", isSecret: false },
-  { key: "STRIPE_CANCEL_URL", isSecret: false },
-  { key: "APP_URL", isSecret: false },
-  { key: "API_URL", isSecret: false },
-  { key: "EMAIL_PROVIDER", isSecret: false },
-  { key: "EMAIL_FROM", isSecret: false },
-  { key: "RESEND_API_KEY", isSecret: true },
-  { key: "SENDGRID_API_KEY", isSecret: true },
-  { key: "ALLOWED_REDIRECT_ORIGINS", isSecret: false },
 ];
 
 function maskSecret(value) {
@@ -85,6 +75,21 @@ export async function saveSystemConfig(items) {
         update: { isSecret: false, valuePlain: item.value ?? "", valueEncrypted: null },
       });
     }
+  }
+}
+
+export async function getSystemConfigSecretValue(key) {
+  const row = await prisma.systemConfig.findUnique({
+    where: { key },
+    select: { valueEncrypted: true, isSecret: true },
+  });
+  if (!row || !row.isSecret || !row.valueEncrypted) return null;
+  try {
+    const obj = decryptSecretsJson(row.valueEncrypted);
+    const value = String(obj.value ?? "").trim();
+    return value || null;
+  } catch {
+    return null;
   }
 }
 

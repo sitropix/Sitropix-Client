@@ -29,7 +29,7 @@ import { systemConfigPutSchema } from "../schemas/systemConfigSchemas.mjs";
 import { getAdminEmailSettingsPayload, saveAdminEmailSettings } from "../services/emailSettingsStore.mjs";
 import { getSystemConfigPayload, saveSystemConfig } from "../services/systemConfigStore.mjs";
 import { sendTransactionalEmail } from "../services/emailService.mjs";
-import { assertStripeConfigured, stripe } from "../services/stripeService.mjs";
+import { assertStripeConfigured, reloadStripeFromSystemConfig, stripe } from "../services/stripeService.mjs";
 import { buildProrationBreakdown, planPriceForCycle } from "../services/billingProration.mjs";
 import {
   syncPaidInvoicesFromStripe,
@@ -1173,6 +1173,7 @@ adminRouter.put("/system-config", validate(systemConfigPutSchema), async (req, r
   if (req.auth.role !== "master_admin") return res.status(403).json({ error: "forbidden" });
   try {
     await saveSystemConfig(req.validatedBody.items ?? []);
+    await reloadStripeFromSystemConfig();
   } catch (e) {
     if (String(e?.message).includes("email_secrets_key_missing")) {
       return res.status(400).json({
