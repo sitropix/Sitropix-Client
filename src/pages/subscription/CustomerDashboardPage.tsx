@@ -1,11 +1,13 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
 import { InvoiceTablePaged } from "@/components/subscription/InvoiceTablePaged";
 import { SubscriptionStatusBadge } from "@/components/subscription/SubscriptionStatusBadge";
+import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/context/UserContext";
+import { listProjectsByUser } from "@/services/projectsStore";
 import type { AccountProfile } from "@/types/account";
 
 /** Title-style for display (first letter upper, remainder lower). Empty strings stay empty. */
@@ -133,12 +135,28 @@ const quickLinks: Array<{
 ];
 
 export function CustomerDashboardPage() {
+  const { user } = useAuth();
   const { portal, loading, error, contact } = useUser();
-  const subscription = portal?.subscription;
+  const [projects, setProjects] = useState<Awaited<ReturnType<typeof listProjectsByUser>>>([]);
+  const resolvedUserId = user?.id ?? portal?.user?.id ?? "guest-user";
+  useEffect(() => {
+    let cancelled = false;
+    void listProjectsByUser(resolvedUserId)
+      .then((rows) => {
+        if (!cancelled) setProjects(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setProjects([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedUserId]);
+  const activeProject = projects.find((project) => project.subscriptionStatus === "active");
   const greeting = greetingDisplayName(contact, portal?.user?.name);
   const invoices = portal?.invoices ?? [];
   const sortedPlans = [...(portal?.plans ?? [])].sort((a, b) => a.priceMonthlyCents - b.priceMonthlyCents);
-  const currentPlanId = subscription?.plan?.id ?? portal?.subscription?.plan?.id ?? null;
+  const currentPlanId = activeProject?.planId ?? null;
   const currentIdx = currentPlanId != null ? sortedPlans.findIndex((p) => p.id === currentPlanId) : -1;
   const nextPlan = currentIdx >= 0 && currentIdx < sortedPlans.length - 1 ? sortedPlans[currentIdx + 1] : null;
 
@@ -174,15 +192,15 @@ export function CustomerDashboardPage() {
       )}
       {error && <p className="rounded-xl border border-rose-400/40 bg-rose-100 px-4 py-3 text-sm text-rose-800">{error}</p>}
 
-      {!loading && !subscription && (
+      {!loading && !activeProject && (
         <EmptyState
-          title="No active subscription yet"
-          description="Choose a plan to start your trial and unlock customer features."
-          action={{ label: "Choose plan", href: "/subscription" }}
+          title="No project with active plan yet"
+          description="Create a project and assign a valid plan for that project to unlock full features."
+          action={{ label: "Go to projects", href: "/projects" }}
         />
       )}
 
-      {!loading && subscription && (
+      {!loading && activeProject && (
         <>
           <section className="jump-back-panel relative overflow-hidden rounded-2xl bg-gradient-to-br from-zinc-200/70 via-sky-50/35 to-zinc-200/65 shadow-[0_0_0_1px_rgba(255,255,255,0.7),0_0_0_6px_rgba(255,255,255,0.08),0_12px_24px_rgba(53,53,54,0.12)] backdrop-blur-sm">
             <div className="border-b border-zinc-300 px-6 py-4 sm:px-7 sm:py-5">
@@ -222,13 +240,13 @@ export function CustomerDashboardPage() {
                   <div className="mt-2">
                     <div className="flex flex-wrap items-center gap-3">
                       <h2 className="text-xl font-semibold tracking-tight text-zinc-900 sm:text-2xl">
-                        {subscription.plan?.name ?? "Current plan"}
+                        {activeProject.planName ?? "Current plan"}
                       </h2>
-                      <SubscriptionStatusBadge status={subscription.status} />
+                      <SubscriptionStatusBadge status="active" />
                     </div>
                     <p className="mt-2.5 text-sm text-zinc-700">
                       Next billing date{" "}
-                      <span className="font-medium text-zinc-900">{formatDate(subscription.nextBillingDate)}</span>
+                      <span className="font-medium text-zinc-900">{formatDate(activeProject.invoices[0]?.paidAt ?? undefined)}</span>
                     </p>
                   </div>
                   <Link
@@ -243,7 +261,7 @@ export function CustomerDashboardPage() {
                     <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Upgrade</p>
                     <p className="mt-1.5 text-xs font-semibold text-zinc-900">Upgrade to {nextPlan.name}</p>
                     <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-600">
-                      Move up from {subscription.plan?.name ?? "your current plan"} for more capacity and support.
+                      Move up from {activeProject.planName ?? "your current plan"} for more capacity and support.
                     </p>
                     <Link
                       to="/subscription"

@@ -14,10 +14,27 @@ export function BillingPage() {
   async function openBillingPortal() {
     setBusy(true);
     setNotice(null);
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.info("[subscription-flow]", "frontend.billing_portal.open.start", { from: "billing_page" });
+    }
     try {
       const { url } = await createBillingPortalSession(`${window.location.origin}/billing`);
-      if (url) window.location.assign(url);
-    } catch {
+      if (url) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.info("[subscription-flow]", "frontend.billing_portal.open.redirect", { from: "billing_page" });
+        }
+        window.location.assign(url);
+      }
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.error("[subscription-flow]", "frontend.billing_portal.open.failed", {
+          from: "billing_page",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       setNotice("Billing portal needs a Stripe customer. Complete Checkout on the subscription page first, or use a dev trial.");
     } finally {
       setBusy(false);

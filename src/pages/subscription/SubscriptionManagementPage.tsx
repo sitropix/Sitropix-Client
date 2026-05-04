@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
@@ -12,6 +12,7 @@ import {
   createBillingPortalSession,
   pauseSubscription,
   resumeSubscription,
+  syncFromStripe,
 } from "@/services/subscriptionsApi";
 import type { SubscriptionState } from "@/types/account";
 import type { SubscriptionStatus } from "@/types/subscription";
@@ -64,6 +65,8 @@ function CardIcon({ children }: { children: ReactNode }) {
 }
 
 export function SubscriptionManagementPage() {
+  const [searchParams] = useSearchParams();
+  const funnelState = searchParams.get("subscriptionFunnel");
   const { contact, subscription, portal, loading, error, refresh: refreshUser } = useUser();
   const { data: portalData, loading: portalLoading, error: portalError, refresh: refreshPortal } =
     useSubscriptionPortal();
@@ -78,13 +81,55 @@ export function SubscriptionManagementPage() {
   const invoices = portal?.invoices ?? [];
   const defaultMethod = portal?.paymentMethods?.find((pm) => pm.isDefault);
 
+  // Fallback reconciliation after Stripe redirect in case webhook is delayed/missed.
+  // Expected URL marker is appended in backend checkout-session success URL.
+  // Run once per return and then rely on normal refresh path.
+  useEffect(() => {
+    if (funnelState !== "checkout_return") return;
+    let cancelled = false;
+    setNotice("Verifying Stripe payment...");
+    void (async () => {
+      try {
+        await syncFromStripe();
+        if (cancelled) return;
+        await refreshPortal();
+        await refreshUser();
+        if (cancelled) return;
+        setNotice(null);
+      } catch (err) {
+        if (cancelled) return;
+        setNotice(err instanceof Error ? err.message : "Stripe payment verification failed.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [funnelState, refreshPortal, refreshUser]);
+
   async function openBillingPortal() {
     setBusy(true);
     setNotice(null);
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.info("[subscription-flow]", "frontend.billing_portal.open.start", { from: "subscription_management" });
+    }
     try {
       const { url } = await createBillingPortalSession(`${window.location.origin}/subscription-management`);
-      if (url) window.location.assign(url);
+      if (url) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.info("[subscription-flow]", "frontend.billing_portal.open.redirect", { from: "subscription_management" });
+        }
+        window.location.assign(url);
+      }
     } catch (err) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.error("[subscription-flow]", "frontend.billing_portal.open.failed", {
+          from: "subscription_management",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       setNotice(
         err instanceof Error
           ? err.message
@@ -98,13 +143,28 @@ export function SubscriptionManagementPage() {
   async function handleSubscriptionState(action: "pause" | "resume" | "cancel") {
     setBusy(true);
     setNotice(null);
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.info("[subscription-flow]", "frontend.subscription_state.start", { action });
+    }
     try {
       if (action === "pause") await pauseSubscription();
       if (action === "resume") await resumeSubscription();
       if (action === "cancel") await cancelSubscription();
       await refreshPortal();
       await refreshUser();
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.info("[subscription-flow]", "frontend.subscription_state.success", { action });
+      }
     } catch (err) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.error("[subscription-flow]", "frontend.subscription_state.failed", {
+          action,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       if (err instanceof ApiRequestError) {
         setNotice(err.message || "Action failed");
       } else {

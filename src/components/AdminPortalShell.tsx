@@ -141,6 +141,7 @@ export function AdminPortalShell({ children }: { children: ReactNode }) {
     { to: "/admin/features", label: "Feature Controls" },
     { to: "/admin/audit-logs", label: "Audit Logs" },
     { to: "/admin/email", label: "Email" },
+    { to: "/admin/email-templates", label: "Email Templates" },
     { to: "/admin/environment", label: "Environment" },
     { to: "/admin/tickets", label: "Support" },
   ];

@@ -17,7 +17,6 @@ import {
   changePlanSchema,
   checkoutSessionSchema,
   couponSchema,
-  emptyObjectSchema,
   funnelEventSchema,
   paymentMethodSchema,
   planPatchSchema,
@@ -35,6 +34,10 @@ import {
   syncPaidInvoicesFromStripe,
   syncSubscriptionFromStripeForUserId,
 } from "../services/stripeSubscriptionSync.mjs";
+import {
+  findPrimaryUserSubscription,
+  findUserProjectSubscription,
+} from "../services/subscriptionLookup.mjs";
 import { logAuditEvent, requestAuditContext } from "../services/auditLogService.mjs";
 import {
   ensureFeatureFlagDefaults,
@@ -48,6 +51,25 @@ import { metricsBilling } from "../observability/metrics.mjs";
 
 const router = express.Router();
 router.use(requireAuth);
+
+function subscriptionDebug(req, step, fields = {}) {
+  log.infoReq(req, `subscription.${step}`, fields);
+}
+
+const DEFAULT_EMAIL_TEMPLATES = [
+  {
+    id: "invite",
+    name: "Invite",
+    subject: "You are invited to Sitropix",
+    html: "<p>Hello {{name}},</p><p>You have been invited to Sitropix.</p><p><a href='{{signupUrl}}'>Create account</a></p>",
+  },
+  {
+    id: "password_reset",
+    name: "Password Reset",
+    subject: "Reset your password",
+    html: "<p>Hello {{name}},</p><p><a href='{{resetUrl}}'>Reset password</a></p>",
+  },
+];
 
 const funnelEventLimiter = rateLimit({
   windowMs: 60_000,
@@ -83,14 +105,18 @@ router.post("/funnel", funnelEventLimiter, validate(funnelEventSchema), async (r
 
 /** Pull subscription from Stripe into the DB (works without webhooks). Always 200 + JSON so the client can ignore soft failures. */
 router.post("/sync-stripe", async (req, res) => {
+  const projectId = String(req.body?.projectId ?? req.query?.projectId ?? "").trim() || null;
+  subscriptionDebug(req, "sync_stripe.start", { userId: req.auth.userId, projectId });
   try {
-    const out = await syncSubscriptionFromStripeForUserId(req.auth.userId);
+    const out = await syncSubscriptionFromStripeForUserId(req.auth.userId, { projectId });
+    subscriptionDebug(req, "sync_stripe.result", { userId: req.auth.userId, projectId, ...out });
     return res.json(out);
   } catch (e) {
     const msg = e?.message ?? String(e);
     if (msg.includes("stripe_not_configured")) {
       return res.json({ ok: false, reason: "stripe_not_configured" });
     }
+    subscriptionDebug(req, "sync_stripe.error", { userId: req.auth.userId, projectId, error: msg });
     return res.json({ ok: false, reason: "sync_failed", error: msg });
   }
 });
@@ -163,17 +189,37 @@ async function stripeCardPaymentMethodsForCustomer(customerId, userId) {
     if (!rows.some((r) => r.isDefault)) rows[0].isDefault = true;
     return rows;
   } catch (e) {
+    const msg = String(e?.message ?? "");
+    if (msg.includes("No such customer")) {
+      // Customer id belongs to a different Stripe account or was deleted.
+      // Clear stale pointers so portal calls stop retrying the invalid id.
+      await Promise.allSettled([
+        prisma.user.update({
+          where: { id: userId },
+          data: { stripeCustomerId: null },
+        }),
+        prisma.subscription.updateMany({
+          where: { userId, stripeCustomerId: customerId },
+          data: { stripeCustomerId: null },
+        }),
+      ]);
+      log.warn("portal.stripe_customer_stale_id_cleared", { userId, customerId });
+      return [];
+    }
     log.warn("portal.stripe_payment_methods_failed", { error: e?.message });
     return [];
   }
 }
 
 router.get("/portal", async (req, res) => {
+  subscriptionDebug(req, "portal.fetch.start", { userId: req.auth.userId });
+  const projectIdFilter = String(req.query.projectId ?? "").trim() || null;
   const user = await prisma.user.findUnique({ where: { id: req.auth.userId } });
-  const [plans, initialSubscription, initialPayments] = await Promise.all([
+  const [plans, allSubscriptions, initialPayments] = await Promise.all([
     prisma.plan.findMany({ where: { isActive: true, archivedAt: null }, orderBy: { priceMonthlyCents: "asc" } }),
-    prisma.subscription.findUnique({
+    prisma.subscription.findMany({
       where: { userId: req.auth.userId },
+      orderBy: { updatedAt: "desc" },
       include: { plan: true },
     }),
     prisma.payment.findMany({
@@ -183,7 +229,17 @@ router.get("/portal", async (req, res) => {
     }),
   ]);
 
-  let subscription = initialSubscription;
+  // Pick "current" subscription for the response: project-scoped when projectId is provided,
+  // otherwise the most-recent active/trialing row, falling back to the most-recent any.
+  function pickInitialSubscription() {
+    if (projectIdFilter) {
+      return allSubscriptions.find((s) => s.projectId === projectIdFilter) ?? null;
+    }
+    const live = allSubscriptions.find((s) => ["active", "trialing", "past_due", "paused"].includes(s.status));
+    return live ?? allSubscriptions[0] ?? null;
+  }
+
+  let subscription = pickInitialSubscription();
   let payments = initialPayments;
 
   async function reloadPayments() {
@@ -196,6 +252,7 @@ router.get("/portal", async (req, res) => {
 
   if (payments.length === 0 && subscription?.stripeSubscriptionId) {
     try {
+      subscriptionDebug(req, "portal.invoice_backfill.start", { userId: req.auth.userId, subId: subscription.id });
       await syncPaidInvoicesFromStripe(
         req.auth.userId,
         subscription.id,
@@ -203,6 +260,7 @@ router.get("/portal", async (req, res) => {
         user?.stripeCustomerId ?? subscription?.stripeCustomerId ?? null,
       );
       await reloadPayments();
+      subscriptionDebug(req, "portal.invoice_backfill.success", { userId: req.auth.userId, invoiceCount: payments.length });
     } catch (e) {
       log.warn("portal.invoice_backfill_failed", { userId: req.auth.userId, error: e?.message });
     }
@@ -215,13 +273,12 @@ router.get("/portal", async (req, res) => {
     !subscription.stripeSubscriptionId
   ) {
     try {
+      subscriptionDebug(req, "portal.subscription_reconcile.start", { userId: req.auth.userId });
       const out = await syncSubscriptionFromStripeForUserId(req.auth.userId);
       if (out?.ok) {
-        subscription = await prisma.subscription.findUnique({
-          where: { userId: req.auth.userId },
-          include: { plan: true },
-        });
+        subscription = await findPrimaryUserSubscription(req.auth.userId, { include: { plan: true } });
         await reloadPayments();
+        subscriptionDebug(req, "portal.subscription_reconcile.success", { userId: req.auth.userId, ...out });
       }
     } catch (e) {
       log.warn("portal.subscription_stripe_sync_failed", { userId: req.auth.userId, error: e?.message });
@@ -233,28 +290,42 @@ router.get("/portal", async (req, res) => {
     stripeCardPaymentMethodsForCustomer(customerId, req.auth.userId),
   ]);
 
+  function mapSubscriptionRow(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      userId: row.userId,
+      projectId: row.projectId ?? null,
+      planId: row.planId,
+      status: row.status,
+      billingCycle: row.billingCycle,
+      currentPeriodStart: row.currentPeriodStart,
+      currentPeriodEnd: row.currentPeriodEnd,
+      cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+      pausedAt: row.pausedAt,
+      canceledAt: row.canceledAt,
+      nextBillingDate: row.currentPeriodEnd,
+      plan: row.plan ? mapPlan(row.plan) : undefined,
+    };
+  }
+
   const portalSubscription =
-    subscription && subscription.status !== "canceled"
-      ? {
-          id: subscription.id,
-          userId: subscription.userId,
-          planId: subscription.planId,
-          status: subscription.status,
-          billingCycle: subscription.billingCycle,
-          currentPeriodStart: subscription.currentPeriodStart,
-          currentPeriodEnd: subscription.currentPeriodEnd,
-          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-          pausedAt: subscription.pausedAt,
-          canceledAt: subscription.canceledAt,
-          nextBillingDate: subscription.currentPeriodEnd,
-          plan: subscription.plan ? mapPlan(subscription.plan) : undefined,
-        }
-      : null;
+    subscription && subscription.status !== "canceled" ? mapSubscriptionRow(subscription) : null;
+  const portalSubscriptions = allSubscriptions
+    .filter((s) => s.status !== "canceled")
+    .map((s) => mapSubscriptionRow(s));
 
   const [featureControls, experiments] = await Promise.all([
     resolveSubscriptionFeatureControls(portalSubscription?.planId ?? null),
     resolveSubscriptionPricingLayout(),
   ]);
+  subscriptionDebug(req, "portal.fetch.success", {
+    userId: req.auth.userId,
+    hasSubscription: Boolean(portalSubscription),
+    planCount: plans.length,
+    invoiceCount: payments.length,
+    paymentMethodCount: paymentMethods.length,
+  });
 
   return res.json({
     user: {
@@ -266,6 +337,7 @@ router.get("/portal", async (req, res) => {
     },
     plans: plans.map(mapPlan),
     subscription: portalSubscription,
+    subscriptions: portalSubscriptions,
     featureControls,
     experiments,
     invoices: (payments ?? []).map((i) => ({
@@ -287,9 +359,10 @@ router.post("/bootstrap", validate(bootstrapSubscriptionSchema), async (req, res
     return res.status(400).json({ error: "use_stripe_checkout", message: "Complete subscription via Stripe Checkout." });
   }
   const { planId, billingCycle = "monthly" } = req.validatedBody;
+  subscriptionDebug(req, "bootstrap.start", { userId: req.auth.userId, planId, billingCycle });
   const plan = await prisma.plan.findUnique({ where: { id: planId } });
   if (!plan) return res.status(404).json({ error: "plan_not_found" });
-  const existing = await prisma.subscription.findUnique({ where: { userId: req.auth.userId } });
+  const existing = await findPrimaryUserSubscription(req.auth.userId);
   if (existing) return res.json(existing);
   const now = new Date();
   const end = new Date(now);
@@ -304,16 +377,22 @@ router.post("/bootstrap", validate(bootstrapSubscriptionSchema), async (req, res
       currentPeriodEnd: end,
     },
   });
+  subscriptionDebug(req, "bootstrap.success", { userId: req.auth.userId, subscriptionId: sub.id, planId, billingCycle });
   return res.status(201).json(sub);
 });
 
 router.post("/change-plan", validate(changePlanSchema), async (req, res) => {
   const auditCtx = requestAuditContext(req);
-  const { planId, billingCycle } = req.validatedBody;
-  const sub = await prisma.subscription.findUnique({
-    where: { userId: req.auth.userId },
-    include: { plan: true },
+  const { planId, billingCycle, projectId } = req.validatedBody;
+  subscriptionDebug(req, "change_plan.start", {
+    userId: req.auth.userId,
+    planId,
+    billingCycle: billingCycle ?? null,
+    projectId: projectId ?? null,
   });
+  const sub = projectId
+    ? await findUserProjectSubscription(req.auth.userId, projectId, { include: { plan: true } })
+    : await findPrimaryUserSubscription(req.auth.userId, { include: { plan: true } });
   const nextPlan = await prisma.plan.findUnique({ where: { id: planId } });
   if (!sub || !nextPlan) return res.status(404).json({ error: "subscription_or_plan_not_found" });
 
@@ -344,6 +423,11 @@ router.post("/change-plan", validate(changePlanSchema), async (req, res) => {
     await stripe.subscriptions.update(sub.stripeSubscriptionId, {
       items: [{ id: stripeSub.items.data[0].id, price: newPriceId }],
       proration_behavior: "create_prorations",
+    });
+    subscriptionDebug(req, "change_plan.stripe_updated", {
+      userId: req.auth.userId,
+      stripeSubscriptionId: sub.stripeSubscriptionId,
+      newPriceId,
     });
   }
 
@@ -380,12 +464,27 @@ router.post("/change-plan", validate(changePlanSchema), async (req, res) => {
   }
 
   metricsBilling.changePlan();
+  subscriptionDebug(req, "change_plan.success", {
+    userId: req.auth.userId,
+    previousPlanId: sub.planId,
+    nextPlanId: nextPlan.id,
+    billingCycle: cycle,
+    prorationNetCents: proration.netCents,
+  });
   return res.json({ subscription: updated, proration });
 });
 
-router.post("/cancel", validate(emptyObjectSchema), async (req, res) => {
+router.post("/cancel", async (req, res) => {
   const auditCtx = requestAuditContext(req);
-  const sub = await prisma.subscription.findUnique({ where: { userId: req.auth.userId } });
+  const projectId = String(req.body?.projectId ?? "").trim() || null;
+  const sub = projectId
+    ? await findUserProjectSubscription(req.auth.userId, projectId)
+    : await findPrimaryUserSubscription(req.auth.userId);
+  subscriptionDebug(req, "cancel.start", {
+    userId: req.auth.userId,
+    subscriptionId: sub?.id ?? null,
+    projectId,
+  });
   if (!sub) return res.status(404).json({ error: "subscription_not_found" });
   if (sub.status === "canceled") return res.status(400).json({ error: "already_canceled" });
   const fc = await resolveSubscriptionFeatureControls(sub.planId);
@@ -425,12 +524,21 @@ router.post("/cancel", validate(emptyObjectSchema), async (req, res) => {
     });
   }
 
+  subscriptionDebug(req, "cancel.success", { userId: req.auth.userId, subscriptionId: updated.id });
   return res.json(updated);
 });
 
-router.post("/pause", validate(emptyObjectSchema), async (req, res) => {
+router.post("/pause", async (req, res) => {
   const auditCtx = requestAuditContext(req);
-  const sub = await prisma.subscription.findUnique({ where: { userId: req.auth.userId } });
+  const projectId = String(req.body?.projectId ?? "").trim() || null;
+  const sub = projectId
+    ? await findUserProjectSubscription(req.auth.userId, projectId)
+    : await findPrimaryUserSubscription(req.auth.userId);
+  subscriptionDebug(req, "pause.start", {
+    userId: req.auth.userId,
+    subscriptionId: sub?.id ?? null,
+    projectId,
+  });
   if (!sub) return res.status(404).json({ error: "subscription_not_found" });
   if (sub.status === "canceled") return res.status(400).json({ error: "subscription_canceled" });
   if (sub.status === "paused") return res.status(400).json({ error: "already_paused" });
@@ -455,12 +563,21 @@ router.post("/pause", validate(emptyObjectSchema), async (req, res) => {
     metadata: { planId: updated.planId },
     ...auditCtx,
   });
+  subscriptionDebug(req, "pause.success", { userId: req.auth.userId, subscriptionId: updated.id });
   return res.json(updated);
 });
 
-router.post("/resume", validate(emptyObjectSchema), async (req, res) => {
+router.post("/resume", async (req, res) => {
   const auditCtx = requestAuditContext(req);
-  const sub = await prisma.subscription.findUnique({ where: { userId: req.auth.userId } });
+  const projectId = String(req.body?.projectId ?? "").trim() || null;
+  const sub = projectId
+    ? await findUserProjectSubscription(req.auth.userId, projectId)
+    : await findPrimaryUserSubscription(req.auth.userId);
+  subscriptionDebug(req, "resume.start", {
+    userId: req.auth.userId,
+    subscriptionId: sub?.id ?? null,
+    projectId,
+  });
   if (!sub) return res.status(404).json({ error: "subscription_not_found" });
   if (sub.status !== "paused") return res.status(400).json({ error: "not_paused" });
   const fcResume = await resolveSubscriptionFeatureControls(sub.planId);
@@ -481,6 +598,7 @@ router.post("/resume", validate(emptyObjectSchema), async (req, res) => {
     metadata: { planId: updated.planId },
     ...auditCtx,
   });
+  subscriptionDebug(req, "resume.success", { userId: req.auth.userId, subscriptionId: updated.id });
   return res.json(updated);
 });
 
@@ -490,11 +608,66 @@ router.post("/payment-method", validate(paymentMethodSchema), async (req, res) =
 
 router.post("/checkout-session", validate(checkoutSessionSchema), async (req, res) => {
   assertStripeConfigured();
-  const { planId, billingCycle = "monthly", successUrl: successUrlOverride, cancelUrl: cancelUrlOverride } = req.validatedBody;
+  const {
+    planId,
+    billingCycle = "monthly",
+    addons = [],
+    projectId,
+    successUrl: successUrlOverride,
+    cancelUrl: cancelUrlOverride,
+  } = req.validatedBody;
+  subscriptionDebug(req, "checkout_session.start", {
+    userId: req.auth.userId,
+    planId,
+    billingCycle,
+    projectId: projectId ?? null,
+    requestedAddonCount: addons.length,
+    hasSuccessUrlOverride: Boolean(successUrlOverride),
+    hasCancelUrlOverride: Boolean(cancelUrlOverride),
+  });
+  if (projectId) {
+    const project = await prisma.project.findFirst({ where: { id: projectId, ownerUserId: req.auth.userId } });
+    if (!project) return res.status(404).json({ error: "project_not_found" });
+  }
   const plan = await prisma.plan.findUnique({ where: { id: planId } });
   if (!plan) return res.status(404).json({ error: "plan_not_found" });
   const stripePriceId = billingCycle === "yearly" ? plan.stripePriceYearlyId : plan.stripePriceMonthlyId;
-  if (!stripePriceId) return res.status(400).json({ error: "missing_stripe_price_mapping" });
+  const planAmountCents =
+    billingCycle === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
+  let planLineItem = null;
+  if (stripePriceId) {
+    try {
+      await stripe.prices.retrieve(stripePriceId);
+      planLineItem = { price: stripePriceId, quantity: 1 };
+    } catch (e) {
+      const msg = String(e?.message ?? "");
+      if (!msg.includes("No such price")) throw e;
+      log.warn("checkout_session.price_mapping_stale_fallback", {
+        userId: req.auth.userId,
+        planId: plan.id,
+        billingCycle,
+        stripePriceId,
+      });
+    }
+  }
+  if (!planLineItem) {
+    // Fallback for stale/missing price mapping so checkout is still possible.
+    planLineItem = {
+      price_data: {
+        currency: plan.currency.toLowerCase(),
+        product_data: { name: `${plan.name} (${billingCycle})` },
+        recurring: { interval: billingCycle === "yearly" ? "year" : "month" },
+        unit_amount: planAmountCents,
+      },
+      quantity: 1,
+    };
+  }
+  const addonCatalog = {
+    "priority-support": { label: "Priority Support Add-on", amountCents: 4900 },
+    "extra-storage": { label: "Extra Storage Add-on", amountCents: 1900 },
+    "analytics-pack": { label: "Analytics Dashboard Add-on", amountCents: 2900 },
+  };
+  const normalizedAddons = Array.from(new Set(addons.filter((code) => Object.hasOwn(addonCatalog, code))));
   const successUrl = successUrlOverride ?? env.stripeSuccessUrl;
   const cancelUrl = cancelUrlOverride ?? env.stripeCancelUrl;
   if (!isAllowedRedirect(successUrl) || !isAllowedRedirect(cancelUrl)) {
@@ -511,25 +684,56 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
   } catch {
     checkoutSuccessUrl = successUrl;
   }
+  const addonLineItems = normalizedAddons.map((code) => {
+    const item = addonCatalog[code];
+    return {
+      price_data: {
+        currency: plan.currency.toLowerCase(),
+        product_data: { name: item.label },
+        recurring: { interval: billingCycle === "yearly" ? "year" : "month" },
+        unit_amount: item.amountCents,
+      },
+      quantity: 1,
+    };
+  });
+  const checkoutMetadata = {
+    userId: req.auth.userId,
+    planId: plan.id,
+    billingCycle,
+    addons: normalizedAddons.join(","),
+    ...(projectId ? { projectId } : {}),
+  };
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     client_reference_id: req.auth.userId,
     customer_email: req.auth.email,
-    line_items: [{ price: stripePriceId, quantity: 1 }],
+    line_items: [planLineItem, ...addonLineItems],
     success_url: checkoutSuccessUrl,
     cancel_url: cancelUrl,
-    metadata: { userId: req.auth.userId, planId: plan.id, billingCycle },
+    metadata: checkoutMetadata,
     subscription_data: {
-      metadata: { userId: req.auth.userId, planId: plan.id, billingCycle },
+      metadata: checkoutMetadata,
     },
   });
   metricsBilling.checkoutSessionCreated();
+  subscriptionDebug(req, "checkout_session.success", {
+    userId: req.auth.userId,
+    planId,
+    billingCycle,
+    projectId: projectId ?? null,
+    normalizedAddonCount: normalizedAddons.length,
+    sessionId: session.id,
+  });
   return res.json({ url: session.url });
 });
 
 router.post("/billing-portal", validate(billingPortalSchema), async (req, res) => {
   assertStripeConfigured();
-  const sub = await prisma.subscription.findUnique({ where: { userId: req.auth.userId } });
+  const projectId = req.validatedBody.projectId ?? null;
+  subscriptionDebug(req, "billing_portal.start", { userId: req.auth.userId, projectId });
+  const sub = projectId
+    ? await findUserProjectSubscription(req.auth.userId, projectId)
+    : await findPrimaryUserSubscription(req.auth.userId);
   if (!sub?.stripeCustomerId) return res.status(400).json({ error: "missing_stripe_customer" });
   const returnUrl = req.validatedBody.returnUrl ?? `${env.appUrl}/billing`;
   if (!isAllowedRedirect(returnUrl)) {
@@ -542,6 +746,7 @@ router.post("/billing-portal", validate(billingPortalSchema), async (req, res) =
     customer: sub.stripeCustomerId,
     return_url: returnUrl,
   });
+  subscriptionDebug(req, "billing_portal.success", { userId: req.auth.userId, sessionId: session.id });
   return res.json({ url: session.url });
 });
 
@@ -699,6 +904,7 @@ adminRouter.post("/invites", validate(createInviteSchema), async (req, res) => {
     include: { plan: { select: { name: true, code: true } } },
   });
   const signupUrl = `${env.appUrl}/signup?invite=${encodeURIComponent(plainToken)}`;
+  const paymentUrl = invite.plan ? `${env.appUrl}/subscription?prefillPlan=${encodeURIComponent(invite.plan.code)}` : null;
   const msgHtml = invite.message
     ? `<div style="margin:16px 0;padding:12px;border-radius:8px;background:#111;color:#eee;">${invite.message
         .replace(/&/g, "&amp;")
@@ -707,12 +913,15 @@ adminRouter.post("/invites", validate(createInviteSchema), async (req, res) => {
         .replace(/\n/g, "<br/>")}</div>`
     : "";
   const planLine = invite.plan ? `<p>Your workspace includes the <strong>${invite.plan.name}</strong> plan.</p>` : "";
+  const paymentLine = paymentUrl
+    ? `<p>After creating your account, complete payment here: <a href="${paymentUrl}">Open payment page</a></p>`
+    : "";
   await sendTransactionalEmail({
     to: emailLower,
     template: "invite",
     idempotencyKey: `invite_${invite.id}`,
     subject: "You are invited to Sitropix",
-    html: `<p>You have been invited to create an account.</p>${msgHtml}${planLine}<p><a href="${signupUrl}">Accept invitation</a></p><p>This link expires in ${days} days.</p>`,
+    html: `<p>You have been invited to create an account.</p>${msgHtml}${planLine}<p><a href="${signupUrl}">Accept invitation</a></p>${paymentLine}<p>This link expires in ${days} days.</p>`,
   });
   return res.status(201).json({ ok: true, id: invite.id, email: emailLower, expiresAt: invite.expiresAt });
 });
@@ -756,7 +965,7 @@ adminRouter.post("/invites/:id/resend", async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const row = await prisma.invite.findUnique({
     where: { id: req.params.id },
-    include: { plan: { select: { name: true } } },
+    include: { plan: { select: { name: true, code: true } } },
   });
   if (!row) return res.status(404).json({ error: "not_found" });
   if (row.acceptedAt) return res.status(400).json({ error: "already_accepted" });
@@ -769,13 +978,17 @@ adminRouter.post("/invites/:id/resend", async (req, res) => {
     data: { tokenHash: sha256(plainToken), resendCount: { increment: 1 }, lastSentAt: new Date() },
   });
   const signupUrl = `${env.appUrl}/signup?invite=${encodeURIComponent(plainToken)}`;
+  const paymentUrl = row.plan ? `${env.appUrl}/subscription?prefillPlan=${encodeURIComponent(row.plan.code)}` : null;
   const planLine = row.plan ? `<p>Your workspace includes the <strong>${row.plan.name}</strong> plan.</p>` : "";
+  const paymentLine = paymentUrl
+    ? `<p>After creating your account, complete payment here: <a href="${paymentUrl}">Open payment page</a></p>`
+    : "";
   await sendTransactionalEmail({
     to: row.email,
     template: "invite",
     idempotencyKey: `invite_resend_${row.id}_${Date.now()}`,
     subject: "Your Sitropix invite link",
-    html: `<p>Your invitation link has been re-sent.</p>${planLine}<p><a href="${signupUrl}">Accept invitation</a></p>`,
+    html: `<p>Your invitation link has been re-sent.</p>${planLine}<p><a href="${signupUrl}">Accept invitation</a></p>${paymentLine}`,
   });
   await logAuditEvent({
     action: "admin.invite_resent",
@@ -815,8 +1028,9 @@ adminRouter.get("/customers/:id/profile", async (req, res) => {
         createdAt: true,
       },
     }),
-    prisma.subscription.findUnique({
+    prisma.subscription.findFirst({
       where: { userId },
+      orderBy: { updatedAt: "desc" },
       include: { plan: true },
     }),
     prisma.supportTicket.findMany({
@@ -1142,6 +1356,53 @@ adminRouter.delete("/email-settings", async (_req, res) => {
   await prisma.emailSettings.deleteMany({ where: { id: "default" } });
   const payload = await getAdminEmailSettingsPayload();
   return res.json({ ok: true, ...payload });
+});
+
+adminRouter.get("/email-templates", async (_req, res) => {
+  const rows = await prisma.emailTemplate.findMany({ orderBy: { id: "asc" } });
+  if (rows.length === 0) {
+    await prisma.$transaction(
+      DEFAULT_EMAIL_TEMPLATES.map((row) =>
+        prisma.emailTemplate.upsert({
+          where: { id: row.id },
+          update: { name: row.name, subject: row.subject, html: row.html },
+          create: row,
+        }),
+      ),
+    );
+  }
+  const fresh = await prisma.emailTemplate.findMany({ orderBy: { id: "asc" } });
+  return res.json(
+    fresh.map((r) => ({
+      id: r.id,
+      name: r.name,
+      subject: r.subject,
+      html: r.html,
+      updatedAt: r.updatedAt,
+    })),
+  );
+});
+
+adminRouter.put("/email-templates/:id", async (req, res) => {
+  const id = String(req.params.id ?? "").trim();
+  const name = String(req.body?.name ?? "").trim();
+  const subject = String(req.body?.subject ?? "").trim();
+  const html = String(req.body?.html ?? "");
+  if (!id || !name || !subject || !html.trim()) {
+    return res.status(400).json({ error: "invalid_payload" });
+  }
+  const row = await prisma.emailTemplate.upsert({
+    where: { id },
+    update: { name, subject, html },
+    create: { id, name, subject, html },
+  });
+  return res.json({
+    id: row.id,
+    name: row.name,
+    subject: row.subject,
+    html: row.html,
+    updatedAt: row.updatedAt,
+  });
 });
 
 adminRouter.post("/email-settings/test", validate(emailTestSchema), async (req, res) => {
@@ -1536,6 +1797,7 @@ adminRouter.post("/user-management/users/:id/set-password", validate(adminUserSe
 
 adminRouter.get("/audit-logs", async (req, res) => {
   const action = String(req.query.action ?? "").trim();
+  const category = String(req.query.category ?? "").trim();
   const targetType = String(req.query.targetType ?? "").trim();
   const actorUserId = String(req.query.actorUserId ?? "").trim();
   const startAtRaw = String(req.query.startAt ?? "").trim();
@@ -1553,6 +1815,7 @@ adminRouter.get("/audit-logs", async (req, res) => {
 
   const where = {};
   if (action) where.action = action;
+  else if (category) where.action = { startsWith: `${category}.` };
   if (targetType) where.targetType = targetType;
   if (actorUserId) where.actorUserId = actorUserId;
   if (startAtRaw || endAtRaw) {
@@ -1602,6 +1865,7 @@ adminRouter.get("/audit-logs/summary", async (_req, res) => {
 
 adminRouter.get("/audit-logs/export.csv", async (req, res) => {
   const action = String(req.query.action ?? "").trim();
+  const category = String(req.query.category ?? "").trim();
   const targetType = String(req.query.targetType ?? "").trim();
   const actorUserId = String(req.query.actorUserId ?? "").trim();
   const startAtRaw = String(req.query.startAt ?? "").trim();
@@ -1613,6 +1877,7 @@ adminRouter.get("/audit-logs/export.csv", async (req, res) => {
   }
   const where = {};
   if (action) where.action = action;
+  else if (category) where.action = { startsWith: `${category}.` };
   if (targetType) where.targetType = targetType;
   if (actorUserId) where.actorUserId = actorUserId;
   if (startAtRaw || endAtRaw) {

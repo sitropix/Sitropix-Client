@@ -36,6 +36,7 @@ export interface ProjectRecord {
   subscriptionStatus: ProjectSubscriptionStatus;
   planId: string | null;
   planName: string | null;
+  planValidUntil: string | null;
   billingCycle: BillingCycle | null;
   addons: string[];
   invoices: ProjectInvoice[];

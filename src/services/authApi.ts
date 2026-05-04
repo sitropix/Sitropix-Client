@@ -45,3 +45,14 @@ export function patchProfile(payload: { email?: string; phoneNumber?: string }) 
     body: JSON.stringify(payload),
   });
 }
+
+export function fetchUiPreferences() {
+  return api<{ uiPrefs: Record<string, unknown> }>("/api/auth/ui-preferences");
+}
+
+export function patchUiPreferences(uiPrefs: Record<string, unknown>) {
+  return api<{ ok: boolean; uiPrefs: Record<string, unknown> }>("/api/auth/ui-preferences", {
+    method: "PATCH",
+    body: JSON.stringify({ uiPrefs }),
+  });
+}

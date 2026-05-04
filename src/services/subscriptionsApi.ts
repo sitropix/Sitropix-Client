@@ -22,50 +22,97 @@ import type {
   Subscription,
   AdminCustomerProfilePayload,
 } from "@/types/subscription";
+import type { ProjectRecord } from "@/types/project";
 import { api, getAccessToken } from "@/services/http";
+import type { ProjectRequirementType } from "@/types/project";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+const SUBSCRIPTION_DEBUG_KEY = "sitropix_subscription_debug";
+const logThrottleByStage = new Map<string, number>();
 
-export function fetchCustomerPortal() {
-  return api<CustomerPortalPayload>("/api/subscriptions/portal");
+function logSubscriptionDebug(stage: string, details?: Record<string, unknown>) {
+  if (!import.meta.env.DEV) return;
+  const debugEnabled =
+    typeof window !== "undefined" &&
+    window.localStorage.getItem(SUBSCRIPTION_DEBUG_KEY) === "1";
+  if (!debugEnabled) return;
+  const now = Date.now();
+  const lastAt = logThrottleByStage.get(stage) ?? 0;
+  if (stage === "frontend.portal.fetch.start" && now - lastAt < 4000) return;
+  logThrottleByStage.set(stage, now);
+  // eslint-disable-next-line no-console
+  console.info("[subscription-flow]", stage, details ?? {});
+}
+
+export function fetchCustomerPortal(opts?: { projectId?: string }) {
+  logSubscriptionDebug("frontend.portal.fetch.start", opts?.projectId ? { projectId: opts.projectId } : undefined);
+  const suffix = opts?.projectId ? `?projectId=${encodeURIComponent(opts.projectId)}` : "";
+  return api<CustomerPortalPayload>(`/api/subscriptions/portal${suffix}`);
 }
 
 /** Reconcile local subscription row from Stripe (no webhooks required). */
-export function syncFromStripe() {
+export function syncFromStripe(opts?: { projectId?: string }) {
+  logSubscriptionDebug("frontend.sync_stripe.start", opts?.projectId ? { projectId: opts.projectId } : undefined);
   return api<{
     ok: boolean;
     reason?: string;
     planCode?: string;
     stripeSubscriptionId?: string;
+    projectId?: string | null;
     error?: string;
     detail?: { priceId: string | null };
-  }>("/api/subscriptions/sync-stripe", { method: "POST", body: JSON.stringify({}) });
+  }>("/api/subscriptions/sync-stripe", {
+    method: "POST",
+    body: JSON.stringify(opts?.projectId ? { projectId: opts.projectId } : {}),
+  });
 }
 
 export function bootstrapSubscription(planId: string, billingCycle: BillingCycle) {
+  logSubscriptionDebug("frontend.bootstrap.start", { planId, billingCycle });
   return api<Subscription>("/api/subscriptions/bootstrap", {
     method: "POST",
     body: JSON.stringify({ planId, billingCycle }),
   });
 }
 
-export function changePlan(planId: string, billingCycle: BillingCycle) {
+export function changePlan(planId: string, billingCycle: BillingCycle, opts?: { projectId?: string }) {
+  logSubscriptionDebug("frontend.change_plan.start", {
+    planId,
+    billingCycle,
+    projectId: opts?.projectId ?? null,
+  });
   return api<{ subscription: Subscription; proration: { netCents: number } }>("/api/subscriptions/change-plan", {
     method: "POST",
-    body: JSON.stringify({ planId, billingCycle }),
+    body: JSON.stringify({
+      planId,
+      billingCycle,
+      ...(opts?.projectId ? { projectId: opts.projectId } : {}),
+    }),
   });
 }
 
-export function cancelSubscription() {
-  return api<Subscription>("/api/subscriptions/cancel", { method: "POST", body: JSON.stringify({}) });
+export function cancelSubscription(opts?: { projectId?: string }) {
+  logSubscriptionDebug("frontend.cancel.start", opts?.projectId ? { projectId: opts.projectId } : undefined);
+  return api<Subscription>("/api/subscriptions/cancel", {
+    method: "POST",
+    body: JSON.stringify(opts?.projectId ? { projectId: opts.projectId } : {}),
+  });
 }
 
-export function pauseSubscription() {
-  return api<Subscription>("/api/subscriptions/pause", { method: "POST", body: JSON.stringify({}) });
+export function pauseSubscription(opts?: { projectId?: string }) {
+  logSubscriptionDebug("frontend.pause.start", opts?.projectId ? { projectId: opts.projectId } : undefined);
+  return api<Subscription>("/api/subscriptions/pause", {
+    method: "POST",
+    body: JSON.stringify(opts?.projectId ? { projectId: opts.projectId } : {}),
+  });
 }
 
-export function resumeSubscription() {
-  return api<Subscription>("/api/subscriptions/resume", { method: "POST", body: JSON.stringify({}) });
+export function resumeSubscription(opts?: { projectId?: string }) {
+  logSubscriptionDebug("frontend.resume.start", opts?.projectId ? { projectId: opts.projectId } : undefined);
+  return api<Subscription>("/api/subscriptions/resume", {
+    method: "POST",
+    body: JSON.stringify(opts?.projectId ? { projectId: opts.projectId } : {}),
+  });
 }
 
 export function upsertPaymentMethod(payload: { brand: string; last4: string; expMonth: number; expYear: number }) {
@@ -134,6 +181,7 @@ export function fetchAnalytics() {
 
 export function fetchAdminAuditLogs(params?: {
   action?: string;
+  category?: string;
   targetType?: string;
   actorUserId?: string;
   limit?: number;
@@ -143,6 +191,7 @@ export function fetchAdminAuditLogs(params?: {
 }) {
   const q = new URLSearchParams();
   if (params?.action) q.set("action", params.action);
+  if (params?.category) q.set("category", params.category);
   if (params?.targetType) q.set("targetType", params.targetType);
   if (params?.actorUserId) q.set("actorUserId", params.actorUserId);
   if (params?.limit) q.set("limit", String(params.limit));
@@ -159,6 +208,7 @@ export function fetchAdminAuditSummary() {
 
 export async function downloadAdminAuditLogsCsv(params?: {
   action?: string;
+  category?: string;
   targetType?: string;
   actorUserId?: string;
   startAt?: string;
@@ -166,6 +216,7 @@ export async function downloadAdminAuditLogsCsv(params?: {
 }) {
   const q = new URLSearchParams();
   if (params?.action) q.set("action", params.action);
+  if (params?.category) q.set("category", params.category);
   if (params?.targetType) q.set("targetType", params.targetType);
   if (params?.actorUserId) q.set("actorUserId", params.actorUserId);
   if (params?.startAt) q.set("startAt", params.startAt);
@@ -215,6 +266,25 @@ export function postAdminEmailTest(to?: string) {
   return api<{ ok: boolean; to: string }>("/api/admin/email-settings/test", {
     method: "POST",
     body: JSON.stringify(to ? { to } : {}),
+  });
+}
+
+export interface EmailTemplateRow {
+  id: string;
+  name: string;
+  subject: string;
+  html: string;
+  updatedAt?: string;
+}
+
+export function fetchAdminEmailTemplates() {
+  return api<EmailTemplateRow[]>("/api/admin/email-templates");
+}
+
+export function saveAdminEmailTemplate(id: string, payload: { name: string; subject: string; html: string }) {
+  return api<EmailTemplateRow>(`/api/admin/email-templates/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
   });
 }
 
@@ -478,17 +548,113 @@ export function fetchAdminUserDocuments(userId: string) {
   return api<ClientDocumentRow[]>(`/api/admin/users/${userId}/documents`);
 }
 
-export function createCheckoutSession(planId: string, billingCycle: BillingCycle) {
-  return api<{ url: string }>("/api/subscriptions/checkout-session", {
+export function fetchAdminUserProjects(userId: string) {
+  return api<ProjectRecord[]>(`/api/admin/users/${encodeURIComponent(userId)}/projects`);
+}
+
+export function createAdminUserProject(userId: string, payload: { name: string; description?: string }) {
+  return api<ProjectRecord>(`/api/admin/users/${encodeURIComponent(userId)}/projects`, {
     method: "POST",
-    body: JSON.stringify({ planId, billingCycle }),
+    body: JSON.stringify(payload),
   });
 }
 
-export function createBillingPortalSession(returnUrl?: string) {
+export interface ProjectAssetUploadRow {
+  id: string;
+  type: ProjectRequirementType;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+}
+
+export function fetchProjectAssets(projectId: string) {
+  return api<ProjectAssetUploadRow[]>(`/api/documents/projects/${encodeURIComponent(projectId)}/assets`);
+}
+
+export async function uploadProjectAssetFile(
+  projectId: string,
+  type: ProjectRequirementType,
+  file: File,
+) {
+  const form = new FormData();
+  form.append("file", file);
+  return api<ProjectAssetUploadRow>(
+    `/api/documents/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(type)}`,
+    {
+      method: "POST",
+      body: form,
+    },
+  );
+}
+
+export async function downloadProjectAssetFromServer(projectId: string, type: ProjectRequirementType) {
+  const token = getAccessToken();
+  const res = await fetch(
+    `${API_BASE}/api/documents/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(type)}/download`,
+    {
+      method: "GET",
+      credentials: "include",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    },
+  );
+  if (!res.ok) throw new Error("download_failed");
+  const blob = await res.blob();
+  const cd = res.headers.get("Content-Disposition");
+  const match = cd?.match(/filename="([^"]+)"/);
+  const name = match?.[1] ? decodeURIComponent(match[1]) : `${type}.bin`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function deleteProjectAssetFile(projectId: string, type: ProjectRequirementType) {
+  return api<{ ok: boolean; deleted: number }>(
+    `/api/documents/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(type)}`,
+    { method: "DELETE", body: JSON.stringify({}) },
+  );
+}
+
+export function createCheckoutSession(
+  planId: string,
+  billingCycle: BillingCycle,
+  opts?: { successUrl?: string; cancelUrl?: string; addons?: string[]; projectId?: string },
+) {
+  logSubscriptionDebug("frontend.checkout_session.start", {
+    planId,
+    billingCycle,
+    projectId: opts?.projectId ?? null,
+    addonCount: opts?.addons?.length ?? 0,
+    hasSuccessUrlOverride: Boolean(opts?.successUrl),
+    hasCancelUrlOverride: Boolean(opts?.cancelUrl),
+  });
+  return api<{ url: string }>("/api/subscriptions/checkout-session", {
+    method: "POST",
+    body: JSON.stringify({
+      planId,
+      billingCycle,
+      ...(opts?.addons && opts.addons.length > 0 ? { addons: opts.addons } : {}),
+      ...(opts?.successUrl ? { successUrl: opts.successUrl } : {}),
+      ...(opts?.cancelUrl ? { cancelUrl: opts.cancelUrl } : {}),
+      ...(opts?.projectId ? { projectId: opts.projectId } : {}),
+    }),
+  });
+}
+
+export function createBillingPortalSession(returnUrl?: string, opts?: { projectId?: string }) {
+  logSubscriptionDebug("frontend.billing_portal.start", {
+    hasReturnUrl: Boolean(returnUrl),
+    projectId: opts?.projectId ?? null,
+  });
   return api<{ url: string }>("/api/subscriptions/billing-portal", {
     method: "POST",
-    body: JSON.stringify(returnUrl ? { returnUrl } : {}),
+    body: JSON.stringify({
+      ...(returnUrl ? { returnUrl } : {}),
+      ...(opts?.projectId ? { projectId: opts.projectId } : {}),
+    }),
   });
 }
 

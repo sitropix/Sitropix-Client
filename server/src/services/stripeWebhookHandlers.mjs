@@ -14,6 +14,32 @@ function logCheckout(phase, fields = {}) {
   log.info("billing.stripe_checkout", { phase, ...fields });
 }
 
+function projectIdFromMetadata(...metadataObjects) {
+  for (const md of metadataObjects) {
+    const candidate = md?.projectId;
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return null;
+}
+
+/**
+ * Find the local Subscription row for a Stripe subscription. If none exists, locate
+ * the (userId, projectId) target row (or fall back to the user-level legacy slot when
+ * no projectId is known). Returns null when there is no row to upsert into.
+ */
+async function findSubscriptionTargetRow({ stripeSubscriptionId, userId, projectId }) {
+  if (stripeSubscriptionId) {
+    const byStripeId = await prisma.subscription.findFirst({
+      where: { stripeSubscriptionId },
+    });
+    if (byStripeId) return byStripeId;
+  }
+  if (!userId) return null;
+  return prisma.subscription.findFirst({
+    where: { userId, projectId: projectId ?? null },
+  });
+}
+
 /** Stripe may send `subscription` as an id string or (if expanded) an object. */
 function subscriptionIdFromSession(session) {
   const s = session.subscription;
@@ -122,6 +148,7 @@ export async function handleCheckoutSessionCompleted(session) {
   }
 
   const customerId = typeof stripeSub.customer === "string" ? stripeSub.customer : stripeSub.customer?.id;
+  const projectId = projectIdFromMetadata(session.metadata, stripeSub.metadata);
 
   try {
     await prisma.user.update({
@@ -130,35 +157,44 @@ export async function handleCheckoutSessionCompleted(session) {
     });
 
     const { start: periodStart, end: periodEnd } = subscriptionPeriodDates(stripeSub);
-
-    await prisma.subscription.upsert({
-      where: { userId },
-      create: {
-        userId,
-        planId: plan.id,
-        status: mapStripeStatus(stripeSub.status),
-        billingCycle,
-        currentPeriodStart: periodStart,
-        currentPeriodEnd: periodEnd,
-        stripeSubscriptionId: stripeSub.id,
-        stripeCustomerId: customerId,
-      },
-      update: {
-        planId: plan.id,
-        status: mapStripeStatus(stripeSub.status),
-        billingCycle,
-        currentPeriodStart: periodStart,
-        currentPeriodEnd: periodEnd,
-        stripeSubscriptionId: stripeSub.id,
-        stripeCustomerId: customerId,
-      },
+    const target = await findSubscriptionTargetRow({
+      stripeSubscriptionId: stripeSub.id,
+      userId,
+      projectId,
     });
+    const upsertData = {
+      planId: plan.id,
+      status: mapStripeStatus(stripeSub.status),
+      billingCycle,
+      currentPeriodStart: periodStart,
+      currentPeriodEnd: periodEnd,
+      stripeSubscriptionId: stripeSub.id,
+      stripeCustomerId: customerId,
+      ...(projectId ? { projectId } : {}),
+    };
+    if (target) {
+      await prisma.subscription.update({ where: { id: target.id }, data: upsertData });
+    } else {
+      await prisma.subscription.create({
+        data: {
+          userId,
+          projectId: projectId ?? null,
+          ...upsertData,
+        },
+      });
+    }
   } catch (e) {
     logCheckout("db_upsert_failed", { sessionId: session.id, userId, error: e?.message });
     throw e;
   }
 
-  logCheckout("synced", { sessionId: session.id, userId, planCode: plan.code, stripeSubId: stripeSub.id });
+  logCheckout("synced", {
+    sessionId: session.id,
+    userId,
+    projectId,
+    planCode: plan.code,
+    stripeSubId: stripeSub.id,
+  });
 
   if (userRow) {
     await sendTransactionalEmail({
@@ -172,6 +208,7 @@ export async function handleCheckoutSessionCompleted(session) {
 }
 
 export async function handleInvoicePaid(invoice) {
+  logCheckout("invoice_paid_received", { invoiceId: invoice.id });
   if (!invoice.subscription || !invoice.customer) return;
 
   const stripeSubId = typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription.id;
@@ -207,9 +244,11 @@ export async function handleInvoicePaid(invoice) {
       invoicePdfUrl: pdfUrl,
     },
   });
+  logCheckout("invoice_paid_synced", { invoiceId: invoice.id, stripeSubId, amountPaid: invoice.amount_paid ?? 0 });
 }
 
 export async function handleInvoicePaymentFailed(invoice) {
+  logCheckout("invoice_payment_failed_received", { invoiceId: invoice.id });
   const stripeSubId =
     typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id;
   if (!stripeSubId) return;
@@ -253,9 +292,11 @@ export async function handleInvoicePaymentFailed(invoice) {
       html: `<p>Hi ${user.name},</p><p>We could not process your payment. Please update your payment method.</p><p><a href="${env.appUrl}/billing">Update billing</a></p>`,
     });
   }
+  logCheckout("invoice_payment_failed_synced", { invoiceId: invoice.id, stripeSubId });
 }
 
 export async function handleSubscriptionUpdated(stripeSub) {
+  logCheckout("subscription_updated_received", { stripeSubId: stripeSub.id, status: stripeSub.status });
   const existing = await prisma.subscription.findFirst({
     where: { stripeSubscriptionId: stripeSub.id },
   });
@@ -321,39 +362,46 @@ export async function handleSubscriptionUpdated(stripeSub) {
     where: { id: userId },
     data: { stripeCustomerId: customerId ?? undefined },
   });
+  const projectId = projectIdFromMetadata(stripeSub.metadata);
   const { start: periodStart, end: periodEnd } = subscriptionPeriodDates(stripeSub);
   const status = mapStripeStatus(stripeSub.status);
   try {
-    await prisma.subscription.upsert({
-      where: { userId },
-      create: {
-        userId,
-        planId: plan.id,
-        status,
-        billingCycle,
-        currentPeriodStart: periodStart,
-        currentPeriodEnd: periodEnd,
-        stripeSubscriptionId: stripeSub.id,
-        stripeCustomerId: customerId,
-      },
-      update: {
-        planId: plan.id,
-        status,
-        billingCycle,
-        currentPeriodStart: periodStart,
-        currentPeriodEnd: periodEnd,
-        stripeSubscriptionId: stripeSub.id,
-        stripeCustomerId: customerId,
-      },
+    const target = await findSubscriptionTargetRow({
+      stripeSubscriptionId: stripeSub.id,
+      userId,
+      projectId,
     });
+    const data = {
+      planId: plan.id,
+      status,
+      billingCycle,
+      currentPeriodStart: periodStart,
+      currentPeriodEnd: periodEnd,
+      stripeSubscriptionId: stripeSub.id,
+      stripeCustomerId: customerId,
+      ...(projectId ? { projectId } : {}),
+    };
+    if (target) {
+      await prisma.subscription.update({ where: { id: target.id }, data });
+    } else {
+      await prisma.subscription.create({
+        data: { userId, projectId: projectId ?? null, ...data },
+      });
+    }
   } catch (e) {
     logCheckout("sub_event_upsert_failed", { stripeSubId: stripeSub.id, userId, error: e?.message });
     throw e;
   }
-  logCheckout("created_from_sub_event", { stripeSubId: stripeSub.id, userId, planCode: plan.code });
+  logCheckout("created_from_sub_event", {
+    stripeSubId: stripeSub.id,
+    userId,
+    projectId,
+    planCode: plan.code,
+  });
 }
 
 export async function handleSubscriptionDeleted(stripeSub) {
+  logCheckout("subscription_deleted_received", { stripeSubId: stripeSub.id });
   const sub = await prisma.subscription.findFirst({
     where: { stripeSubscriptionId: stripeSub.id },
   });
@@ -374,4 +422,5 @@ export async function handleSubscriptionDeleted(stripeSub) {
       html: `<p>Hi ${user.name},</p><p>Your subscription has ended. We're sorry to see you go.</p>`,
     });
   }
+  logCheckout("subscription_deleted_synced", { stripeSubId: stripeSub.id, userId: sub.userId });
 }
