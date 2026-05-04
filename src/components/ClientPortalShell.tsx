@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Link, NavLink } from "react-router-dom";
 import { Logo } from "@/components/Logo";
 import { SmartSearch } from "@/components/SmartSearch";
 import { useAuth } from "@/context/AuthContext";
 import { useAuthz } from "@/context/AuthzContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
+import { getOnboardingStatusFromProjects } from "@/services/onboardingStore";
+import { listProjectsByUser } from "@/services/projectsStore";
+import { fetchUiPreferences, patchUiPreferences } from "@/services/authApi";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Link, NavLink, useLocation } from "react-router-dom";
 
 const portalLinkClass = ({ isActive }: { isActive: boolean }) =>
   [
@@ -35,14 +38,28 @@ function ChevronDown({ className }: { className?: string }) {
 function ThemeToggleIcon({ dark }: { dark: boolean }) {
   if (dark) {
     return (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+      <svg
+        viewBox="0 0 24 24"
+        className="h-4 w-4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        aria-hidden
+      >
         <path d="M12 3v1.5M12 19.5V21M4.5 12H3m18 0h-1.5M6.22 6.22l-1.06-1.06m13.62 13.62-1.06-1.06M17.78 6.22l1.06-1.06M6.22 17.78l-1.06 1.06" />
         <circle cx="12" cy="12" r="4.25" />
       </svg>
     );
   }
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      aria-hidden
+    >
       <path d="M21 12.79A9 9 0 1111.21 3c-.01.1-.01.2-.01.3A7.5 7.5 0 0018.7 10.8c.1 0 .2 0 .3-.01z" />
     </svg>
   );
@@ -64,7 +81,9 @@ function HeaderProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  const displayName = contact ? `${contact.firstName} ${contact.lastName}`.trim() : "Customer";
+  const displayName = contact
+    ? `${contact.firstName} ${contact.lastName}`.trim()
+    : "Customer";
   const planLabel = subscription?.planName?.trim() || "Workspace";
   const initials = (
     contact?.firstName?.trim().charAt(0) ||
@@ -111,7 +130,9 @@ function HeaderProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
           className="absolute right-0 z-[60] mt-2 min-w-[200px] overflow-hidden rounded-xl border border-zinc-300 bg-white py-1 shadow-glass"
         >
           <div className="border-b border-zinc-200 px-4 py-3 sm:hidden">
-            <p className="truncate text-sm font-semibold text-zinc-900">{displayName}</p>
+            <p className="truncate text-sm font-semibold text-zinc-900">
+              {displayName}
+            </p>
             <p className="mt-1.5 inline-flex max-w-full truncate rounded-md border border-zinc-300 bg-zinc-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-700">
               {planLabel}
             </p>
@@ -159,22 +180,128 @@ function HeaderProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
 
 export function ClientPortalShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [showOnboardingPopup, setShowOnboardingPopup] = useState(true);
+  const [projects, setProjects] = useState<Awaited<ReturnType<typeof listProjectsByUser>>>([]);
+  const [onboarding, setOnboarding] = useState({
+    hasProject: false,
+    hasAssetsReady: false,
+    hasActiveSubscription: false,
+    completed: false,
+  });
+  const { pathname } = useLocation();
+  const { isFirstLogin, user } = useAuth();
   const { isAdmin } = useAuthz();
   const { isDark, toggleTheme } = useTheme();
-  const { subscription, portal } = useUser();
+  const { portal } = useUser();
+  const userId = user?.id ?? portal?.user?.id ?? "guest-user";
+  const projectsKey = useMemo(
+    () => projects.map((project) => `${project.id}:${project.subscriptionStatus}:${project.planValidUntil ?? ""}`).join("|"),
+    [projects],
+  );
+  const allowedDuringOnboarding = [
+    "/dashboard",
+    "/subscription",
+    "/projects",
+    "/projects/",
+  ];
+  const shouldLockByFirstLogin = isFirstLogin;
+  const shouldRestrictNav = shouldLockByFirstLogin || !onboarding.completed;
+  useEffect(() => {
+    let cancelled = false;
+    void listProjectsByUser(userId)
+      .then((rows) => {
+        if (!cancelled) setProjects(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setProjects([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
-  const pendingCount = subscription ? 1 : 0;
+  const isRestrictedPage =
+    shouldRestrictNav &&
+    !allowedDuringOnboarding.some((p) =>
+      p.endsWith("/") ? pathname.startsWith(p) : pathname === p,
+    );
 
-  const sortedPlans = [...(portal?.plans ?? [])].sort((a, b) => a.priceMonthlyCents - b.priceMonthlyCents);
-  const currentPlanId = subscription?.planId ?? portal?.subscription?.planId ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    void getOnboardingStatusFromProjects(projects)
+      .then((status) => {
+        if (!cancelled) setOnboarding(status);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOnboarding({
+            hasProject: projects.length > 0,
+            hasAssetsReady: false,
+            hasActiveSubscription: projects.some((project) => project.subscriptionStatus === "active"),
+            completed: false,
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectsKey]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    void fetchUiPreferences()
+      .then((payload) => {
+        if (cancelled) return;
+        const dismissed = payload.uiPrefs?.dismissedOnboardingPopup === true;
+        setShowOnboardingPopup(!dismissed);
+      })
+      .catch(() => {
+        if (!cancelled) setShowOnboardingPopup(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!isRestrictedPage || !showOnboardingPopup) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      setShowOnboardingPopup(false);
+      void patchUiPreferences({ dismissedOnboardingPopup: true }).catch(() => {});
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isRestrictedPage, showOnboardingPopup]);
+
+  const pendingCount = projects.filter(
+    (project) => project.subscriptionStatus !== "active",
+  ).length;
+
+  const sortedPlans = [...(portal?.plans ?? [])].sort(
+    (a, b) => a.priceMonthlyCents - b.priceMonthlyCents,
+  );
+  const currentProject = projects.find(
+    (project) => project.subscriptionStatus === "active",
+  );
+  const currentPlanId = currentProject?.planId ?? null;
   const currentIdx =
-    currentPlanId != null ? sortedPlans.findIndex((p) => p.id === currentPlanId) : -1;
+    currentPlanId != null
+      ? sortedPlans.findIndex((p) => p.id === currentPlanId)
+      : -1;
   const nextPlan =
-    currentIdx >= 0 && currentIdx < sortedPlans.length - 1 ? sortedPlans[currentIdx + 1] : null;
+    currentIdx >= 0 && currentIdx < sortedPlans.length - 1
+      ? sortedPlans[currentIdx + 1]
+      : null;
 
   const links = [
     { to: "/dashboard", label: "Home" },
-    { to: "/subscription-management", label: "Subscription Management", badge: pendingCount },
+    {
+      to: "/subscription-management",
+      label: "Subscription Management",
+      badge: pendingCount,
+    },
     { to: "/subscription", label: "Plans & Addon" },
     { to: "/projects", label: "My Projects" },
     { to: "/requests", label: "Support" },
@@ -194,33 +321,49 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
           </Link>
         </div>
 
-        <nav className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-4" aria-label="Portal navigation">
+        <nav
+          className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-4"
+          aria-label="Portal navigation"
+        >
           <div className="portal-sidebar-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-300 bg-white/70">
             <div className="portal-sidebar-header shrink-0 border-b border-zinc-300 bg-white/70 px-3 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Workspace</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                Workspace
+              </p>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
               <div className="space-y-0.5">
-                {links.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    className={portalLinkClass}
-                    end={item.to === "/dashboard"}
-                    title={item.label}
-                  >
-                    <span className="min-w-0 truncate">{item.label}</span>
-                    {item.badge ? (
-                      <span className="portal-nav-badge shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 ring-1 ring-zinc-300">
-                        {item.badge}
-                      </span>
-                    ) : null}
-                  </NavLink>
-                ))}
+                {links.map((item) => {
+                  const locked =
+                    shouldRestrictNav &&
+                    !allowedDuringOnboarding.some((p) => item.to.startsWith(p));
+                  return (
+                    <NavLink
+                      key={item.to}
+                      to={locked ? "#" : item.to}
+                      className={portalLinkClass}
+                      end={item.to === "/dashboard"}
+                      title={item.label}
+                      onClick={(e) => {
+                        if (locked) e.preventDefault();
+                      }}
+                    >
+                      <span className="min-w-0 truncate">{item.label}</span>
+                      {item.badge ? (
+                        <span className="portal-nav-badge shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 ring-1 ring-zinc-300">
+                          {item.badge}
+                        </span>
+                      ) : null}
+                    </NavLink>
+                  );
+                })}
               </div>
               {isAdmin ? (
                 <>
-                  <div className="my-2 border-t border-zinc-300" role="presentation" />
+                  <div
+                    className="my-2 border-t border-zinc-300"
+                    role="presentation"
+                  />
                   <NavLink to="/admin" className={portalLinkClass}>
                     <span className="min-w-0 truncate">Admin</span>
                   </NavLink>
@@ -266,28 +409,45 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
           >
             <div className="overflow-hidden rounded-xl border border-zinc-300 bg-white/80">
               <div className="border-b border-zinc-300 bg-white/70 px-3 py-2.5">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Workspace</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                  Workspace
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-1.5 p-2">
-                {links.map((item) => (
+                {links.map((item) => {
+                  const locked =
+                    shouldRestrictNav &&
+                    !allowedDuringOnboarding.some((p) => item.to.startsWith(p));
+                  return (
+                    <NavLink
+                      key={item.to}
+                      to={locked ? "#" : item.to}
+                      className={portalLinkClass}
+                      end={item.to === "/dashboard"}
+                      title={item.label}
+                      onClick={(e) => {
+                        if (locked) {
+                          e.preventDefault();
+                          return;
+                        }
+                        setOpen(false);
+                      }}
+                    >
+                      <span className="min-w-0 truncate">{item.label}</span>
+                      {item.badge ? (
+                        <span className="shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 ring-1 ring-zinc-300">
+                          {item.badge}
+                        </span>
+                      ) : null}
+                    </NavLink>
+                  );
+                })}
+                {isAdmin && (
                   <NavLink
-                    key={item.to}
-                    to={item.to}
+                    to="/admin"
                     className={portalLinkClass}
-                    end={item.to === "/dashboard"}
-                    title={item.label}
                     onClick={() => setOpen(false)}
                   >
-                    <span className="min-w-0 truncate">{item.label}</span>
-                    {item.badge ? (
-                      <span className="shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 ring-1 ring-zinc-300">
-                        {item.badge}
-                      </span>
-                    ) : null}
-                  </NavLink>
-                ))}
-                {isAdmin && (
-                  <NavLink to="/admin" className={portalLinkClass} onClick={() => setOpen(false)}>
                     <span className="min-w-0 truncate">Admin</span>
                   </NavLink>
                 )}
@@ -295,9 +455,13 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
             </div>
             {nextPlan && (
               <div className="mt-3">
-                <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Upgrade</p>
+                <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                  Upgrade
+                </p>
                 <div className="rounded-xl border border-zinc-300 bg-white p-3">
-                  <p className="text-xs font-semibold text-zinc-900">Upgrade to {nextPlan.name}</p>
+                  <p className="text-xs font-semibold text-zinc-900">
+                    Upgrade to {nextPlan.name}
+                  </p>
                   <Link
                     to="/subscription"
                     className="mt-2 block rounded-lg bg-black py-2.5 text-center text-xs font-semibold text-white shadow-sm hover:bg-zinc-900"
@@ -311,7 +475,82 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
           </nav>
         )}
 
-        <main className="bg-[#ebedf1] px-4 py-6 lg:px-8 lg:py-8">{children}</main>
+        <main className="relative bg-[#ebedf1] px-4 py-6 lg:px-8 lg:py-8">
+          <div
+            className={
+              isRestrictedPage && showOnboardingPopup
+                ? "pointer-events-none select-none blur-[3px]"
+                : ""
+            }
+          >
+            {children}
+          </div>
+          {isRestrictedPage && showOnboardingPopup ? (
+            <div
+              className="fixed inset-0 z-[70] grid place-items-center bg-black/70 p-4 backdrop-blur-[2px]"
+              onClick={() => {
+                setShowOnboardingPopup(false);
+                void patchUiPreferences({ dismissedOnboardingPopup: true }).catch(() => {});
+              }}
+            >
+              <div
+                className="w-full max-w-md rounded-3xl border border-[#2A3037] bg-[#161B22] p-5 text-white shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="mb-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowOnboardingPopup(false);
+                      void patchUiPreferences({ dismissedOnboardingPopup: true }).catch(() => {});
+                    }}
+                    className="grid h-7 w-7 place-items-center rounded-full border border-zinc-500 bg-[#2A3037] text-zinc-200 hover:border-zinc-300"
+                    aria-label="Close popup"
+                  >
+                    ×
+                  </button>
+                </div>
+                <p className="inline-flex rounded-full bg-indigo-500/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-200">
+                  First login
+                </p>
+                <h3 className="mt-2 text-xl font-bold">
+                  Complete onboarding to unlock all pages
+                </h3>
+                <p className="mt-2 text-sm text-zinc-400">
+                  Finish these steps, then continue to subscription and payment.
+                </p>
+                <ul className="mt-4 space-y-2 text-sm">
+                  <li className="rounded-xl border border-[#2A3037] bg-[#0F1318] px-3 py-2">
+                    {onboarding.hasProject ? "✅" : "⬜"} Create your first
+                    project
+                  </li>
+                  <li className="rounded-xl border border-[#2A3037] bg-[#0F1318] px-3 py-2">
+                    {onboarding.hasAssetsReady ? "✅" : "⬜"} Upload required
+                    project assets
+                  </li>
+                  <li className="rounded-xl border border-[#2A3037] bg-[#0F1318] px-3 py-2">
+                    {onboarding.hasActiveSubscription ? "✅" : "⬜"} Choose
+                    plan/add-on and complete payment
+                  </li>
+                </ul>
+                <div className="mt-4 flex gap-2">
+                  <Link
+                    to="/projects"
+                    className="rounded-lg border border-zinc-500 bg-[#2A3037] px-3 py-2 text-sm font-semibold text-white"
+                  >
+                    Go to Projects
+                  </Link>
+                  <Link
+                    to="/subscription"
+                    className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-canvas"
+                  >
+                    Continue to Subscription
+                  </Link>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </main>
       </section>
     </div>
   );

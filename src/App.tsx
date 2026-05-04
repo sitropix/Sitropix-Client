@@ -22,6 +22,7 @@ import { AdminTicketsPage } from "@/pages/admin/AdminTicketsPage";
 import { AdminUserDocumentsPage } from "@/pages/admin/AdminUserDocumentsPage";
 import { CustomerManagementPage } from "@/pages/admin/CustomerManagementPage";
 import { EmailSettingsPage } from "@/pages/admin/EmailSettingsPage";
+import { EmailTemplatesPage } from "@/pages/admin/EmailTemplatesPage";
 import { EnvironmentConfigPage } from "@/pages/admin/EnvironmentConfigPage";
 import { FeatureControlsPage } from "@/pages/admin/FeatureControlsPage";
 import { InvitesPage } from "@/pages/admin/InvitesPage";
@@ -197,6 +198,14 @@ export default function App() {
                       element={
                         <RequireAdmin>
                           <EmailSettingsPage />
+                        </RequireAdmin>
+                      }
+                    />
+                    <Route
+                      path="/admin/email-templates"
+                      element={
+                        <RequireAdmin>
+                          <EmailTemplatesPage />
                         </RequireAdmin>
                       }
                     />

@@ -31,6 +31,12 @@ enum BillingCycle {
   yearly
 }
 
+enum ProjectSubscriptionStatus {
+  not_started
+  on_hold
+  active
+}
+
 enum PaymentStatus {
   succeeded
   failed
@@ -61,37 +67,40 @@ enum CrmLeadStatus {
 }
 
 model User {
-  id                       String    @id @default(cuid())
-  email                    String    @unique
-  name                     String
-  passwordHash             String    @map("password_hash")
-  role                     Role      @default(user)
-  isEmailVerified          Boolean   @default(false) @map("is_email_verified")
-  emailVerificationToken   String?   @map("email_verification_token")
-  passwordResetToken       String?   @map("password_reset_token")
-  passwordResetExpiresAt   DateTime? @map("password_reset_expires_at")
-  stripeCustomerId         String?   @map("stripe_customer_id")
-  razorpayCustomerId       String?   @map("razorpay_customer_id")
-  phoneNumber              String?   @map("phone_number")
-  isActive                 Boolean   @default(true) @map("is_active")
-  deactivatedAt            DateTime? @map("deactivated_at")
-  deactivationReason       String?   @map("deactivation_reason")
-  createdAt                DateTime  @default(now()) @map("created_at")
-  updatedAt                DateTime  @updatedAt @map("updated_at")
+  id                     String    @id @default(cuid())
+  email                  String    @unique
+  name                   String
+  passwordHash           String    @map("password_hash")
+  role                   Role      @default(user)
+  isEmailVerified        Boolean   @default(false) @map("is_email_verified")
+  emailVerificationToken String?   @map("email_verification_token")
+  passwordResetToken     String?   @map("password_reset_token")
+  passwordResetExpiresAt DateTime? @map("password_reset_expires_at")
+  stripeCustomerId       String?   @map("stripe_customer_id")
+  razorpayCustomerId     String?   @map("razorpay_customer_id")
+  phoneNumber            String?   @map("phone_number")
+  hasLoggedIn            Boolean   @default(false) @map("has_logged_in")
+  uiPrefsJson            Json      @default("{}") @map("ui_prefs_json")
+  isActive               Boolean   @default(true) @map("is_active")
+  deactivatedAt          DateTime? @map("deactivated_at")
+  deactivationReason     String?   @map("deactivation_reason")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
 
-  refreshTokens    RefreshToken[]
-  subscriptions    Subscription[]
-  payments         Payment[]
-  tickets          SupportTicket[]
-  ticketMessages   TicketMessage[]
-  clientDocuments  ClientDocument[]
-  invitesCreated   Invite[] @relation("InviteCreator")
-  funnelEvents     FunnelEvent[]
-  moduleAccess     UserModuleAccess[]
+  refreshTokens     RefreshToken[]
+  subscriptions     Subscription[]
+  payments          Payment[]
+  tickets           SupportTicket[]
+  ticketMessages    TicketMessage[]
+  clientDocuments   ClientDocument[]
+  projects          Project[]
+  invitesCreated    Invite[]           @relation("InviteCreator")
+  funnelEvents      FunnelEvent[]
+  moduleAccess      UserModuleAccess[]
   ticketAttachments TicketAttachment[]
-  formDefinitions  FormDefinition[]   @relation("FormCreatedBy")
-  crmStatusChanges CrmLeadStatusLog[] @relation("CrmStatusChangedBy")
-  convertedLeads   CrmLead[]          @relation("CrmLeadConvertedCustomer")
+  formDefinitions   FormDefinition[]   @relation("FormCreatedBy")
+  crmStatusChanges  CrmLeadStatusLog[] @relation("CrmStatusChangedBy")
+  convertedLeads    CrmLead[]          @relation("CrmLeadConvertedCustomer")
 
   @@index([email])
   @@index([role])
@@ -112,67 +121,71 @@ model UserModuleAccess {
 }
 
 model RefreshToken {
-  id         String    @id @default(cuid())
-  userId     String    @map("user_id")
-  tokenHash  String    @unique @map("token_hash")
-  expiresAt  DateTime  @map("expires_at")
-  revokedAt  DateTime? @map("revoked_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("refresh_tokens")
 }
 
 model Plan {
-  id                   String   @id @default(cuid())
-  code                 String   @unique
+  id                   String    @id @default(cuid())
+  code                 String    @unique
   name                 String
-  description          String   @default("")
-  priceMonthlyCents    Int      @map("price_monthly_cents")
-  priceYearlyCents     Int      @map("price_yearly_cents")
-  currency             String   @default("USD")
-  features             String[] @default([])
-  isActive             Boolean  @default(true) @map("is_active")
+  description          String    @default("")
+  priceMonthlyCents    Int       @map("price_monthly_cents")
+  priceYearlyCents     Int       @map("price_yearly_cents")
+  currency             String    @default("USD")
+  features             String[]  @default([])
+  isActive             Boolean   @default(true) @map("is_active")
   archivedAt           DateTime? @map("archived_at")
-  trialDays            Int      @default(14) @map("trial_days")
-  stripeProductId      String?  @map("stripe_product_id")
-  stripePriceMonthlyId String?  @map("stripe_price_monthly_id")
-  stripePriceYearlyId  String?  @map("stripe_price_yearly_id")
-  razorpayPlanId       String?  @map("razorpay_plan_id")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  trialDays            Int       @default(14) @map("trial_days")
+  stripeProductId      String?   @map("stripe_product_id")
+  stripePriceMonthlyId String?   @map("stripe_price_monthly_id")
+  stripePriceYearlyId  String?   @map("stripe_price_yearly_id")
+  razorpayPlanId       String?   @map("razorpay_plan_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  subscriptions          Subscription[]
-  planFeatureOverrides   PlanFeatureOverride[]
-  invites                Invite[]
+  subscriptions        Subscription[]
+  planFeatureOverrides PlanFeatureOverride[]
+  invites              Invite[]
 
   @@index([isActive])
   @@map("plans")
 }
 
 model Subscription {
-  id                   String             @id @default(cuid())
-  userId               String             @unique @map("user_id")
-  planId               String             @map("plan_id")
-  status               SubscriptionStatus
-  billingCycle         BillingCycle       @default(monthly) @map("billing_cycle")
-  currentPeriodStart   DateTime           @map("current_period_start")
-  currentPeriodEnd     DateTime           @map("current_period_end")
-  cancelAtPeriodEnd    Boolean            @default(false) @map("cancel_at_period_end")
-  pausedAt             DateTime?          @map("paused_at")
-  canceledAt           DateTime?          @map("canceled_at")
-  stripeSubscriptionId String?            @unique @map("stripe_subscription_id")
-  stripeCustomerId     String?            @map("stripe_customer_id")
-  razorpaySubscriptionId String?          @map("razorpay_subscription_id")
-  createdAt            DateTime           @default(now()) @map("created_at")
-  updatedAt            DateTime           @updatedAt @map("updated_at")
+  id                     String             @id @default(cuid())
+  userId                 String             @map("user_id")
+  projectId              String?            @map("project_id")
+  planId                 String             @map("plan_id")
+  status                 SubscriptionStatus
+  billingCycle           BillingCycle       @default(monthly) @map("billing_cycle")
+  currentPeriodStart     DateTime           @map("current_period_start")
+  currentPeriodEnd       DateTime           @map("current_period_end")
+  cancelAtPeriodEnd      Boolean            @default(false) @map("cancel_at_period_end")
+  pausedAt               DateTime?          @map("paused_at")
+  canceledAt             DateTime?          @map("canceled_at")
+  stripeSubscriptionId   String?            @unique @map("stripe_subscription_id")
+  stripeCustomerId       String?            @map("stripe_customer_id")
+  razorpaySubscriptionId String?            @map("razorpay_subscription_id")
+  createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
 
-  user     User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan     Plan  @relation(fields: [planId], references: [id])
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project  Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  plan     Plan      @relation(fields: [planId], references: [id])
   payments Payment[]
 
+  @@unique([userId, projectId])
+  @@index([userId])
   @@index([planId])
   @@index([status])
   @@map("subscriptions")
@@ -229,8 +242,8 @@ model SupportTicket {
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
-  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages TicketMessage[]
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages    TicketMessage[]
   attachments TicketAttachment[]
 
   @@index([userId])
@@ -247,8 +260,8 @@ model TicketMessage {
   body      String   @db.Text
   createdAt DateTime @default(now()) @map("created_at")
 
-  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  user   User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  ticket      SupportTicket      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user        User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
   attachments TicketAttachment[]
 
   @@index([ticketId])
@@ -317,11 +330,11 @@ model WebhookEvent {
 }
 
 model EmailLog {
-  id         String   @id @default(cuid())
-  toEmail    String   @map("to_email")
-  template   String
-  idempotencyKey String? @unique @map("idempotency_key")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id             String   @id @default(cuid())
+  toEmail        String   @map("to_email")
+  template       String
+  idempotencyKey String?  @unique @map("idempotency_key")
+  createdAt      DateTime @default(now()) @map("created_at")
 
   @@map("email_logs")
 }
@@ -337,6 +350,16 @@ model EmailSettings {
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@map("email_settings")
+}
+
+model EmailTemplate {
+  id        String   @id
+  name      String
+  subject   String
+  html      String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("email_templates")
 }
 
 /// SaaS-wide toggles (admin). Keys are stable API contracts.
@@ -368,21 +391,44 @@ model PlanFeatureOverride {
 
 /// Admin-uploaded files visible only to the owning client.
 model ClientDocument {
-  id           String   @id @default(cuid())
-  userId       String   @map("user_id")
-  category     String   @default("General")
-  title        String
-  fileName     String   @map("file_name")
-  mimeType     String   @map("mime_type")
-  storagePath  String   @map("storage_path")
-  sizeBytes    Int      @default(0) @map("size_bytes")
-  createdAt    DateTime @default(now()) @map("created_at")
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  category    String   @default("General")
+  title       String
+  fileName    String   @map("file_name")
+  mimeType    String   @map("mime_type")
+  storagePath String   @map("storage_path")
+  sizeBytes   Int      @default(0) @map("size_bytes")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([category])
   @@map("client_documents")
+}
+
+model Project {
+  id                 String                    @id @default(cuid())
+  ownerUserId        String                    @map("owner_user_id")
+  name               String
+  description        String                    @default("")
+  subscriptionStatus ProjectSubscriptionStatus @default(not_started) @map("subscription_status")
+  planId             String?                   @map("plan_id")
+  planName           String?                   @map("plan_name")
+  planValidUntil     DateTime?                 @map("plan_valid_until")
+  billingCycle       BillingCycle?             @map("billing_cycle")
+  addonsJson         Json                      @default("[]") @map("addons_json")
+  invoicesJson       Json                      @default("[]") @map("invoices_json")
+  createdAt          DateTime                  @default(now()) @map("created_at")
+  updatedAt          DateTime                  @updatedAt @map("updated_at")
+
+  owner         User           @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  @@index([ownerUserId, createdAt(sort: Desc)])
+  @@index([subscriptionStatus])
+  @@map("projects")
 }
 
 /// Admin-issued signup invite (optional pre-assigned plan).
@@ -494,17 +540,17 @@ model FormField {
 }
 
 model FormSubmission {
-  id               String   @id @default(cuid())
-  formId           String   @map("form_id")
-  payloadJson      Json     @map("payload_json")
-  sourceUrl        String?  @map("source_url")
-  sourceReferrer   String?  @map("source_referrer")
-  utmJson          Json     @default("{}") @map("utm_json")
-  submittedAt      DateTime @default(now()) @map("submitted_at")
-  ipHash           String?  @map("ip_hash")
-  userAgent        String?  @map("user_agent")
-  calBookingId     String?  @map("cal_booking_id")
-  meetingUrlAtSubmit String? @map("meeting_url_at_submit")
+  id                 String   @id @default(cuid())
+  formId             String   @map("form_id")
+  payloadJson        Json     @map("payload_json")
+  sourceUrl          String?  @map("source_url")
+  sourceReferrer     String?  @map("source_referrer")
+  utmJson            Json     @default("{}") @map("utm_json")
+  submittedAt        DateTime @default(now()) @map("submitted_at")
+  ipHash             String?  @map("ip_hash")
+  userAgent          String?  @map("user_agent")
+  calBookingId       String?  @map("cal_booking_id")
+  meetingUrlAtSubmit String?  @map("meeting_url_at_submit")
 
   form FormDefinition @relation(fields: [formId], references: [id], onDelete: Cascade)
   lead CrmLead?
@@ -514,28 +560,28 @@ model FormSubmission {
 }
 
 model CrmLead {
-  id                   String        @id @default(cuid())
-  formId               String        @map("form_id")
-  submissionId         String        @unique @map("submission_id")
-  fullName             String?       @map("full_name")
-  email                String?
-  phone                String?
-  company              String?
-  sourceLabel          String?       @map("source_label")
-  status               CrmLeadStatus @default(YET_TO_CONTACT)
-  meetingLink          String?       @map("meeting_link")
-  meetingScheduledAt   DateTime?     @map("meeting_scheduled_at")
-  assignedTo           String?       @map("assigned_to")
-  notes                String?       @db.Text
-  convertedAt          DateTime?     @map("converted_at")
-  convertedCustomerId  String?       @map("converted_customer_id")
-  createdAt            DateTime      @default(now()) @map("created_at")
-  updatedAt            DateTime      @updatedAt @map("updated_at")
+  id                  String        @id @default(cuid())
+  formId              String        @map("form_id")
+  submissionId        String        @unique @map("submission_id")
+  fullName            String?       @map("full_name")
+  email               String?
+  phone               String?
+  company             String?
+  sourceLabel         String?       @map("source_label")
+  status              CrmLeadStatus @default(YET_TO_CONTACT)
+  meetingLink         String?       @map("meeting_link")
+  meetingScheduledAt  DateTime?     @map("meeting_scheduled_at")
+  assignedTo          String?       @map("assigned_to")
+  notes               String?       @db.Text
+  convertedAt         DateTime?     @map("converted_at")
+  convertedCustomerId String?       @map("converted_customer_id")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
 
-  form               FormDefinition     @relation(fields: [formId], references: [id], onDelete: Cascade)
-  submission         FormSubmission     @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  convertedCustomer  User?              @relation("CrmLeadConvertedCustomer", fields: [convertedCustomerId], references: [id], onDelete: SetNull)
-  statusLogs         CrmLeadStatusLog[]
+  form              FormDefinition     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  submission        FormSubmission     @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  convertedCustomer User?              @relation("CrmLeadConvertedCustomer", fields: [convertedCustomerId], references: [id], onDelete: SetNull)
+  statusLogs        CrmLeadStatusLog[]
 
   @@index([status, createdAt(sort: Desc)])
   @@index([email])
@@ -543,14 +589,14 @@ model CrmLead {
 }
 
 model CrmLeadStatusLog {
-  id           String         @id @default(cuid())
-  leadId       String         @map("lead_id")
-  fromStatus   CrmLeadStatus? @map("from_status")
-  toStatus     CrmLeadStatus  @map("to_status")
-  meetingLink  String?       @map("meeting_link")
-  changedById  String?       @map("changed_by_id")
-  changedAt    DateTime       @default(now()) @map("changed_at")
-  reason       String?       @db.Text
+  id          String         @id @default(cuid())
+  leadId      String         @map("lead_id")
+  fromStatus  CrmLeadStatus? @map("from_status")
+  toStatus    CrmLeadStatus  @map("to_status")
+  meetingLink String?        @map("meeting_link")
+  changedById String?        @map("changed_by_id")
+  changedAt   DateTime       @default(now()) @map("changed_at")
+  reason      String?        @db.Text
 
   lead      CrmLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
   changedBy User?   @relation("CrmStatusChangedBy", fields: [changedById], references: [id], onDelete: SetNull)

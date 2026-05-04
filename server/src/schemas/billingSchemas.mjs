@@ -3,6 +3,7 @@ import { z } from "zod";
 export const changePlanSchema = z.object({
   planId: z.string().min(1),
   billingCycle: z.enum(["monthly", "yearly"]).optional(),
+  projectId: z.string().min(1).max(120).optional(),
 });
 
 export const paymentMethodSchema = z.object({
@@ -56,15 +57,22 @@ export const bootstrapSubscriptionSchema = z.object({
 export const checkoutSessionSchema = z.object({
   planId: z.string().min(1),
   billingCycle: cycleSchema.optional(),
+  addons: z.array(z.string().min(1)).max(20).optional(),
+  projectId: z.string().min(1).max(120).optional(),
   successUrl: safeReturnUrlSchema.optional(),
   cancelUrl: safeReturnUrlSchema.optional(),
 });
 
 export const billingPortalSchema = z.object({
   returnUrl: safeReturnUrlSchema.optional(),
+  projectId: z.string().min(1).max(120).optional(),
 });
 
 export const emptyObjectSchema = z.object({}).strict();
+
+export const subscriptionActionSchema = z.object({
+  projectId: z.string().min(1).max(120).optional(),
+});
 
 export const adminSubscriptionPatchSchema = z
   .object({

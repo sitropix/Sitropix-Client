@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
@@ -8,10 +9,13 @@ import type { BillingCycle } from "@/types/subscription";
 import { useSubscriptionPortal } from "@/hooks/useSubscriptionPortal";
 
 export function SubscriptionPage() {
+  const [searchParams] = useSearchParams();
   const { data, loading, error, refresh } = useSubscriptionPortal();
   const [billingCycle, setBillingCycle] = useState<BillingCycle>("monthly");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [selectedAddons, setSelectedAddons] = useState<string[]>([]);
+  const prefillPlan = searchParams.get("prefillPlan")?.trim() ?? "";
 
   const currentPlanId = data?.subscription?.planId ?? null;
 
@@ -27,6 +31,13 @@ export function SubscriptionPage() {
   }
 
   const currentTier = currentPlan ? tierPrice(currentPlan, billingCycle) : null;
+  useEffect(() => {
+    if (!prefillPlan || !data?.plans?.length || data.subscription) return;
+    const match = data.plans.find((plan) => plan.id === prefillPlan || plan.code === prefillPlan);
+    if (match) {
+      void handleChoosePlan(match.id);
+    }
+  }, [prefillPlan, data?.plans, data?.subscription, billingCycle, selectedAddons]);
 
   function actionLabelFor(plan: (typeof visiblePlans)[0]): string {
     if (currentPlanId === plan.id) return "Active";
@@ -40,21 +51,53 @@ export function SubscriptionPage() {
   async function handleChoosePlan(planId: string) {
     setBusy(true);
     setNotice(null);
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.info("[subscription-flow]", "frontend.choose_plan.start", {
+        planId,
+        billingCycle,
+        hasExistingSubscription: Boolean(data?.subscription),
+        selectedAddons,
+      });
+    }
     try {
       if (!data?.subscription) {
         try {
-          const { url } = await createCheckoutSession(planId, billingCycle);
+          const { url } = await createCheckoutSession(planId, billingCycle, {
+            addons: selectedAddons,
+          });
           if (url) {
+            if (import.meta.env.DEV) {
+              // eslint-disable-next-line no-console
+              console.info("[subscription-flow]", "frontend.checkout_session.redirect", { planId, billingCycle });
+            }
+            localStorage.setItem("sitropix_selected_addons", JSON.stringify({ planId, addons: selectedAddons, cycle: billingCycle }));
             window.location.assign(url);
             return;
           }
         } catch (checkoutErr) {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.warn("[subscription-flow]", "frontend.checkout_session.failed", {
+              planId,
+              billingCycle,
+              error: checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr),
+            });
+          }
           try {
             await bootstrapSubscription(planId, billingCycle);
+            if (import.meta.env.DEV) {
+              // eslint-disable-next-line no-console
+              console.info("[subscription-flow]", "frontend.bootstrap.success", { planId, billingCycle });
+            }
             setNotice("Trial started (local dev: set Stripe price IDs and keys for real checkout).");
             await refresh();
             return;
           } catch {
+            if (import.meta.env.DEV) {
+              // eslint-disable-next-line no-console
+              console.error("[subscription-flow]", "frontend.bootstrap.failed", { planId, billingCycle });
+            }
             setNotice(
               checkoutErr instanceof Error
                 ? checkoutErr.message
@@ -67,6 +110,14 @@ export function SubscriptionPage() {
         return;
       }
       const result = await changePlan(planId, billingCycle);
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.info("[subscription-flow]", "frontend.change_plan.success", {
+          planId,
+          billingCycle,
+          prorationNetCents: result.proration.netCents,
+        });
+      }
       const delta = result.proration.netCents / 100;
       setNotice(
         delta >= 0
@@ -75,6 +126,14 @@ export function SubscriptionPage() {
       );
       await refresh();
     } catch (err) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.error("[subscription-flow]", "frontend.choose_plan.failed", {
+          planId,
+          billingCycle,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       setNotice(err instanceof Error ? err.message : "Unable to change plan");
     } finally {
       setBusy(false);
@@ -136,6 +195,30 @@ export function SubscriptionPage() {
 
       {!loading && visiblePlans.length > 0 && (
         <section className="rounded-2xl border border-zinc-200/90 bg-white/40 p-4 shadow-sm ring-1 ring-zinc-100/80 sm:p-6">
+          {!data?.subscription ? (
+            <div className="mb-4 rounded-xl border border-zinc-200 bg-white p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">Optional add-ons</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {["priority-support", "extra-storage", "analytics-pack"].map((addon) => {
+                  const active = selectedAddons.includes(addon);
+                  return (
+                    <button
+                      key={addon}
+                      type="button"
+                      onClick={() =>
+                        setSelectedAddons((prev) => (prev.includes(addon) ? prev.filter((it) => it !== addon) : [...prev, addon]))
+                      }
+                      className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                        active ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700"
+                      }`}
+                    >
+                      {addon}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
           <div className="mb-5 flex flex-col gap-2 border-b border-zinc-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Compare plans</h2>

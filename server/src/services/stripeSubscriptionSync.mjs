@@ -7,12 +7,19 @@ import {
   stripePriceIdFromSubscriptionObject,
   subscriptionPeriodDates,
 } from "./stripeSyncHelpers.mjs";
+import { log } from "../observability/logger.mjs";
 
 /**
  * Reconcile the DB from Stripe (REST pull). Use when webhooks are not received
  * (missing STRIPE_WEBHOOK_SECRET, wrong port, etc.).
+ *
+ * `options.projectId` (optional) restricts the upsert to a specific (user, project) row.
+ *  - When provided we prefer the matching Stripe subscription whose metadata.projectId matches.
+ *  - When omitted we operate on the legacy user-level row (projectId NULL).
  */
-export async function syncSubscriptionFromStripeForUserId(userId) {
+export async function syncSubscriptionFromStripeForUserId(userId, options = {}) {
+  const targetProjectId = options.projectId ?? null;
+  log.info("subscription.sync_pull.start", { userId, projectId: targetProjectId });
   try {
     assertStripeConfigured();
   } catch {
@@ -21,6 +28,7 @@ export async function syncSubscriptionFromStripeForUserId(userId) {
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
+    log.warn("subscription.sync_pull.user_not_found", { userId });
     return { ok: false, reason: "user_not_found" };
   }
 
@@ -31,6 +39,7 @@ export async function syncSubscriptionFromStripeForUserId(userId) {
     const match =
       customers.find((c) => c.email?.toLowerCase() === lower) ?? (customers.length > 0 ? customers[0] : null);
     if (!match) {
+      log.info("subscription.sync_pull.no_customer", { userId, email: user.email });
       return { ok: false, reason: "no_stripe_customer" };
     }
     customerId = match.id;
@@ -43,14 +52,25 @@ export async function syncSubscriptionFromStripeForUserId(userId) {
     limit: 20,
   });
 
-  const prefer = (a, b) => b - a;
-  const scored = (subRows ?? []).map((s) => {
-    const good = s.status === "active" || s.status === "trialing" || s.status === "past_due";
-    return { s, score: good ? 1 : 0, created: s.created };
-  });
-  scored.sort((a, b) => (b.score - a.score) || prefer(a.created, b.created));
-  const best = scored[0]?.s;
+  const isLive = (s) => s.status === "active" || s.status === "trialing" || s.status === "past_due";
+  const matchProject = (s) => (s.metadata?.projectId ?? null) === targetProjectId;
+  const candidates = subRows ?? [];
+
+  let best = null;
+  if (targetProjectId) {
+    // Prefer a Stripe sub whose metadata projectId matches.
+    const projectMatched = candidates.filter(matchProject);
+    const scored = projectMatched.map((s) => ({ s, score: isLive(s) ? 1 : 0, created: s.created }));
+    scored.sort((a, b) => (b.score - a.score) || (b.created - a.created));
+    best = scored[0]?.s ?? null;
+  }
   if (!best) {
+    const scored = candidates.map((s) => ({ s, score: isLive(s) ? 1 : 0, created: s.created }));
+    scored.sort((a, b) => (b.score - a.score) || (b.created - a.created));
+    best = scored[0]?.s ?? null;
+  }
+  if (!best) {
+    log.info("subscription.sync_pull.no_subscription", { userId, customerId });
     return { ok: false, reason: "no_stripe_subscription" };
   }
 
@@ -58,6 +78,7 @@ export async function syncSubscriptionFromStripeForUserId(userId) {
   const priceId = stripePriceIdFromSubscriptionObject(full);
   const { plan, billingCycle } = await resolvePlanAndBillingCycle(priceId);
   if (!plan) {
+    log.warn("subscription.sync_pull.plan_unmapped", { userId, stripeSubscriptionId: full.id, priceId });
     return { ok: false, reason: "plan_not_mapped", detail: { priceId } };
   }
 
@@ -73,36 +94,58 @@ export async function syncSubscriptionFromStripeForUserId(userId) {
   }
 
   const { start: periodStart, end: periodEnd } = subscriptionPeriodDates(full);
+  const projectIdFromMeta = typeof full.metadata?.projectId === "string" && full.metadata.projectId.trim()
+    ? full.metadata.projectId.trim()
+    : null;
+  // Resolved projectId to write: caller-provided takes precedence; otherwise fall back
+  // to whatever metadata says (covers webhook-missed flows).
+  const resolvedProjectId = targetProjectId ?? projectIdFromMeta;
 
-  await prisma.subscription.upsert({
-    where: { userId },
-    create: {
-      userId,
-      planId: plan.id,
-      status: mapStripeStatus(full.status),
-      billingCycle,
-      currentPeriodStart: periodStart,
-      currentPeriodEnd: periodEnd,
-      stripeSubscriptionId: full.id,
-      stripeCustomerId: customerId,
-    },
-    update: {
-      planId: plan.id,
-      status: mapStripeStatus(full.status),
-      billingCycle,
-      currentPeriodStart: periodStart,
-      currentPeriodEnd: periodEnd,
-      stripeSubscriptionId: full.id,
-      stripeCustomerId: customerId,
-    },
+  // Upsert by stripeSubscriptionId first (catches a row that already exists in another
+  // project slot for the same user) then fall back to (userId, projectId).
+  const data = {
+    planId: plan.id,
+    status: mapStripeStatus(full.status),
+    billingCycle,
+    currentPeriodStart: periodStart,
+    currentPeriodEnd: periodEnd,
+    stripeSubscriptionId: full.id,
+    stripeCustomerId: customerId,
+    ...(resolvedProjectId ? { projectId: resolvedProjectId } : {}),
+  };
+
+  const existingByStripe = await prisma.subscription.findFirst({
+    where: { stripeSubscriptionId: full.id },
   });
-
-  const subRow = await prisma.subscription.findUnique({ where: { userId } });
-  if (subRow) {
-    await syncPaidInvoicesFromStripe(userId, subRow.id, full.id, customerId);
+  let savedRow;
+  if (existingByStripe) {
+    savedRow = await prisma.subscription.update({ where: { id: existingByStripe.id }, data });
+  } else {
+    const existingForPair = await prisma.subscription.findFirst({
+      where: { userId, projectId: resolvedProjectId ?? null },
+    });
+    if (existingForPair) {
+      savedRow = await prisma.subscription.update({ where: { id: existingForPair.id }, data });
+    } else {
+      savedRow = await prisma.subscription.create({
+        data: { userId, projectId: resolvedProjectId ?? null, ...data },
+      });
+    }
   }
 
-  return { ok: true, planCode: plan.code, stripeSubscriptionId: full.id };
+  if (savedRow) {
+    await syncPaidInvoicesFromStripe(userId, savedRow.id, full.id, customerId);
+  }
+
+  log.info("subscription.sync_pull.success", {
+    userId,
+    projectId: resolvedProjectId,
+    planId: plan.id,
+    planCode: plan.code,
+    stripeSubscriptionId: full.id,
+    customerId,
+  });
+  return { ok: true, planCode: plan.code, stripeSubscriptionId: full.id, projectId: resolvedProjectId };
 }
 
 function stripeSubscriptionIdOnInvoice(invoice) {
@@ -128,10 +171,11 @@ function stripeSubscriptionIdOnInvoice(invoice) {
 /** Backfill payments from Stripe invoices when webhooks did not run. */
 export async function syncPaidInvoicesFromStripe(userId, subscriptionRowId, stripeSubscriptionId, stripeCustomerId = null) {
   if (!stripe) return;
+  log.info("subscription.invoice_backfill.start", { userId, subscriptionRowId, stripeSubscriptionId, hasCustomerId: Boolean(stripeCustomerId) });
 
   const subRow =
     (await prisma.subscription.findUnique({ where: { id: subscriptionRowId } })) ??
-    (await prisma.subscription.findUnique({ where: { userId } }));
+    (await prisma.subscription.findFirst({ where: { userId }, orderBy: { updatedAt: "desc" } }));
   const customerId = stripeCustomerId ?? subRow?.stripeCustomerId ?? null;
 
   const collected = new Map();
@@ -246,4 +290,10 @@ export async function syncPaidInvoicesFromStripe(userId, subscriptionRowId, stri
       });
     }
   }
+  log.info("subscription.invoice_backfill.success", {
+    userId,
+    subscriptionRowId,
+    stripeSubscriptionId,
+    invoiceCount: collected.size,
+  });
 }

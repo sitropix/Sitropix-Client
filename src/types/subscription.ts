@@ -28,6 +28,8 @@ export interface UserLite {
 export interface Subscription {
   id: string;
   userId: string;
+  /** Project this subscription is tied to (null for legacy user-level rows). */
+  projectId?: string | null;
   planId: string;
   status: SubscriptionStatus;
   billingCycle: BillingCycle;
@@ -36,7 +38,7 @@ export interface Subscription {
   cancelAtPeriodEnd: boolean;
   pausedAt: string | null;
   canceledAt: string | null;
-  couponId: string | null;
+  couponId?: string | null;
   plan?: Plan;
   user?: UserLite;
   nextBillingDate?: string;
@@ -179,7 +181,10 @@ export interface AdminCustomerProfilePayload {
 export interface CustomerPortalPayload {
   user: UserLite;
   plans: Plan[];
+  /** "Primary" subscription (project-scoped if projectId was provided, else most-recent). */
   subscription: Subscription | null;
+  /** All non-canceled subscriptions for this user; keyed by project where applicable. */
+  subscriptions?: Subscription[];
   featureControls?: SubscriptionFeatureControls;
   experiments?: Record<string, unknown>;
   invoices: Invoice[];

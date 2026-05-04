@@ -7,6 +7,7 @@ import { validate } from "../middleware/validate.mjs";
 import {
   loginSchema,
   patchProfileSchema,
+  patchUiPreferencesSchema,
   requestResetSchema,
   resetPasswordSchema,
   signupSchema,
@@ -133,7 +134,7 @@ router.post("/signup", validate(signupSchema), async (req, res) => {
       ...auditCtx,
     });
     if (invite.planId) {
-      const hasSub = await prisma.subscription.findUnique({ where: { userId: user.id } });
+      const hasSub = await prisma.subscription.findFirst({ where: { userId: user.id } });
       if (!hasSub) {
         const plan = await prisma.plan.findUnique({ where: { id: invite.planId } });
         if (plan) {
@@ -217,6 +218,14 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
       return res.status(403).json({ error: "account_deactivated", message: "This account has been deactivated." });
     }
 
+    const isFirstLogin = !user.hasLoggedIn;
+    if (isFirstLogin) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { hasLoggedIn: true },
+      });
+    }
+
     metricsAuth.loginOk();
     const accessToken = signAccessToken(user);
     const refreshToken = signRefreshToken(user);
@@ -234,6 +243,7 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
 
     return res.json({
       accessToken,
+      firstLogin: isFirstLogin,
       user: {
         id: user.id,
         email: user.email,
@@ -241,6 +251,8 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
         role: user.role,
         isEmailVerified: user.isEmailVerified,
         phoneNumber: user.phoneNumber ?? null,
+        hasLoggedIn: true,
+        uiPrefs: user.uiPrefsJson ?? {},
       },
     });
   } catch (e) {
@@ -283,6 +295,8 @@ router.post("/refresh", async (req, res) => {
         role: user.role,
         isEmailVerified: user.isEmailVerified,
         phoneNumber: user.phoneNumber ?? null,
+        hasLoggedIn: user.hasLoggedIn ?? false,
+        uiPrefs: user.uiPrefsJson ?? {},
       },
     });
   } catch {
@@ -356,6 +370,32 @@ router.patch("/me", requireAuth, validate(patchProfileSchema), async (req, res) 
     return res.json({ accessToken, user: authUser });
   }
   return res.json({ user: authUser });
+});
+
+router.get("/ui-preferences", requireAuth, async (req, res) => {
+  const user = await prisma.user.findUnique({
+    where: { id: req.auth.userId },
+    select: { uiPrefsJson: true },
+  });
+  if (!user) return res.status(404).json({ error: "user_not_found" });
+  return res.json({ uiPrefs: user.uiPrefsJson ?? {} });
+});
+
+router.patch("/ui-preferences", requireAuth, validate(patchUiPreferencesSchema), async (req, res) => {
+  const user = await prisma.user.findUnique({
+    where: { id: req.auth.userId },
+    select: { uiPrefsJson: true },
+  });
+  if (!user) return res.status(404).json({ error: "user_not_found" });
+  const merged = {
+    ...(user.uiPrefsJson ?? {}),
+    ...(req.validatedBody.uiPrefs ?? {}),
+  };
+  await prisma.user.update({
+    where: { id: req.auth.userId },
+    data: { uiPrefsJson: merged },
+  });
+  return res.json({ ok: true, uiPrefs: merged });
 });
 
 router.post("/request-password-reset", validate(requestResetSchema), async (req, res) => {

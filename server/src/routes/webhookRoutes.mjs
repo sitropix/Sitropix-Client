@@ -32,6 +32,7 @@ router.post(
   let event;
   try {
     event = stripe.webhooks.constructEvent(req.body, req.headers["stripe-signature"], env.stripeWebhookSecret);
+    log.infoReq(req, "subscription.webhook.received", { provider: "stripe", eventId: event.id, eventType: event.type });
   } catch (e) {
     metricsWebhook.stripeInvalidSig();
     log.warn("webhook.stripe_invalid_signature", {
@@ -85,6 +86,7 @@ router.post(
         await handleInvoicePaymentFailed(event.data.object);
         break;
       default:
+        log.infoReq(req, "subscription.webhook.ignored", { provider: "stripe", eventId: event.id, eventType: event.type });
         break;
     }
   } catch (e) {
@@ -107,6 +109,7 @@ router.post(
     where: { eventId: event.id },
     data: { processedAt: new Date() },
   });
+  log.infoReq(req, "subscription.webhook.processed", { provider: "stripe", eventId: event.id, eventType: event.type });
   metricsWebhook.stripeOk();
   await logAuditEvent({
     action: "billing.webhook_processed",

@@ -34,3 +34,9 @@ export const patchProfileSchema = z
   .refine((b) => b.email !== undefined || b.phoneNumber !== undefined, {
     message: "at_least_one_field",
   });
+
+export const patchUiPreferencesSchema = z
+  .object({
+    uiPrefs: z.record(z.string(), z.unknown()),
+  })
+  .strict();

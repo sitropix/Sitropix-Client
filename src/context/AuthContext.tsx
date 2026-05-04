@@ -1,12 +1,31 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api, getAccessToken, refreshAccessToken, setAccessToken, type AuthUser } from "@/services/http";
+import {
+  api,
+  getAccessToken,
+  refreshAccessToken,
+  setAccessToken,
+  type AuthUser,
+} from "@/services/http";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 interface AuthState {
   user: AuthUser | null;
   loading: boolean;
   isAuthenticated: boolean;
+  isFirstLogin: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (name: string, email: string, password: string, inviteToken?: string) => Promise<void>;
+  signup: (
+    name: string,
+    email: string,
+    password: string,
+    inviteToken?: string,
+  ) => Promise<void>;
   logout: () => Promise<void>;
   /** Replace session user (e.g. after profile PATCH). */
   updateUser: (user: AuthUser) => void;
@@ -17,6 +36,7 @@ const AuthContext = createContext<AuthState | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isFirstLogin, setIsFirstLogin] = useState(false);
 
   useEffect(() => {
     async function bootstrap() {
@@ -26,7 +46,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       const refreshed = await refreshAccessToken();
-      if (refreshed?.user) setUser(refreshed.user);
+      if (refreshed?.user) {
+        setUser(refreshed.user);
+        setIsFirstLogin(false);
+      }
       else setAccessToken(null);
       setLoading(false);
     }
@@ -34,18 +57,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function login(email: string, password: string) {
-    const data = await api<{ accessToken: string; user: AuthUser }>("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    });
+    const data = await api<{ accessToken: string; user: AuthUser; firstLogin?: boolean }>(
+      "/api/auth/login",
+      {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      },
+    );
     setAccessToken(data.accessToken);
     setUser(data.user);
+    setIsFirstLogin(Boolean(data.firstLogin));
   }
 
-  async function signup(name: string, email: string, password: string, inviteToken?: string) {
+  async function signup(
+    name: string,
+    email: string,
+    password: string,
+    inviteToken?: string,
+  ) {
     await api<{ ok: boolean }>("/api/auth/signup", {
       method: "POST",
-      body: JSON.stringify({ name, email, password, ...(inviteToken ? { inviteToken } : {}) }),
+      body: JSON.stringify({
+        name,
+        email,
+        password,
+        ...(inviteToken ? { inviteToken } : {}),
+      }),
     });
   }
 
@@ -53,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await api<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
     setAccessToken(null);
     setUser(null);
+    setIsFirstLogin(false);
   }
 
   function updateUser(next: AuthUser) {
@@ -60,8 +98,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const value = useMemo(
-    () => ({ user, loading, isAuthenticated: Boolean(user), login, signup, logout, updateUser }),
-    [user, loading],
+    () => ({
+      user,
+      loading,
+      isAuthenticated: Boolean(user),
+      isFirstLogin,
+      login,
+      signup,
+      logout,
+      updateUser,
+    }),
+    [user, loading, isFirstLogin],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

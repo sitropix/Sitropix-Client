@@ -26,6 +26,8 @@ export interface AuthUser {
   role: "user" | "manager" | "admin" | "master_admin" | "support";
   isEmailVerified?: boolean;
   phoneNumber?: string | null;
+  hasLoggedIn?: boolean;
+  uiPrefs?: Record<string, unknown>;
 }
 
 export function getAccessToken() {

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import { createProject, listProjectsByUser } from "@/services/projectsStore";
-import { fetchAdminUsers } from "@/services/subscriptionsApi";
+import { useEffect, useState } from "react";
+import { fetchAdminUsers, fetchAdminUserProjects, createAdminUserProject } from "@/services/subscriptionsApi";
 import type { AdminUserRow } from "@/types/subscription";
+import type { ProjectRecord } from "@/types/project";
 
 export function AdminProjectsPage() {
   const [users, setUsers] = useState<AdminUserRow[]>([]);
@@ -9,7 +9,7 @@ export function AdminProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [tick, setTick] = useState(0);
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
 
   useEffect(() => {
     void (async () => {
@@ -23,15 +23,32 @@ export function AdminProjectsPage() {
     })();
   }, []);
 
-  const projects = useMemo(() => (selectedUserId ? listProjectsByUser(selectedUserId) : []), [selectedUserId, tick]);
+  useEffect(() => {
+    if (!selectedUserId) {
+      setProjects([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchAdminUserProjects(selectedUserId)
+      .then((rows) => {
+        if (!cancelled) setProjects(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setProjects([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedUserId]);
 
-  function onCreate(e: React.FormEvent) {
+  async function onCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedUserId || !name.trim()) return;
-    createProject(selectedUserId, name, description);
+    await createAdminUserProject(selectedUserId, { name, description });
+    const rows = await fetchAdminUserProjects(selectedUserId);
+    setProjects(rows);
     setName("");
     setDescription("");
-    setTick((v) => v + 1);
   }
 
   return (

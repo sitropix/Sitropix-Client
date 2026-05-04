@@ -10,6 +10,7 @@ import { subscriptionRouter, adminRouter } from "./routes/subscriptionRoutes.mjs
 import { clientDocumentRouter, adminClientDocumentRouter } from "./routes/clientDocumentRoutes.mjs";
 import { adminSupportRouter } from "./routes/adminSupportRoutes.mjs";
 import { supportRouter } from "./routes/supportRoutes.mjs";
+import { projectRouter, adminProjectRouter } from "./routes/projectRoutes.mjs";
 import { webhookRouter } from "./routes/webhookRoutes.mjs";
 import { healthRouter } from "./routes/healthRoutes.mjs";
 import { formPublicRouter } from "./routes/formPublicRoutes.mjs";
@@ -53,8 +54,10 @@ app.use("/api/auth", authRouter);
 app.use("/api/forms", formPublicRouter);
 app.use("/api/v1/forms", formPublicRouter);
 app.use("/api/subscriptions", subscriptionRouter);
+app.use("/api/projects", projectRouter);
 app.use("/api/documents", clientDocumentRouter);
 app.use("/api/admin", adminClientDocumentRouter);
+app.use("/api/admin", adminProjectRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/admin", adminFormCrmRouter);
 app.use("/api/admin", adminSupportRouter);

@@ -15,6 +15,7 @@ export function AdminAuditLogsPage() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [action, setAction] = useState("");
+  const [category, setCategory] = useState("");
   const [targetType, setTargetType] = useState("");
   const [startAt, setStartAt] = useState("");
   const [endAt, setEndAt] = useState("");
@@ -31,6 +32,7 @@ export function AdminAuditLogsPage() {
     try {
       const list = await fetchAdminAuditLogs({
         action: action.trim() || undefined,
+        category: category.trim() || undefined,
         targetType: targetType.trim() || undefined,
         startAt: startAt || undefined,
         endAt: endAt || undefined,
@@ -39,7 +41,7 @@ export function AdminAuditLogsPage() {
       });
       setRows(list.rows);
       setTotalPages(list.totalPages);
-      if (!action.trim() && !targetType.trim() && !startAt && !endAt && page === 1) {
+      if (!action.trim() && !category.trim() && !targetType.trim() && !startAt && !endAt && page === 1) {
         updateCache({ auditLogs: list });
       }
       listLoaded = true;
@@ -67,7 +69,7 @@ export function AdminAuditLogsPage() {
   }
 
   useEffect(() => {
-    const isDefaultView = page === 1 && !action && !targetType && !startAt && !endAt;
+    const isDefaultView = page === 1 && !action && !category && !targetType && !startAt && !endAt;
     if (cache.auditLogs && isDefaultView) {
       setRows(cache.auditLogs.rows);
       setTotalPages(cache.auditLogs.totalPages);
@@ -79,10 +81,25 @@ export function AdminAuditLogsPage() {
   }, [page]);
 
   const actionOptions = useMemo(() => Array.from(new Set(rows.map((r) => r.action))).slice(0, 60), [rows]);
+  const categoryOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          rows
+            .map((r) => r.action.split(".")[0]?.trim())
+            .filter((v): v is string => Boolean(v)),
+        ),
+      ),
+    [rows],
+  );
   const targetOptions = useMemo(
     () => Array.from(new Set(rows.map((r) => r.targetType).filter(Boolean) as string[])).slice(0, 30),
     [rows],
   );
+  const filteredRows = useMemo(() => {
+    if (!category) return rows;
+    return rows.filter((row) => row.action.startsWith(`${category}.`));
+  }, [rows, category]);
 
   if (noModuleAccess) {
     return <NoModuleAccess moduleLabel="Audit Logs" />;
@@ -96,7 +113,19 @@ export function AdminAuditLogsPage() {
       </header>
 
       <section className="rounded-xl border border-[#24292E] bg-[#15191C] p-4">
-        <div className="grid gap-3 md:grid-cols-6">
+        <div className="grid gap-3 md:grid-cols-7">
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white"
+          >
+            <option value="">All categories</option>
+            {categoryOptions.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
           <select
             value={action}
             onChange={(e) => setAction(e.target.value)}
@@ -147,6 +176,7 @@ export function AdminAuditLogsPage() {
             type="button"
             onClick={async () => {
               setAction("");
+              setCategory("");
               setTargetType("");
               setStartAt("");
               setEndAt("");
@@ -180,6 +210,7 @@ export function AdminAuditLogsPage() {
             onClick={() =>
               void downloadAdminAuditLogsCsv({
                 action: action.trim() || undefined,
+                category: category.trim() || undefined,
                 targetType: targetType.trim() || undefined,
                 startAt: startAt || undefined,
                 endAt: endAt || undefined,
@@ -223,10 +254,13 @@ export function AdminAuditLogsPage() {
         </div>
         {loading && <p className="px-4 py-4 text-sm text-neutral-400">Loading logs...</p>}
         {!loading &&
-          rows.map((row) => (
+          filteredRows.map((row) => (
             <div key={row.id} className="grid grid-cols-12 gap-2 border-b border-[#24292E] px-4 py-3 text-xs last:border-b-0 hover:bg-[#1C2126]">
               <div className="col-span-3 text-neutral-400">{fmtTs(row.createdAt)}</div>
-              <div className="col-span-3 text-white">{row.action}</div>
+              <div className="col-span-3">
+                <p className="text-white">{row.action}</p>
+                <p className="text-[10px] uppercase tracking-wider text-neutral-500">{row.action.split(".")[0] ?? "other"}</p>
+              </div>
               <div className="col-span-2 text-neutral-300">{row.actorUserId ?? "system"}</div>
               <div className="col-span-2 text-neutral-300">
                 {row.targetType ?? "-"}
@@ -235,7 +269,7 @@ export function AdminAuditLogsPage() {
               <div className="col-span-2 truncate text-neutral-400">{Object.keys(row.metadata ?? {}).slice(0, 3).join(", ") || "-"}</div>
             </div>
           ))}
-        {!loading && rows.length === 0 && <p className="px-4 py-5 text-sm text-neutral-400">No matching logs found.</p>}
+        {!loading && filteredRows.length === 0 && <p className="px-4 py-5 text-sm text-neutral-400">No matching logs found.</p>}
       </section>
 
       <section className="flex items-center justify-between rounded-xl border border-[#24292E] bg-[#15191C] px-4 py-3 text-sm text-neutral-400">
