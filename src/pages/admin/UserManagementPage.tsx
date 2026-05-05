@@ -18,20 +18,39 @@ import type { Role } from "@/types/subscription";
 
 const TEAM_PAGE_SIZE = 10;
 
-const modules = [
-  "dashboard",
-  "customers",
-  "users",
-  "plans",
-  "invites",
-  "features",
-  "audit_logs",
-  "email",
-  "environment",
-  "tickets",
-  "forms",
-  "crm",
+const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
+  { value: "support", label: "Support" },
+  { value: "manager", label: "Manager" },
+  { value: "admin", label: "Admin" },
+  { value: "master_admin", label: "Master Admin" },
+  { value: "user", label: "Customer" },
+];
+
+const MODULE_CONFIG = [
+  { key: "dashboard", label: "Dashboard" },
+  { key: "customers", label: "Customers" },
+  { key: "users", label: "Team Access" },
+  { key: "plans", label: "Plans" },
+  { key: "invites", label: "Invites" },
+  { key: "forms", label: "Forms" },
+  { key: "crm", label: "CRM" },
+  { key: "features", label: "Feature Controls" },
+  { key: "audit_logs", label: "Audit Logs" },
+  { key: "email", label: "Email" },
+  { key: "environment", label: "Environment" },
+  { key: "tickets", label: "Support" },
 ] as const;
+
+const modules = MODULE_CONFIG.map((module) => module.key);
+const MODULE_LABELS = new Map(MODULE_CONFIG.map((module) => [module.key, module.label]));
+
+const ROLE_ACCESS_PRESETS: Record<Role, string[]> = {
+  master_admin: modules.slice(),
+  admin: modules.slice(),
+  manager: ["dashboard", "customers", "plans", "invites", "audit_logs", "tickets", "forms", "crm"],
+  support: ["tickets", "customers", "dashboard"],
+  user: ["dashboard", "customers"],
+};
 
 export function UserManagementPage() {
   const { cache, updateCache } = useAdminPrefetch();
@@ -69,6 +88,7 @@ export function UserManagementPage() {
     user: { id: string; name: string; email: string } | null;
     isActive: boolean;
   }>({ open: false, user: null, isActive: true });
+  const inviteAccessModules = ROLE_ACCESS_PRESETS[role] ?? [];
 
   function toMessage(err: unknown, fallback: string) {
     if (err instanceof ApiRequestError) return err.message || fallback;
@@ -235,10 +255,11 @@ export function UserManagementPage() {
             onChange={(e) => setRole(e.target.value as Role)}
             className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white"
           >
-            <option value="support">Support</option>
-            <option value="manager">Manager</option>
-            <option value="admin">Admin</option>
-            <option value="master_admin">Master Admin</option>
+            {ROLE_OPTIONS.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
           </select>
           <button
             type="button"
@@ -260,6 +281,21 @@ export function UserManagementPage() {
             {inviting && <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />}
             {inviting ? "Sending..." : "Send login details"}
           </button>
+        </div>
+        <div className="mt-4 rounded-lg border border-[#2b3137] bg-[#1A1F24] p-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-neutral-400">
+            Default access for {ROLE_OPTIONS.find((item) => item.value === role)?.label ?? "selected role"}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {inviteAccessModules.map((moduleKey) => (
+              <span
+                key={moduleKey}
+                className="rounded-full border border-brand-lime/35 bg-brand-lime/10 px-2.5 py-1 text-xs font-medium text-brand-lime"
+              >
+                {MODULE_LABELS.get(moduleKey) ?? moduleKey}
+              </span>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -299,11 +335,11 @@ export function UserManagementPage() {
                     }}
                     className="rounded border border-[#24292E] bg-[#1C2126] px-2 py-1 text-xs text-white disabled:opacity-50"
                   >
-                    <option value="support">Support</option>
-                    <option value="manager">Manager</option>
-                    <option value="admin">Admin</option>
-                    <option value="master_admin">Master Admin</option>
-                    <option value="user">User</option>
+                    {ROLE_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="col-span-2">
@@ -358,13 +394,16 @@ export function UserManagementPage() {
                   <div className="mx-4 mb-4 rounded-lg border border-[#2b3137] bg-[#1A1F24] p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.08em] text-neutral-400">Module access</p>
                     <div className="mt-3 grid gap-2 md:grid-cols-2">
-                      {modules.map((m) => (
-                        <label key={m} className="flex items-center justify-between rounded border border-[#2b3137] bg-[#15191C] px-3 py-2 text-sm text-white">
-                          <span>{m}</span>
+                      {MODULE_CONFIG.map((module) => (
+                        <label
+                          key={module.key}
+                          className="flex items-center justify-between rounded border border-[#2b3137] bg-[#15191C] px-3 py-2 text-sm text-white"
+                        >
+                          <span>{module.label}</span>
                           <input
                             type="checkbox"
-                            checked={moduleDraft[m] ?? false}
-                            onChange={(e) => setModuleDraft((prev) => ({ ...prev, [m]: e.target.checked }))}
+                            checked={moduleDraft[module.key] ?? false}
+                            onChange={(e) => setModuleDraft((prev) => ({ ...prev, [module.key]: e.target.checked }))}
                             className="accent-brand-lime"
                           />
                         </label>
