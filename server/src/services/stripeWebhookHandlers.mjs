@@ -35,9 +35,8 @@ async function findSubscriptionTargetRow({ stripeSubscriptionId, userId, project
     if (byStripeId) return byStripeId;
   }
   if (!userId) return null;
-  return prisma.subscription.findFirst({
-    where: { userId, projectId: projectId ?? null },
-  });
+  if (!projectId) return null;
+  return prisma.subscription.findFirst({ where: { userId, projectId } });
 }
 
 /** Stripe may send `subscription` as an id string or (if expanded) an object. */
@@ -65,6 +64,36 @@ async function findUserIdByStripeCustomerId(customerId) {
     logCheckout("stripe_customer_lookup_failed", { customerId, error: e?.message });
     return null;
   }
+}
+
+async function ensureProjectIdForSubscription({ userId, projectId, stripeSubscriptionId = null }) {
+  if (projectId) return projectId;
+  const existingProjectSub =
+    stripeSubscriptionId
+      ? await prisma.subscription.findFirst({
+          where: { stripeSubscriptionId, userId, projectId: { not: null } },
+          select: { projectId: true },
+        })
+      : null;
+  if (existingProjectSub?.projectId) return existingProjectSub.projectId;
+  const latestProject = await prisma.project.findFirst({
+    where: { ownerUserId: userId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  if (latestProject?.id) return latestProject.id;
+  const created = await prisma.project.create({
+    data: {
+      ownerUserId: userId,
+      name: "Imported Subscription Project",
+      description: "Auto-created to attach Stripe subscription.",
+      subscriptionStatus: "on_hold",
+      addonsJson: [],
+      invoicesJson: [],
+    },
+    select: { id: true },
+  });
+  return created.id;
 }
 
 export async function handleCheckoutSessionCompleted(session) {
@@ -148,7 +177,11 @@ export async function handleCheckoutSessionCompleted(session) {
   }
 
   const customerId = typeof stripeSub.customer === "string" ? stripeSub.customer : stripeSub.customer?.id;
-  const projectId = projectIdFromMetadata(session.metadata, stripeSub.metadata);
+  const projectId = await ensureProjectIdForSubscription({
+    userId,
+    projectId: projectIdFromMetadata(session.metadata, stripeSub.metadata),
+    stripeSubscriptionId: stripeSub.id,
+  });
 
   try {
     await prisma.user.update({
@@ -168,9 +201,10 @@ export async function handleCheckoutSessionCompleted(session) {
       billingCycle,
       currentPeriodStart: periodStart,
       currentPeriodEnd: periodEnd,
+      cancelAtPeriodEnd: Boolean(stripeSub.cancel_at_period_end),
       stripeSubscriptionId: stripeSub.id,
       stripeCustomerId: customerId,
-      ...(projectId ? { projectId } : {}),
+      projectId,
     };
     if (target) {
       await prisma.subscription.update({ where: { id: target.id }, data: upsertData });
@@ -178,7 +212,7 @@ export async function handleCheckoutSessionCompleted(session) {
       await prisma.subscription.create({
         data: {
           userId,
-          projectId: projectId ?? null,
+          projectId,
           ...upsertData,
         },
       });
@@ -213,9 +247,22 @@ export async function handleInvoicePaid(invoice) {
 
   const stripeSubId = typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription.id;
 
-  const sub = await prisma.subscription.findFirst({
+  let sub = await prisma.subscription.findFirst({
     where: { stripeSubscriptionId: stripeSubId },
   });
+  if (!sub) {
+    try {
+      const stripeSub = await stripe.subscriptions.retrieve(stripeSubId);
+      await handleSubscriptionUpdated(stripeSub);
+      sub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: stripeSubId } });
+    } catch (e) {
+      logCheckout("invoice_paid_subscription_recover_failed", {
+        invoiceId: invoice.id,
+        stripeSubId,
+        error: e?.message,
+      });
+    }
+  }
   if (!sub) return;
 
   const invNum = invoice.number ?? String(invoice.id);
@@ -253,7 +300,20 @@ export async function handleInvoicePaymentFailed(invoice) {
     typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id;
   if (!stripeSubId) return;
 
-  const sub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: stripeSubId } });
+  let sub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: stripeSubId } });
+  if (!sub) {
+    try {
+      const stripeSub = await stripe.subscriptions.retrieve(stripeSubId);
+      await handleSubscriptionUpdated(stripeSub);
+      sub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: stripeSubId } });
+    } catch (e) {
+      logCheckout("invoice_failed_subscription_recover_failed", {
+        invoiceId: invoice.id,
+        stripeSubId,
+        error: e?.message,
+      });
+    }
+  }
   if (!sub) return;
 
   await prisma.subscription.update({
@@ -309,6 +369,7 @@ export async function handleSubscriptionUpdated(stripeSub) {
         status: mapStripeStatus(stripeSub.status),
         currentPeriodStart: periodStart,
         currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: Boolean(stripeSub.cancel_at_period_end),
         stripeCustomerId:
           typeof stripeSub.customer === "string" ? stripeSub.customer : stripeSub.customer?.id ?? existing.stripeCustomerId,
       },
@@ -362,7 +423,11 @@ export async function handleSubscriptionUpdated(stripeSub) {
     where: { id: userId },
     data: { stripeCustomerId: customerId ?? undefined },
   });
-  const projectId = projectIdFromMetadata(stripeSub.metadata);
+  const projectId = await ensureProjectIdForSubscription({
+    userId,
+    projectId: projectIdFromMetadata(stripeSub.metadata),
+    stripeSubscriptionId: stripeSub.id,
+  });
   const { start: periodStart, end: periodEnd } = subscriptionPeriodDates(stripeSub);
   const status = mapStripeStatus(stripeSub.status);
   try {
@@ -377,15 +442,16 @@ export async function handleSubscriptionUpdated(stripeSub) {
       billingCycle,
       currentPeriodStart: periodStart,
       currentPeriodEnd: periodEnd,
+      cancelAtPeriodEnd: Boolean(stripeSub.cancel_at_period_end),
       stripeSubscriptionId: stripeSub.id,
       stripeCustomerId: customerId,
-      ...(projectId ? { projectId } : {}),
+      projectId,
     };
     if (target) {
       await prisma.subscription.update({ where: { id: target.id }, data });
     } else {
       await prisma.subscription.create({
-        data: { userId, projectId: projectId ?? null, ...data },
+        data: { userId, projectId, ...data },
       });
     }
   } catch (e) {

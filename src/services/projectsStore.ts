@@ -102,3 +102,73 @@ export async function toggleProjectAddon(projectId: string, addonCode: string): 
   }
 }
 
+export interface ProjectSubscriptionRecord {
+  id: string;
+  userId: string;
+  projectId: string | null;
+  project: { id: string; name: string; subscriptionStatus: string } | null;
+  planId: string;
+  status: "trialing" | "active" | "paused" | "canceled" | "past_due";
+  billingCycle: BillingCycle;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  cancelAtPeriodEnd: boolean;
+  pausedAt: string | null;
+  canceledAt: string | null;
+  nextBillingDate: string;
+  plan: {
+    id: string;
+    code: string;
+    name: string;
+    description: string;
+    priceMonthlyCents: number;
+    priceYearlyCents: number;
+    currency: string;
+    features: string[];
+    isActive: boolean;
+    trialDays: number;
+  } | null;
+}
+
+export async function listProjectSubscriptions(): Promise<ProjectSubscriptionRecord[]> {
+  return api<ProjectSubscriptionRecord[]>("/api/projects/subscriptions");
+}
+
+export interface ProjectSubscriptionDetailsRecord {
+  subscription: {
+    id: string;
+    userId: string;
+    projectId: string;
+    planId: string;
+    status: "trialing" | "active" | "paused" | "canceled" | "past_due";
+    billingCycle: BillingCycle;
+    currentPeriodStart: string;
+    currentPeriodEnd: string;
+    cancelAtPeriodEnd: boolean;
+    pausedAt: string | null;
+    canceledAt: string | null;
+  };
+  project: { id: string; name: string; subscriptionStatus: string } | null;
+  plan: {
+    id: string;
+    code: string;
+    name: string;
+    currency: string;
+    priceMonthlyCents: number;
+    priceYearlyCents: number;
+  } | null;
+  invoices: Array<{
+    id: string;
+    invoiceNumber: string;
+    amountCents: number;
+    currency: string;
+    status: "succeeded" | "failed" | "pending" | "refunded";
+    paidAt: string | null;
+    invoicePdfUrl: string | null;
+  }>;
+}
+
+export async function listProjectSubscriptionDetails(): Promise<ProjectSubscriptionDetailsRecord[]> {
+  return api<ProjectSubscriptionDetailsRecord[]>("/api/projects/subscriptions/details");
+}
+

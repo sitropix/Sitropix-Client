@@ -38,6 +38,25 @@ export const planPatchSchema = z
   })
   .strict();
 
+export const addonSchema = z.object({
+  code: z.string().min(2).max(80),
+  label: z.string().min(2).max(120),
+  desc: z.string().max(500).optional(),
+  priceCents: z.number().int().nonnegative(),
+  currency: z.string().min(3).max(3).optional(),
+  isActive: z.boolean().optional(),
+});
+
+export const addonPatchSchema = z
+  .object({
+    label: z.string().min(2).max(120).optional(),
+    desc: z.string().max(500).optional(),
+    priceCents: z.number().int().nonnegative().optional(),
+    currency: z.string().min(3).max(3).optional(),
+    isActive: z.boolean().optional(),
+  })
+  .strict();
+
 export const couponSchema = z.object({
   code: z.string().min(3).max(40),
   discountType: z.enum(["percent", "flat"]),
@@ -52,13 +71,14 @@ const safeReturnUrlSchema = z.string().url().max(2048);
 export const bootstrapSubscriptionSchema = z.object({
   planId: z.string().min(1),
   billingCycle: cycleSchema.optional(),
+  projectId: z.string().min(1).max(120),
 });
 
 export const checkoutSessionSchema = z.object({
   planId: z.string().min(1),
   billingCycle: cycleSchema.optional(),
   addons: z.array(z.string().min(1)).max(20).optional(),
-  projectId: z.string().min(1).max(120).optional(),
+  projectId: z.string().min(1).max(120),
   successUrl: safeReturnUrlSchema.optional(),
   cancelUrl: safeReturnUrlSchema.optional(),
 });
@@ -72,6 +92,10 @@ export const emptyObjectSchema = z.object({}).strict();
 
 export const subscriptionActionSchema = z.object({
   projectId: z.string().min(1).max(120).optional(),
+});
+
+export const projectSubscriptionActionSchema = z.object({
+  projectId: z.string().min(1).max(120),
 });
 
 export const adminSubscriptionPatchSchema = z

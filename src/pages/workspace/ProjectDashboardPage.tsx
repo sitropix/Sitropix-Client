@@ -15,29 +15,8 @@ import {
   type ProjectAssetUploadRow,
 } from "@/services/subscriptionsApi";
 import type { ProjectRecord, ProjectRequirementType } from "@/types/project";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-
-const ADDONS = [
-  {
-    code: "priority-support",
-    label: "Priority Support",
-    description: "Get faster response times and dedicated account management.",
-    price: "$49/mo",
-  },
-  {
-    code: "extra-storage",
-    label: "Extra Storage",
-    description: "Add 50GB of secure storage for your project assets.",
-    price: "$19/mo",
-  },
-  {
-    code: "analytics-pack",
-    label: "Analytics Dashboard",
-    description: "Advanced tracking and reporting for your campaign.",
-    price: "$29/mo",
-  },
-];
 
 function money(cents: number, currency = "USD") {
   return new Intl.NumberFormat(undefined, {
@@ -69,6 +48,7 @@ export function ProjectDashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { portal } = useUser();
+  const addonCatalog = useMemo(() => portal?.addons ?? [], [portal?.addons]);
   const userId = user?.id ?? portal?.user?.id ?? "guest-user";
   const [, setTick] = useState(0);
   const [serverAssets, setServerAssets] = useState<ProjectAssetUploadRow[]>([]);
@@ -126,7 +106,7 @@ export function ProjectDashboardPage() {
   if (!ownedProject && !projectLoading)
     return <Navigate to="/projects" replace />;
   if (!ownedProject) {
-    return <div className="p-6 text-sm text-zinc-300">Loading project...</div>;
+    return <div className="p-6 text-sm text-zinc-600">Loading project...</div>;
   }
   const project = ownedProject;
   const statusLabel =
@@ -137,7 +117,7 @@ export function ProjectDashboardPage() {
         : "Not started";
 
   return (
-    <div className="relative space-y-6 text-white">
+    <div className="client-workspace-view relative space-y-6 text-zinc-900">
       <Breadcrumb
         items={[
           { label: "Home", to: "/dashboard" },
@@ -149,7 +129,7 @@ export function ProjectDashboardPage() {
       <header className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass sm:p-6">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-3xl font-bold tracking-tight text-white">
+            <h1 className="text-3xl font-bold tracking-tight text-zinc-900">
               {project.name}
             </h1>
             <span
@@ -203,7 +183,7 @@ export function ProjectDashboardPage() {
             </div>
             <p className="mt-3 text-sm text-zinc-400">
               Next billing date{" "}
-              <span className="font-semibold text-white">
+              <span className="client-ink-on-panel font-semibold">
                 {fmtDate(project.planValidUntil)}
               </span>
             </p>
@@ -602,7 +582,7 @@ export function ProjectDashboardPage() {
           Extend your service capabilities.
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          {ADDONS.map((addon) => {
+          {addonCatalog.map((addon) => {
             const enabled = project.addons.includes(addon.code);
             return (
               <button
@@ -624,13 +604,13 @@ export function ProjectDashboardPage() {
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-semibold ${enabled ? "bg-zinc-900/10 text-canvas" : "bg-zinc-700 text-zinc-100"}`}
                   >
-                    {addon.price}
+                    {money(addon.priceCents, addon.currency || "USD")}
                   </span>
                 </div>
                 <p
                   className={`mt-2 text-xs ${enabled ? "text-zinc-700" : "text-zinc-400"}`}
                 >
-                  {addon.description}
+                  {addon.desc}
                 </p>
                 <span
                   className={`mt-4 inline-flex w-full items-center justify-center rounded-xl px-3 py-2 text-sm font-semibold ${
@@ -642,6 +622,11 @@ export function ProjectDashboardPage() {
               </button>
             );
           })}
+          {addonCatalog.length === 0 ? (
+            <p className="sm:col-span-3 rounded-xl border border-[#2A3037] bg-[#1C2126] px-4 py-3 text-sm text-zinc-400">
+              No add-ons are available right now.
+            </p>
+          ) : null}
         </div>
       </section>
     </div>

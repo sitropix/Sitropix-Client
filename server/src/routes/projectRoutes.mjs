@@ -6,6 +6,7 @@ import {
   findPrimaryUserSubscription,
   findUserProjectSubscription,
 } from "../services/subscriptionLookup.mjs";
+import { fetchSubscriptionAddonCatalog } from "../services/addonCatalogStore.mjs";
 
 const router = express.Router();
 router.use(requireAuth);
@@ -55,6 +56,105 @@ router.get("/", async (req, res) => {
       .map((p) => persistNormalizedStatus(p.id, p)),
   );
   return res.json(normalized);
+});
+
+router.get("/subscriptions", async (req, res) => {
+  const rows = await prisma.subscription.findMany({
+    where: { userId: req.auth.userId },
+    include: {
+      plan: true,
+      project: {
+        select: { id: true, name: true, subscriptionStatus: true },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+  return res.json(
+    rows.map((row) => ({
+      id: row.id,
+      userId: row.userId,
+      projectId: row.projectId,
+      project: row.project
+        ? {
+            id: row.project.id,
+            name: row.project.name,
+            subscriptionStatus: row.project.subscriptionStatus,
+          }
+        : null,
+      planId: row.planId,
+      status: row.status,
+      billingCycle: row.billingCycle,
+      currentPeriodStart: row.currentPeriodStart,
+      currentPeriodEnd: row.currentPeriodEnd,
+      cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+      pausedAt: row.pausedAt,
+      canceledAt: row.canceledAt,
+      nextBillingDate: row.currentPeriodEnd,
+      plan: row.plan
+        ? {
+            id: row.plan.id,
+            code: row.plan.code,
+            name: row.plan.name,
+            description: row.plan.description,
+            priceMonthlyCents: row.plan.priceMonthlyCents,
+            priceYearlyCents: row.plan.priceYearlyCents,
+            currency: row.plan.currency,
+            features: row.plan.features,
+            isActive: row.plan.isActive,
+            trialDays: row.plan.trialDays,
+          }
+        : null,
+    })),
+  );
+});
+
+router.get("/subscriptions/details", async (req, res) => {
+  const rows = await prisma.subscription.findMany({
+    where: { userId: req.auth.userId },
+    include: {
+      plan: true,
+      project: { select: { id: true, name: true, subscriptionStatus: true } },
+      payments: { orderBy: { createdAt: "desc" } },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+  return res.json(
+    rows.map((row) => ({
+      subscription: {
+        id: row.id,
+        userId: row.userId,
+        projectId: row.projectId,
+        planId: row.planId,
+        status: row.status,
+        billingCycle: row.billingCycle,
+        currentPeriodStart: row.currentPeriodStart,
+        currentPeriodEnd: row.currentPeriodEnd,
+        cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+        pausedAt: row.pausedAt,
+        canceledAt: row.canceledAt,
+      },
+      project: row.project,
+      plan: row.plan
+        ? {
+            id: row.plan.id,
+            code: row.plan.code,
+            name: row.plan.name,
+            currency: row.plan.currency,
+            priceMonthlyCents: row.plan.priceMonthlyCents,
+            priceYearlyCents: row.plan.priceYearlyCents,
+          }
+        : null,
+      invoices: row.payments.map((p) => ({
+        id: p.id,
+        invoiceNumber: p.invoiceNumber,
+        amountCents: p.amountCents,
+        currency: p.currency,
+        status: p.status,
+        paidAt: p.paidAt,
+        invoicePdfUrl: p.invoicePdfUrl,
+      })),
+    })),
+  );
 });
 
 router.get("/:id", async (req, res) => {
@@ -112,16 +212,13 @@ router.post("/:id/activate-subscription", async (req, res) => {
   const requestedPlanId = String(req.body?.planId ?? "").trim();
   const requestedAmountCents = Number(req.body?.amountCents ?? 0);
   const requestedAddonsRaw = Array.isArray(req.body?.addons) ? req.body.addons : [];
-  const addonCatalog = {
-    "priority-support": 4900,
-    "extra-storage": 1900,
-    "analytics-pack": 2900,
-  };
+  const addonCatalogRows = await fetchSubscriptionAddonCatalog();
+  const addonCatalog = new Map(addonCatalogRows.map((row) => [row.code, row.priceCents]));
   const requestedAddons = Array.from(
     new Set(
       requestedAddonsRaw
         .map((value) => String(value ?? "").trim())
-        .filter((code) => Object.prototype.hasOwnProperty.call(addonCatalog, code)),
+        .filter((code) => addonCatalog.has(code)),
     ),
   );
   if (!requestedPlanId || !Number.isFinite(requestedAmountCents) || requestedAmountCents < 0) {
@@ -178,7 +275,7 @@ router.post("/:id/activate-subscription", async (req, res) => {
     sub.billingCycle === "yearly"
       ? sub.plan.priceYearlyCents
       : sub.plan.priceMonthlyCents;
-  const addonsTotal = requestedAddons.reduce((sum, code) => sum + (addonCatalog[code] ?? 0), 0);
+  const addonsTotal = requestedAddons.reduce((sum, code) => sum + (addonCatalog.get(code) ?? 0), 0);
   const minimumExpected = basePlanAmount + addonsTotal;
   const finalAmountCents = Math.max(minimumExpected, Math.round(requestedAmountCents));
   const nextInvoices = [

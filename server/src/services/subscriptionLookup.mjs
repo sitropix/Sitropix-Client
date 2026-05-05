@@ -55,7 +55,8 @@ export async function findSubscriptionByStripeId(stripeSubscriptionId, options =
  * Uses (userId, projectId) composite uniqueness via findFirst + create/update so we
  * don't have to deal with Prisma composite unique semantics for nullable fields.
  */
-export async function upsertProjectSubscription({ userId, projectId = null, create, update }) {
+export async function upsertProjectSubscription({ userId, projectId, create, update }) {
+  if (!projectId) throw new Error("project_id_required");
   const existing = await prisma.subscription.findFirst({ where: { userId, projectId } });
   if (existing) {
     return prisma.subscription.update({

@@ -34,7 +34,10 @@ function parseAllowedRedirectOrigins(appUrl) {
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? process.env.API_SERVER_PORT ?? 8787),
-  databaseUrl: required("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:5432/sitropix_portal"),
+  databaseUrl: required(
+    "DATABASE_URL",
+    "postgresql://postgres:Vamsi%401432@localhost:5432/postgres",
+  ),
   jwtAccessSecret: required("JWT_ACCESS_SECRET", DEV_ACCESS_SECRET),
   jwtRefreshSecret: required("JWT_REFRESH_SECRET", DEV_REFRESH_SECRET),
   jwtAccessTtl: process.env.JWT_ACCESS_TTL ?? "15m",
@@ -43,8 +46,10 @@ export const env = {
   apiUrl: process.env.API_URL ?? "http://127.0.0.1:8787",
   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
-  stripeSuccessUrl: process.env.STRIPE_SUCCESS_URL ?? "http://127.0.0.1:5173/billing",
-  stripeCancelUrl: process.env.STRIPE_CANCEL_URL ?? "http://127.0.0.1:5173/subscription",
+  stripeSuccessUrl:
+    process.env.STRIPE_SUCCESS_URL ?? "http://127.0.0.1:5173/billing",
+  stripeCancelUrl:
+    process.env.STRIPE_CANCEL_URL ?? "http://127.0.0.1:5173/subscription",
   emailProvider: process.env.EMAIL_PROVIDER ?? "console",
   resendApiKey: process.env.RESEND_API_KEY ?? "",
   emailFrom: process.env.EMAIL_FROM ?? "noreply@example.com",
@@ -52,27 +57,39 @@ export const env = {
   razorpayKeyId: process.env.RAZORPAY_KEY_ID ?? "",
   razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET ?? "",
   razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET ?? "",
-  clientDocumentsDir: process.env.CLIENT_DOCUMENTS_DIR ?? "data/client-documents",
-  auditLogEnabled: (process.env.AUDIT_LOG_ENABLED ?? "true").toLowerCase() === "true",
+  clientDocumentsDir:
+    process.env.CLIENT_DOCUMENTS_DIR ?? "data/client-documents",
+  auditLogEnabled:
+    (process.env.AUDIT_LOG_ENABLED ?? "true").toLowerCase() === "true",
   /** Optional bearer for GET /api/metrics (if unset, route returns 404 in production, open in non-production) */
   metricsBearerToken: String(process.env.METRICS_BEARER_TOKEN ?? "").trim(),
   /** JSON POST for Slack/Discord/custom when critical failures occur (optional) */
   alertWebhookUrl: String(process.env.ALERT_WEBHOOK_URL ?? "").trim(),
-  alertingEnabled: (process.env.ALERTING_ENABLED ?? "true").toLowerCase() !== "false",
+  alertingEnabled:
+    (process.env.ALERTING_ENABLED ?? "true").toLowerCase() !== "false",
   /** When true, POST to alert webhook for unhandled express errors (can be noisy) */
-  alertOnInternalError: (process.env.ALERT_ON_INTERNAL_ERROR ?? "false").toLowerCase() === "true",
+  alertOnInternalError:
+    (process.env.ALERT_ON_INTERNAL_ERROR ?? "false").toLowerCase() === "true",
   /** HMAC/JWT signing for public form submit CSRF tokens (defaults to derived secret in dev). */
-  formCsrfSecret: String(process.env.FORM_CSRF_SECRET ?? "").trim() || `${String(process.env.JWT_ACCESS_SECRET ?? DEV_ACCESS_SECRET)}.form-csrf`,
+  formCsrfSecret:
+    String(process.env.FORM_CSRF_SECRET ?? "").trim() ||
+    `${String(process.env.JWT_ACCESS_SECRET ?? DEV_ACCESS_SECRET)}.form-csrf`,
   /** Set to `true` to skip CSRF on POST /api/forms/.../submit (local testing only). */
-  formPublicCsrfDisabled: (process.env.FORM_PUBLIC_CSRF_DISABLED ?? "").toLowerCase() === "true",
+  formPublicCsrfDisabled:
+    (process.env.FORM_PUBLIC_CSRF_DISABLED ?? "").toLowerCase() === "true",
 };
 env.allowedRedirectOrigins = parseAllowedRedirectOrigins(env.appUrl);
 
 function assertProductionSecurity() {
   if (env.nodeEnv !== "production") return;
 
-  if (env.jwtAccessSecret === DEV_ACCESS_SECRET || env.jwtRefreshSecret === DEV_REFRESH_SECRET) {
-    throw new Error("Insecure JWT secrets detected in production. Set strong JWT_ACCESS_SECRET and JWT_REFRESH_SECRET.");
+  if (
+    env.jwtAccessSecret === DEV_ACCESS_SECRET ||
+    env.jwtRefreshSecret === DEV_REFRESH_SECRET
+  ) {
+    throw new Error(
+      "Insecure JWT secrets detected in production. Set strong JWT_ACCESS_SECRET and JWT_REFRESH_SECRET.",
+    );
   }
 
   if (!String(env.databaseUrl || "").trim()) {
@@ -84,7 +101,9 @@ function assertProductionSecurity() {
   }
 
   if ((process.env.FORM_PUBLIC_CSRF_DISABLED ?? "").toLowerCase() === "true") {
-    throw new Error("FORM_PUBLIC_CSRF_DISABLED must not be enabled in production.");
+    throw new Error(
+      "FORM_PUBLIC_CSRF_DISABLED must not be enabled in production.",
+    );
   }
 }
 

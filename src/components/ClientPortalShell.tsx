@@ -4,9 +4,9 @@ import { useAuth } from "@/context/AuthContext";
 import { useAuthz } from "@/context/AuthzContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
-import { getOnboardingStatusFromProjects } from "@/services/onboardingStore";
-import { listProjectsByUser } from "@/services/projectsStore";
 import { fetchUiPreferences, patchUiPreferences } from "@/services/authApi";
+import { getOnboardingStatusFromProjects } from "@/services/onboardingStore";
+import { hasValidProjectPlan, listProjectsByUser } from "@/services/projectsStore";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 
@@ -17,6 +17,9 @@ const portalLinkClass = ({ isActive }: { isActive: boolean }) =>
       ? "border-l-brand-lime bg-white text-zinc-900 shadow-[inset_0_0_0_1px_rgba(112,111,112,0.2)]"
       : "border-l-transparent text-zinc-600 hover:border-l-zinc-300 hover:bg-white/70 hover:text-zinc-900",
   ].join(" ");
+
+const lockedPortalLinkClass =
+  "portal-nav-link flex cursor-not-allowed items-center justify-between gap-2 rounded-lg border-l-2 border-l-transparent bg-zinc-100/80 py-2.5 pl-2.5 pr-3 text-sm font-medium text-zinc-500 opacity-80";
 
 function ChevronDown({ className }: { className?: string }) {
   return (
@@ -31,6 +34,24 @@ function ChevronDown({ className }: { className?: string }) {
       aria-hidden
     >
       <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+
+function LockIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V8a4 4 0 118 0v3" />
     </svg>
   );
 }
@@ -181,7 +202,9 @@ function HeaderProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
 export function ClientPortalShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [showOnboardingPopup, setShowOnboardingPopup] = useState(true);
-  const [projects, setProjects] = useState<Awaited<ReturnType<typeof listProjectsByUser>>>([]);
+  const [projects, setProjects] = useState<
+    Awaited<ReturnType<typeof listProjectsByUser>>
+  >([]);
   const [onboarding, setOnboarding] = useState({
     hasProject: false,
     hasAssetsReady: false,
@@ -195,7 +218,13 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
   const { portal } = useUser();
   const userId = user?.id ?? portal?.user?.id ?? "guest-user";
   const projectsKey = useMemo(
-    () => projects.map((project) => `${project.id}:${project.subscriptionStatus}:${project.planValidUntil ?? ""}`).join("|"),
+    () =>
+      projects
+        .map(
+          (project) =>
+            `${project.id}:${project.subscriptionStatus}:${project.planValidUntil ?? ""}`,
+        )
+        .join("|"),
     [projects],
   );
   const allowedDuringOnboarding = [
@@ -204,8 +233,14 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
     "/projects",
     "/projects/",
   ];
+  const userHasActiveSubscriptionAnywhere = useMemo(
+    () => projects.some((project) => hasValidProjectPlan(project)),
+    [projects],
+  );
   const shouldLockByFirstLogin = isFirstLogin;
-  const shouldRestrictNav = shouldLockByFirstLogin || !onboarding.completed;
+  const shouldRestrictNav =
+    !userHasActiveSubscriptionAnywhere &&
+    (shouldLockByFirstLogin || !onboarding.completed);
   useEffect(() => {
     let cancelled = false;
     void listProjectsByUser(userId)
@@ -237,7 +272,9 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
           setOnboarding({
             hasProject: projects.length > 0,
             hasAssetsReady: false,
-            hasActiveSubscription: projects.some((project) => project.subscriptionStatus === "active"),
+            hasActiveSubscription: projects.some(
+              (project) => project.subscriptionStatus === "active",
+            ),
             completed: false,
           });
         }
@@ -269,7 +306,9 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       setShowOnboardingPopup(false);
-      void patchUiPreferences({ dismissedOnboardingPopup: true }).catch(() => {});
+      void patchUiPreferences({ dismissedOnboardingPopup: true }).catch(
+        () => {},
+      );
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -299,10 +338,10 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
     { to: "/dashboard", label: "Home" },
     {
       to: "/subscription-management",
-      label: "Subscription Management",
+      label: "Payment Management",
       badge: pendingCount,
     },
-    { to: "/subscription", label: "Plans & Addon" },
+    { to: "/subscription", label: "Plans & Add-Ons" },
     { to: "/projects", label: "My Projects" },
     { to: "/requests", label: "Support" },
     { to: "/workspace", label: "Workspace Files" },
@@ -310,7 +349,7 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
   ];
 
   return (
-    <div className="min-h-screen bg-[#ebedf1] text-zinc-900">
+    <div className="client-portal-root min-h-screen bg-[#ebedf1] text-zinc-900">
       <aside className="portal-sidebar fixed left-0 top-0 z-50 hidden h-full w-[260px] flex-col border-r border-zinc-300 bg-[#d4d8df] shadow-[inset_-1px_0_0_rgba(112,111,112,0.18),6px_0_24px_rgba(53,53,54,0.15)] lg:flex">
         <div className="shrink-0 flex h-14 items-center border-b border-zinc-300 bg-white/40 px-5">
           <Link
@@ -337,16 +376,35 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                   const locked =
                     shouldRestrictNav &&
                     !allowedDuringOnboarding.some((p) => item.to.startsWith(p));
+                  if (locked) {
+                    return (
+                      <button
+                        key={item.to}
+                        type="button"
+                        disabled
+                        aria-disabled="true"
+                        title={`${item.label} is locked until onboarding is complete`}
+                        className={lockedPortalLinkClass}
+                      >
+                        <span className="min-w-0 truncate">{item.label}</span>
+                        <span className="inline-flex items-center gap-1 text-zinc-500">
+                          {item.badge ? (
+                            <span className="portal-nav-badge shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 ring-1 ring-zinc-300">
+                              {item.badge}
+                            </span>
+                          ) : null}
+                          <LockIcon className="h-3.5 w-3.5 shrink-0" />
+                        </span>
+                      </button>
+                    );
+                  }
                   return (
                     <NavLink
                       key={item.to}
-                      to={locked ? "#" : item.to}
+                      to={item.to}
                       className={portalLinkClass}
                       end={item.to === "/dashboard"}
                       title={item.label}
-                      onClick={(e) => {
-                        if (locked) e.preventDefault();
-                      }}
                     >
                       <span className="min-w-0 truncate">{item.label}</span>
                       {item.badge ? (
@@ -418,18 +476,36 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                   const locked =
                     shouldRestrictNav &&
                     !allowedDuringOnboarding.some((p) => item.to.startsWith(p));
+                  if (locked) {
+                    return (
+                      <button
+                        key={item.to}
+                        type="button"
+                        disabled
+                        aria-disabled="true"
+                        title={`${item.label} is locked until onboarding is complete`}
+                        className={lockedPortalLinkClass}
+                      >
+                        <span className="min-w-0 truncate">{item.label}</span>
+                        <span className="inline-flex items-center gap-1 text-zinc-500">
+                          {item.badge ? (
+                            <span className="shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 ring-1 ring-zinc-300">
+                              {item.badge}
+                            </span>
+                          ) : null}
+                          <LockIcon className="h-3.5 w-3.5 shrink-0" />
+                        </span>
+                      </button>
+                    );
+                  }
                   return (
                     <NavLink
                       key={item.to}
-                      to={locked ? "#" : item.to}
+                      to={item.to}
                       className={portalLinkClass}
                       end={item.to === "/dashboard"}
                       title={item.label}
-                      onClick={(e) => {
-                        if (locked) {
-                          e.preventDefault();
-                          return;
-                        }
+                      onClick={(_e) => {
                         setOpen(false);
                       }}
                     >
@@ -475,7 +551,7 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
           </nav>
         )}
 
-        <main className="relative bg-[#ebedf1] px-4 py-6 lg:px-8 lg:py-8">
+        <main className="client-portal-main relative bg-[#ebedf1] px-4 py-6 lg:px-8 lg:py-8">
           <div
             className={
               isRestrictedPage && showOnboardingPopup
@@ -490,7 +566,9 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
               className="fixed inset-0 z-[70] grid place-items-center bg-black/70 p-4 backdrop-blur-[2px]"
               onClick={() => {
                 setShowOnboardingPopup(false);
-                void patchUiPreferences({ dismissedOnboardingPopup: true }).catch(() => {});
+                void patchUiPreferences({
+                  dismissedOnboardingPopup: true,
+                }).catch(() => {});
               }}
             >
               <div
@@ -502,7 +580,9 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                     type="button"
                     onClick={() => {
                       setShowOnboardingPopup(false);
-                      void patchUiPreferences({ dismissedOnboardingPopup: true }).catch(() => {});
+                      void patchUiPreferences({
+                        dismissedOnboardingPopup: true,
+                      }).catch(() => {});
                     }}
                     className="grid h-7 w-7 place-items-center rounded-full border border-zinc-500 bg-[#2A3037] text-zinc-200 hover:border-zinc-300"
                     aria-label="Close popup"

@@ -14,6 +14,16 @@ export interface Plan {
   archivedAt?: string | null;
 }
 
+export interface SubscriptionAddon {
+  id?: string;
+  code: string;
+  label: string;
+  desc: string;
+  priceCents: number;
+  currency?: string;
+  isActive?: boolean;
+}
+
 export type SubscriptionStatus = "trialing" | "active" | "paused" | "canceled" | "past_due";
 export type BillingCycle = "monthly" | "yearly";
 
@@ -30,6 +40,7 @@ export interface Subscription {
   userId: string;
   /** Project this subscription is tied to (null for legacy user-level rows). */
   projectId?: string | null;
+  projectName?: string | null;
   planId: string;
   status: SubscriptionStatus;
   billingCycle: BillingCycle;
@@ -56,6 +67,7 @@ export interface PaymentMethod {
 
 export interface Invoice {
   id: string;
+  subscriptionId?: string;
   invoiceNumber: string;
   amountCents: number;
   currency: string;
@@ -181,6 +193,7 @@ export interface AdminCustomerProfilePayload {
 export interface CustomerPortalPayload {
   user: UserLite;
   plans: Plan[];
+  addons?: SubscriptionAddon[];
   /** "Primary" subscription (project-scoped if projectId was provided, else most-recent). */
   subscription: Subscription | null;
   /** All non-canceled subscriptions for this user; keyed by project where applicable. */

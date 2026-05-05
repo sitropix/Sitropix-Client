@@ -7,6 +7,8 @@ import { FEATURE_EXPERIMENT_PRICING_LAYOUT, PRICING_LAYOUT_VARIANTS } from "../c
 import { requireAuth, requireModuleAccess, requireRole } from "../middleware/auth.mjs";
 import { validate } from "../middleware/validate.mjs";
 import {
+  addonPatchSchema,
+  addonSchema,
   adminFeatureFlagPatchSchema,
   adminUserModuleAccessPutSchema,
   adminUserRolePatchSchema,
@@ -19,6 +21,7 @@ import {
   couponSchema,
   funnelEventSchema,
   paymentMethodSchema,
+  projectSubscriptionActionSchema,
   planPatchSchema,
   planSchema,
 } from "../schemas/billingSchemas.mjs";
@@ -45,6 +48,10 @@ import {
   resolveSubscriptionFeatureControls,
   resolveSubscriptionPricingLayout,
 } from "../services/featureFlagService.mjs";
+import {
+  fetchAllSubscriptionAddons,
+  fetchSubscriptionAddonCatalog,
+} from "../services/addonCatalogStore.mjs";
 import { randomToken, sha256 } from "../utils/crypto.mjs";
 import { log } from "../observability/logger.mjs";
 import { metricsBilling } from "../observability/metrics.mjs";
@@ -215,18 +222,19 @@ router.get("/portal", async (req, res) => {
   subscriptionDebug(req, "portal.fetch.start", { userId: req.auth.userId });
   const projectIdFilter = String(req.query.projectId ?? "").trim() || null;
   const user = await prisma.user.findUnique({ where: { id: req.auth.userId } });
-  const [plans, allSubscriptions, initialPayments] = await Promise.all([
+  const [plans, allSubscriptions, initialPayments, addons] = await Promise.all([
     prisma.plan.findMany({ where: { isActive: true, archivedAt: null }, orderBy: { priceMonthlyCents: "asc" } }),
     prisma.subscription.findMany({
       where: { userId: req.auth.userId },
       orderBy: { updatedAt: "desc" },
-      include: { plan: true },
+      include: { plan: true, project: { select: { id: true, name: true } } },
     }),
     prisma.payment.findMany({
       where: { userId: req.auth.userId },
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
+    fetchSubscriptionAddonCatalog(),
   ]);
 
   // Pick "current" subscription for the response: project-scoped when projectId is provided,
@@ -296,6 +304,7 @@ router.get("/portal", async (req, res) => {
       id: row.id,
       userId: row.userId,
       projectId: row.projectId ?? null,
+      projectName: row.project?.name ?? null,
       planId: row.planId,
       status: row.status,
       billingCycle: row.billingCycle,
@@ -336,12 +345,14 @@ router.get("/portal", async (req, res) => {
       phoneNumber: user?.phoneNumber ?? null,
     },
     plans: plans.map(mapPlan),
+    addons,
     subscription: portalSubscription,
     subscriptions: portalSubscriptions,
     featureControls,
     experiments,
     invoices: (payments ?? []).map((i) => ({
       id: i.id,
+      subscriptionId: i.subscriptionId,
       invoiceNumber: i.invoiceNumber,
       amountCents: i.amountCents,
       currency: i.currency,
@@ -358,11 +369,13 @@ router.post("/bootstrap", validate(bootstrapSubscriptionSchema), async (req, res
   if (process.env.ALLOW_DEV_TRIAL !== "true") {
     return res.status(400).json({ error: "use_stripe_checkout", message: "Complete subscription via Stripe Checkout." });
   }
-  const { planId, billingCycle = "monthly" } = req.validatedBody;
-  subscriptionDebug(req, "bootstrap.start", { userId: req.auth.userId, planId, billingCycle });
+  const { planId, billingCycle = "monthly", projectId } = req.validatedBody;
+  subscriptionDebug(req, "bootstrap.start", { userId: req.auth.userId, planId, billingCycle, projectId });
   const plan = await prisma.plan.findUnique({ where: { id: planId } });
   if (!plan) return res.status(404).json({ error: "plan_not_found" });
-  const existing = await findPrimaryUserSubscription(req.auth.userId);
+  const project = await prisma.project.findFirst({ where: { id: projectId, ownerUserId: req.auth.userId } });
+  if (!project) return res.status(404).json({ error: "project_not_found" });
+  const existing = await findUserProjectSubscription(req.auth.userId, projectId);
   if (existing) return res.json(existing);
   const now = new Date();
   const end = new Date(now);
@@ -370,6 +383,7 @@ router.post("/bootstrap", validate(bootstrapSubscriptionSchema), async (req, res
   const sub = await prisma.subscription.create({
     data: {
       userId: req.auth.userId,
+      projectId,
       planId: plan.id,
       status: "trialing",
       billingCycle,
@@ -390,9 +404,8 @@ router.post("/change-plan", validate(changePlanSchema), async (req, res) => {
     billingCycle: billingCycle ?? null,
     projectId: projectId ?? null,
   });
-  const sub = projectId
-    ? await findUserProjectSubscription(req.auth.userId, projectId, { include: { plan: true } })
-    : await findPrimaryUserSubscription(req.auth.userId, { include: { plan: true } });
+  if (!projectId) return res.status(400).json({ error: "project_id_required" });
+  const sub = await findUserProjectSubscription(req.auth.userId, projectId, { include: { plan: true } });
   const nextPlan = await prisma.plan.findUnique({ where: { id: planId } });
   if (!sub || !nextPlan) return res.status(404).json({ error: "subscription_or_plan_not_found" });
 
@@ -476,10 +489,9 @@ router.post("/change-plan", validate(changePlanSchema), async (req, res) => {
 
 router.post("/cancel", async (req, res) => {
   const auditCtx = requestAuditContext(req);
-  const projectId = String(req.body?.projectId ?? "").trim() || null;
-  const sub = projectId
-    ? await findUserProjectSubscription(req.auth.userId, projectId)
-    : await findPrimaryUserSubscription(req.auth.userId);
+  const projectId = String(req.body?.projectId ?? "").trim();
+  if (!projectId) return res.status(400).json({ error: "project_id_required" });
+  const sub = await findUserProjectSubscription(req.auth.userId, projectId);
   subscriptionDebug(req, "cancel.start", {
     userId: req.auth.userId,
     subscriptionId: sub?.id ?? null,
@@ -530,10 +542,9 @@ router.post("/cancel", async (req, res) => {
 
 router.post("/pause", async (req, res) => {
   const auditCtx = requestAuditContext(req);
-  const projectId = String(req.body?.projectId ?? "").trim() || null;
-  const sub = projectId
-    ? await findUserProjectSubscription(req.auth.userId, projectId)
-    : await findPrimaryUserSubscription(req.auth.userId);
+  const projectId = String(req.body?.projectId ?? "").trim();
+  if (!projectId) return res.status(400).json({ error: "project_id_required" });
+  const sub = await findUserProjectSubscription(req.auth.userId, projectId);
   subscriptionDebug(req, "pause.start", {
     userId: req.auth.userId,
     subscriptionId: sub?.id ?? null,
@@ -569,10 +580,9 @@ router.post("/pause", async (req, res) => {
 
 router.post("/resume", async (req, res) => {
   const auditCtx = requestAuditContext(req);
-  const projectId = String(req.body?.projectId ?? "").trim() || null;
-  const sub = projectId
-    ? await findUserProjectSubscription(req.auth.userId, projectId)
-    : await findPrimaryUserSubscription(req.auth.userId);
+  const projectId = String(req.body?.projectId ?? "").trim();
+  if (!projectId) return res.status(400).json({ error: "project_id_required" });
+  const sub = await findUserProjectSubscription(req.auth.userId, projectId);
   subscriptionDebug(req, "resume.start", {
     userId: req.auth.userId,
     subscriptionId: sub?.id ?? null,
@@ -625,10 +635,8 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
     hasSuccessUrlOverride: Boolean(successUrlOverride),
     hasCancelUrlOverride: Boolean(cancelUrlOverride),
   });
-  if (projectId) {
-    const project = await prisma.project.findFirst({ where: { id: projectId, ownerUserId: req.auth.userId } });
-    if (!project) return res.status(404).json({ error: "project_not_found" });
-  }
+  const project = await prisma.project.findFirst({ where: { id: projectId, ownerUserId: req.auth.userId } });
+  if (!project) return res.status(404).json({ error: "project_not_found" });
   const plan = await prisma.plan.findUnique({ where: { id: planId } });
   if (!plan) return res.status(404).json({ error: "plan_not_found" });
   const stripePriceId = billingCycle === "yearly" ? plan.stripePriceYearlyId : plan.stripePriceMonthlyId;
@@ -662,12 +670,17 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
       quantity: 1,
     };
   }
-  const addonCatalog = {
-    "priority-support": { label: "Priority Support Add-on", amountCents: 4900 },
-    "extra-storage": { label: "Extra Storage Add-on", amountCents: 1900 },
-    "analytics-pack": { label: "Analytics Dashboard Add-on", amountCents: 2900 },
-  };
-  const normalizedAddons = Array.from(new Set(addons.filter((code) => Object.hasOwn(addonCatalog, code))));
+  const addonCatalogRows = await fetchSubscriptionAddonCatalog();
+  const addonCatalog = new Map(
+    addonCatalogRows.map((row) => [
+      row.code,
+      {
+        label: row.label,
+        amountCents: row.priceCents,
+      },
+    ]),
+  );
+  const normalizedAddons = Array.from(new Set(addons.filter((code) => addonCatalog.has(code))));
   const successUrl = successUrlOverride ?? env.stripeSuccessUrl;
   const cancelUrl = cancelUrlOverride ?? env.stripeCancelUrl;
   if (!isAllowedRedirect(successUrl) || !isAllowedRedirect(cancelUrl)) {
@@ -685,7 +698,8 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
     checkoutSuccessUrl = successUrl;
   }
   const addonLineItems = normalizedAddons.map((code) => {
-    const item = addonCatalog[code];
+    const item = addonCatalog.get(code);
+    if (!item) return null;
     return {
       price_data: {
         currency: plan.currency.toLowerCase(),
@@ -695,7 +709,7 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
       },
       quantity: 1,
     };
-  });
+  }).filter(Boolean);
   const checkoutMetadata = {
     userId: req.auth.userId,
     planId: plan.id,
@@ -750,10 +764,41 @@ router.post("/billing-portal", validate(billingPortalSchema), async (req, res) =
   return res.json({ url: session.url });
 });
 
+router.post("/stop-recurring", validate(projectSubscriptionActionSchema), async (req, res) => {
+  const projectId = req.validatedBody.projectId;
+  const sub = await findUserProjectSubscription(req.auth.userId, projectId);
+  if (!sub) return res.status(404).json({ error: "subscription_not_found" });
+  if (sub.status === "canceled") return res.status(400).json({ error: "subscription_canceled" });
+  if (stripe && sub.stripeSubscriptionId) {
+    await stripe.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: true });
+  }
+  const updated = await prisma.subscription.update({
+    where: { id: sub.id },
+    data: { cancelAtPeriodEnd: true },
+  });
+  return res.json(updated);
+});
+
+router.post("/resume-recurring", validate(projectSubscriptionActionSchema), async (req, res) => {
+  const projectId = req.validatedBody.projectId;
+  const sub = await findUserProjectSubscription(req.auth.userId, projectId);
+  if (!sub) return res.status(404).json({ error: "subscription_not_found" });
+  if (sub.status === "canceled") return res.status(400).json({ error: "subscription_canceled" });
+  if (stripe && sub.stripeSubscriptionId) {
+    await stripe.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: false });
+  }
+  const updated = await prisma.subscription.update({
+    where: { id: sub.id },
+    data: { cancelAtPeriodEnd: false },
+  });
+  return res.json(updated);
+});
+
 /* ------------- Admin ------------- */
 const adminRouter = express.Router();
 adminRouter.use(requireAuth, requireRole("admin", "master_admin"));
 adminRouter.use("/plans", requireModuleAccess("plans"));
+adminRouter.use("/addons", requireModuleAccess("plans"));
 adminRouter.use("/invites", requireModuleAccess("invites"));
 adminRouter.use("/customers", requireModuleAccess("customers"));
 adminRouter.use("/audit-logs", requireModuleAccess("audit_logs"));
@@ -879,6 +924,58 @@ adminRouter.delete("/plans/:id", async (req, res) => {
     ...auditCtx,
   });
   return res.json({ ok: true });
+});
+
+adminRouter.get("/addons", async (_req, res) => {
+  return res.json(await fetchAllSubscriptionAddons());
+});
+
+adminRouter.post("/addons", validate(addonSchema), async (req, res) => {
+  const auditCtx = requestAuditContext(req);
+  const body = req.validatedBody;
+  const created = await prisma.subscriptionAddon.create({
+    data: {
+      code: body.code.trim(),
+      label: body.label.trim(),
+      desc: body.desc?.trim() ?? "",
+      priceCents: body.priceCents,
+      currency: (body.currency ?? "USD").toUpperCase(),
+      isActive: body.isActive ?? true,
+    },
+  });
+  await logAuditEvent({
+    action: "admin.addon_created",
+    actorUserId: req.auth.userId,
+    actorRole: req.auth.role,
+    targetType: "subscription_addon",
+    targetId: created.id,
+    metadata: { code: created.code, priceCents: created.priceCents },
+    ...auditCtx,
+  });
+  return res.status(201).json(created);
+});
+
+adminRouter.patch("/addons/:id", validate(addonPatchSchema), async (req, res) => {
+  const auditCtx = requestAuditContext(req);
+  const body = req.validatedBody;
+  const data = { ...body };
+  if (typeof data.label === "string") data.label = data.label.trim();
+  if (typeof data.desc === "string") data.desc = data.desc.trim();
+  if (typeof data.currency === "string") data.currency = data.currency.toUpperCase();
+  const updated = await prisma.subscriptionAddon.update({
+    where: { id: req.params.id },
+    data,
+  });
+  await logAuditEvent({
+    action: "admin.addon_updated",
+    actorUserId: req.auth.userId,
+    actorRole: req.auth.role,
+    targetType: "subscription_addon",
+    targetId: updated.id,
+    metadata: { patchKeys: Object.keys(body ?? {}) },
+    ...auditCtx,
+  });
+  return res.json(updated);
 });
 
 adminRouter.post("/invites", validate(createInviteSchema), async (req, res) => {

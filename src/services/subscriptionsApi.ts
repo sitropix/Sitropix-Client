@@ -20,6 +20,7 @@ import type {
   FeatureFlagsAdminPayload,
   Plan,
   Subscription,
+  SubscriptionAddon,
   AdminCustomerProfilePayload,
 } from "@/types/subscription";
 import type { ProjectRecord } from "@/types/project";
@@ -67,11 +68,11 @@ export function syncFromStripe(opts?: { projectId?: string }) {
   });
 }
 
-export function bootstrapSubscription(planId: string, billingCycle: BillingCycle) {
+export function bootstrapSubscription(planId: string, billingCycle: BillingCycle, projectId: string) {
   logSubscriptionDebug("frontend.bootstrap.start", { planId, billingCycle });
   return api<Subscription>("/api/subscriptions/bootstrap", {
     method: "POST",
-    body: JSON.stringify({ planId, billingCycle }),
+    body: JSON.stringify({ planId, billingCycle, projectId }),
   });
 }
 
@@ -115,6 +116,20 @@ export function resumeSubscription(opts?: { projectId?: string }) {
   });
 }
 
+export function stopRecurringSubscription(projectId: string) {
+  return api<Subscription>("/api/subscriptions/stop-recurring", {
+    method: "POST",
+    body: JSON.stringify({ projectId }),
+  });
+}
+
+export function resumeRecurringSubscription(projectId: string) {
+  return api<Subscription>("/api/subscriptions/resume-recurring", {
+    method: "POST",
+    body: JSON.stringify({ projectId }),
+  });
+}
+
 export function upsertPaymentMethod(payload: { brand: string; last4: string; expMonth: number; expYear: number }) {
   return api("/api/subscriptions/payment-method", {
     method: "POST",
@@ -142,6 +157,24 @@ export function updateAdminPlan(id: string, payload: Partial<Plan>) {
 
 export function deleteAdminPlan(id: string) {
   return api<{ ok: boolean }>(`/api/admin/plans/${id}`, { method: "DELETE" });
+}
+
+export function fetchAdminAddons() {
+  return api<SubscriptionAddon[]>("/api/admin/addons");
+}
+
+export function createAdminAddon(payload: Partial<SubscriptionAddon> & { code: string; label: string; priceCents: number }) {
+  return api<SubscriptionAddon>("/api/admin/addons", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateAdminAddon(id: string, payload: Partial<SubscriptionAddon>) {
+  return api<SubscriptionAddon>(`/api/admin/addons/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function fetchAdminSubscriptions() {
@@ -568,8 +601,20 @@ export interface ProjectAssetUploadRow {
   uploadedAt: string;
 }
 
+const projectAssetsInFlight = new Map<string, Promise<ProjectAssetUploadRow[]>>();
+
 export function fetchProjectAssets(projectId: string) {
-  return api<ProjectAssetUploadRow[]>(`/api/documents/projects/${encodeURIComponent(projectId)}/assets`);
+  const existing = projectAssetsInFlight.get(projectId);
+  if (existing) return existing;
+  const request = api<ProjectAssetUploadRow[]>(
+    `/api/documents/projects/${encodeURIComponent(projectId)}/assets`,
+  ).finally(() => {
+    if (projectAssetsInFlight.get(projectId) === request) {
+      projectAssetsInFlight.delete(projectId);
+    }
+  });
+  projectAssetsInFlight.set(projectId, request);
+  return request;
 }
 
 export async function uploadProjectAssetFile(
@@ -621,7 +666,7 @@ export function deleteProjectAssetFile(projectId: string, type: ProjectRequireme
 export function createCheckoutSession(
   planId: string,
   billingCycle: BillingCycle,
-  opts?: { successUrl?: string; cancelUrl?: string; addons?: string[]; projectId?: string },
+  opts: { successUrl?: string; cancelUrl?: string; addons?: string[]; projectId: string },
 ) {
   logSubscriptionDebug("frontend.checkout_session.start", {
     planId,
@@ -639,7 +684,7 @@ export function createCheckoutSession(
       ...(opts?.addons && opts.addons.length > 0 ? { addons: opts.addons } : {}),
       ...(opts?.successUrl ? { successUrl: opts.successUrl } : {}),
       ...(opts?.cancelUrl ? { cancelUrl: opts.cancelUrl } : {}),
-      ...(opts?.projectId ? { projectId: opts.projectId } : {}),
+      projectId: opts.projectId,
     }),
   });
 }

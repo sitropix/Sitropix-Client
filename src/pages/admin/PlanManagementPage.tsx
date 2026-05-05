@@ -4,13 +4,22 @@ import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
 import { isModuleForbiddenError } from "@/services/http";
-import { createAdminPlan, deleteAdminPlan, fetchAdminPlans, updateAdminPlan } from "@/services/subscriptionsApi";
-import type { Plan } from "@/types/subscription";
+import {
+  createAdminAddon,
+  createAdminPlan,
+  deleteAdminPlan,
+  fetchAdminAddons,
+  fetchAdminPlans,
+  updateAdminAddon,
+  updateAdminPlan,
+} from "@/services/subscriptionsApi";
+import type { Plan, SubscriptionAddon } from "@/types/subscription";
 
 export function PlanManagementPage() {
   const { cache, updateCache } = useAdminPrefetch();
   const { showSuccess, showError } = useToast();
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [addons, setAddons] = useState<SubscriptionAddon[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [monthly, setMonthly] = useState("29");
@@ -27,11 +36,21 @@ export function PlanManagementPage() {
   const [saving, setSaving] = useState(false);
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; plan: Plan | null }>({ open: false, plan: null });
+  const [addonLabel, setAddonLabel] = useState("");
+  const [addonCode, setAddonCode] = useState("");
+  const [addonPrice, setAddonPrice] = useState("19");
+  const [addonDesc, setAddonDesc] = useState("");
+  const [editingAddonId, setEditingAddonId] = useState<string | null>(null);
+  const [eAddonLabel, setEAddonLabel] = useState("");
+  const [eAddonDesc, setEAddonDesc] = useState("");
+  const [eAddonPrice, setEAddonPrice] = useState("");
 
   async function load() {
     setNoModuleAccess(false);
     const next = await fetchAdminPlans();
+    const addonRows = await fetchAdminAddons();
     setPlans(next);
+    setAddons(addonRows);
     updateCache({ plans: next });
   }
 
@@ -128,6 +147,59 @@ export function PlanManagementPage() {
       showError("Plan creation failed. Check Stripe configuration and plan fields.");
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function addAddon() {
+    if (!addonCode.trim() || !addonLabel.trim()) return;
+    try {
+      await createAdminAddon({
+        code: addonCode.trim().toLowerCase(),
+        label: addonLabel.trim(),
+        desc: addonDesc.trim(),
+        priceCents: Math.round(Number(addonPrice) * 100),
+        currency: "USD",
+        isActive: true,
+      });
+      showSuccess("Add-on created successfully.");
+      setAddonCode("");
+      setAddonLabel("");
+      setAddonDesc("");
+      setAddonPrice("19");
+      await load();
+    } catch {
+      showError("Could not create add-on.");
+    }
+  }
+
+  async function toggleAddon(addon: SubscriptionAddon, nextActive: boolean) {
+    try {
+      await updateAdminAddon(String(addon.id), { isActive: nextActive });
+      await load();
+    } catch {
+      showError("Could not update add-on.");
+    }
+  }
+
+  function startAddonEdit(addon: SubscriptionAddon) {
+    setEditingAddonId(String(addon.id));
+    setEAddonLabel(addon.label);
+    setEAddonDesc(addon.desc);
+    setEAddonPrice((addon.priceCents / 100).toFixed(2));
+  }
+
+  async function saveAddonEdit(addonId: string) {
+    try {
+      await updateAdminAddon(addonId, {
+        label: eAddonLabel.trim(),
+        desc: eAddonDesc.trim(),
+        priceCents: Math.round(Number(eAddonPrice) * 100),
+      });
+      setEditingAddonId(null);
+      showSuccess("Add-on updated successfully.");
+      await load();
+    } catch {
+      showError("Could not update add-on.");
     }
   }
 
@@ -277,6 +349,57 @@ export function PlanManagementPage() {
             )}
           </article>
         ))}
+      </section>
+
+      <section className="rounded-xl border border-[#24292E] bg-[#15191C] p-6">
+        <h2 className="text-sm font-semibold text-white">Manage add-ons</h2>
+        <div className="mt-4 grid gap-3 md:grid-cols-5">
+          <input value={addonCode} onChange={(e) => setAddonCode(e.target.value)} placeholder="Code" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35" />
+          <input value={addonLabel} onChange={(e) => setAddonLabel(e.target.value)} placeholder="Label" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35" />
+          <input value={addonPrice} onChange={(e) => setAddonPrice(e.target.value)} placeholder="Price USD" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35" />
+          <input value={addonDesc} onChange={(e) => setAddonDesc(e.target.value)} placeholder="Description" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35 md:col-span-2" />
+          <button type="button" onClick={() => void addAddon()} className="rounded-lg bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim">
+            Add Add-on
+          </button>
+        </div>
+        <div className="mt-4 space-y-2">
+          {addons.map((addon) => (
+            <div key={addon.id ?? addon.code} className="flex items-center justify-between rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm">
+              {editingAddonId === String(addon.id) ? (
+                <div className="grid w-full gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_120px_auto_auto]">
+                  <input value={eAddonLabel} onChange={(e) => setEAddonLabel(e.target.value)} className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
+                  <input value={eAddonDesc} onChange={(e) => setEAddonDesc(e.target.value)} className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
+                  <input value={eAddonPrice} onChange={(e) => setEAddonPrice(e.target.value)} className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
+                  <button type="button" onClick={() => void saveAddonEdit(String(addon.id))} className="rounded-md bg-brand-lime px-3 py-1 text-xs font-semibold text-canvas">Save</button>
+                  <button type="button" onClick={() => setEditingAddonId(null)} className="rounded-md border border-white/15 px-3 py-1 text-xs text-white">Cancel</button>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <p className="font-semibold text-white">{addon.label} <span className="text-xs text-zinc-500">({addon.code})</span></p>
+                    <p className="text-xs text-zinc-400">${(addon.priceCents / 100).toFixed(2)} · {addon.desc}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => startAddonEdit(addon)}
+                      className="rounded-md border border-white/15 px-3 py-1 text-xs text-white"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void toggleAddon(addon, !addon.isActive)}
+                      className="rounded-md border border-white/15 px-3 py-1 text-xs text-white"
+                    >
+                      {addon.isActive ? "Disable" : "Enable"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
       </section>
 
       <ConfirmDialog

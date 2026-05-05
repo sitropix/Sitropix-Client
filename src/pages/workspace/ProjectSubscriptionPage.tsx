@@ -27,12 +27,6 @@ type ProjectCheckoutIntent = {
   startedAt: number;
 };
 
-const ADDON_CATALOG = [
-  { code: "priority-support", label: "Priority Support", priceCents: 4900, desc: "Get faster response times and dedicated account management." },
-  { code: "extra-storage", label: "Extra Storage (50GB)", priceCents: 1900, desc: "Add 50GB of secure storage for your project assets." },
-  { code: "analytics-pack", label: "Analytics Dashboard", priceCents: 2900, desc: "Advanced tracking and reporting for your campaign." },
-];
-
 function money(cents: number, currency = "USD") {
   return new Intl.NumberFormat(undefined, {
     style: "currency",
@@ -53,6 +47,7 @@ export function ProjectSubscriptionPage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [plans, setPlans] = useState(() => portal?.plans ?? []);
+  const [addonCatalog, setAddonCatalog] = useState(() => portal?.addons ?? []);
   const [ready, setReady] = useState(false);
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
@@ -62,12 +57,14 @@ export function ProjectSubscriptionPage() {
     () => plans.find((p) => p.id === selectedPlanId) ?? null,
     [plans, selectedPlanId],
   );
+  const addonByCode = useMemo(() => new Map(addonCatalog.map((addon) => [addon.code, addon])), [addonCatalog]);
 
   useEffect(() => {
     if (portal?.plans && portal.plans.length > 0) {
       setPlans(portal.plans);
     }
-  }, [portal?.plans]);
+    setAddonCatalog(portal?.addons ?? []);
+  }, [portal?.addons, portal?.plans]);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,6 +110,7 @@ export function ProjectSubscriptionPage() {
       .then((payload) => {
         if (cancelled) return;
         setPlans(payload.plans ?? []);
+        setAddonCatalog(payload.addons ?? []);
       })
       .catch(() => {
         // Keep existing plans from context if local fetch fails.
@@ -158,7 +156,7 @@ export function ProjectSubscriptionPage() {
 
   const selectedPlanAmount = selectedPlan ? (billingCycle === "monthly" ? selectedPlan.priceMonthlyCents : selectedPlan.priceYearlyCents) : 0;
   const addonsTotal = addons.reduce((sum, code) => {
-    const item = ADDON_CATALOG.find((addon) => addon.code === code);
+    const item = addonByCode.get(code);
     return sum + (item?.priceCents ?? 0);
   }, 0);
   const funnelState = searchParams.get("subscriptionFunnel");
@@ -211,7 +209,7 @@ export function ProjectSubscriptionPage() {
         }
         const planForAmount = portalPayload.plans.find((p) => p.id === intent.planId) ?? null;
         const intentAddonsTotal = (intent.addons ?? []).reduce((sum, code) => {
-          const item = ADDON_CATALOG.find((addon) => addon.code === code);
+          const item = addonByCode.get(code);
           return sum + (item?.priceCents ?? 0);
         }, 0);
         const baseAmount =
@@ -236,14 +234,14 @@ export function ProjectSubscriptionPage() {
         setBusy(false);
       }
     })();
-  }, [funnelState, ownedProject?.id, navigate]);
+  }, [funnelState, ownedProject?.id, navigate, addonByCode]);
 
   if (!project && !projectLoading) return <Navigate to="/projects" replace />;
   if (!project) return <div className="p-6 text-sm text-zinc-300">Loading project...</div>;
   if (!ownedProject) return <Navigate to="/projects" replace />;
 
   return (
-    <div className="space-y-6 text-white">
+    <div className="client-workspace-view space-y-6 text-zinc-900">
       <Breadcrumb
         items={[
           { label: "Home", to: "/dashboard" },
@@ -256,7 +254,7 @@ export function ProjectSubscriptionPage() {
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
           Project Checkout
         </p>
-        <h1 className="mt-1.5 text-4xl font-bold tracking-tight text-white">
+        <h1 className="subscription-hero-title mt-1.5 text-4xl font-bold tracking-tight text-zinc-900">
           Choose the right plan for your project
         </h1>
         <p className="mt-3 text-sm text-zinc-400">
@@ -315,14 +313,14 @@ export function ProjectSubscriptionPage() {
                   className={`rounded-2xl border p-5 shadow-glass transition ${
                     active
                       ? "border-white bg-[#1C2126] text-white"
-                      : "border-[#2A3037] bg-[#15191C] text-white"
+                      : "client-plan-card-inactive border-[#2A3037] bg-[#15191C]"
                   }`}
                 >
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] opacity-70">
                     {plan.code}
                   </p>
                   <h2 className="mt-1 text-xl font-bold">{plan.name}</h2>
-                  <p className="mt-2 text-4xl font-black text-white">
+                  <p className={`mt-2 text-4xl font-black ${active ? "text-white" : ""}`}>
                     {money(amount, plan.currency)}
                   </p>
                   <p className="mt-2 text-sm text-zinc-400">{plan.description}</p>
@@ -352,7 +350,7 @@ export function ProjectSubscriptionPage() {
               <h3 className="text-xl font-semibold text-white">Enhance Your Plan</h3>
               <p className="mt-1 text-sm text-zinc-400">Add powerful extras to accelerate your project.</p>
               <div className="mt-4 space-y-3">
-                {ADDON_CATALOG.map((addon) => {
+                {addonCatalog.map((addon) => {
                   const selected = addons.includes(addon.code);
                   return (
                     <button
@@ -396,7 +394,7 @@ export function ProjectSubscriptionPage() {
                   <p className="pt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Add-ons</p>
                 ) : null}
                 {addons.map((code) => {
-                  const item = ADDON_CATALOG.find((addon) => addon.code === code);
+                  const item = addonByCode.get(code);
                   if (!item) return null;
                   return (
                     <div key={code} className="flex items-center justify-between text-zinc-300">
@@ -406,7 +404,7 @@ export function ProjectSubscriptionPage() {
                   );
                 })}
                 <div className="mt-3 border-t border-[#2A3037] pt-3">
-                  <div className="flex items-center justify-between text-lg font-semibold text-white">
+                  <div className="client-ink-on-panel flex items-center justify-between text-lg font-semibold">
                     <span>Total Due Today</span>
                     <span>{money(selectedPlanAmount + addonsTotal, selectedPlan?.currency)}</span>
                   </div>

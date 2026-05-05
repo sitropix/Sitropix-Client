@@ -15,7 +15,8 @@ import { log } from "../observability/logger.mjs";
  *
  * `options.projectId` (optional) restricts the upsert to a specific (user, project) row.
  *  - When provided we prefer the matching Stripe subscription whose metadata.projectId matches.
- *  - When omitted we operate on the legacy user-level row (projectId NULL).
+ *  - When omitted we resolve project from Stripe metadata, an existing DB row for this Stripe sub,
+ *    the user's latest project, or a small auto-created project (subscriptions require a project FK).
  */
 export async function syncSubscriptionFromStripeForUserId(userId, options = {}) {
   const targetProjectId = options.projectId ?? null;
@@ -97,9 +98,47 @@ export async function syncSubscriptionFromStripeForUserId(userId, options = {}) 
   const projectIdFromMeta = typeof full.metadata?.projectId === "string" && full.metadata.projectId.trim()
     ? full.metadata.projectId.trim()
     : null;
-  // Resolved projectId to write: caller-provided takes precedence; otherwise fall back
-  // to whatever metadata says (covers webhook-missed flows).
-  const resolvedProjectId = targetProjectId ?? projectIdFromMeta;
+  async function ensureProjectId() {
+    // Never trust Stripe metadata (or a stale client projectId) without an FK check — invalid
+    // ids cause `subscriptions_project_id_fkey` on create/update.
+    for (const raw of [targetProjectId, projectIdFromMeta]) {
+      if (!raw) continue;
+      const owned = await prisma.project.findFirst({
+        where: { id: raw, ownerUserId: userId },
+        select: { id: true },
+      });
+      if (owned?.id) return owned.id;
+      log.warn("subscription.sync_pull.project_id_ignored", {
+        userId,
+        projectId: raw,
+        source: raw === targetProjectId ? "request" : "stripe_metadata",
+      });
+    }
+    const existing = await prisma.subscription.findFirst({
+      where: { stripeSubscriptionId: full.id, userId, projectId: { not: null } },
+      select: { projectId: true },
+    });
+    if (existing?.projectId) return existing.projectId;
+    const latestProject = await prisma.project.findFirst({
+      where: { ownerUserId: userId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    if (latestProject?.id) return latestProject.id;
+    const created = await prisma.project.create({
+      data: {
+        ownerUserId: userId,
+        name: "Imported Subscription Project",
+        description: "Auto-created to attach Stripe subscription.",
+        subscriptionStatus: "on_hold",
+        addonsJson: [],
+        invoicesJson: [],
+      },
+      select: { id: true },
+    });
+    return created.id;
+  }
+  const resolvedProjectId = await ensureProjectId();
 
   // Upsert by stripeSubscriptionId first (catches a row that already exists in another
   // project slot for the same user) then fall back to (userId, projectId).
@@ -109,9 +148,10 @@ export async function syncSubscriptionFromStripeForUserId(userId, options = {}) 
     billingCycle,
     currentPeriodStart: periodStart,
     currentPeriodEnd: periodEnd,
+    cancelAtPeriodEnd: Boolean(full.cancel_at_period_end),
     stripeSubscriptionId: full.id,
     stripeCustomerId: customerId,
-    ...(resolvedProjectId ? { projectId: resolvedProjectId } : {}),
+    projectId: resolvedProjectId,
   };
 
   const existingByStripe = await prisma.subscription.findFirst({
@@ -122,13 +162,13 @@ export async function syncSubscriptionFromStripeForUserId(userId, options = {}) 
     savedRow = await prisma.subscription.update({ where: { id: existingByStripe.id }, data });
   } else {
     const existingForPair = await prisma.subscription.findFirst({
-      where: { userId, projectId: resolvedProjectId ?? null },
+      where: { userId, projectId: resolvedProjectId },
     });
     if (existingForPair) {
       savedRow = await prisma.subscription.update({ where: { id: existingForPair.id }, data });
     } else {
       savedRow = await prisma.subscription.create({
-        data: { userId, projectId: resolvedProjectId ?? null, ...data },
+        data: { userId, projectId: resolvedProjectId, ...data },
       });
     }
   }

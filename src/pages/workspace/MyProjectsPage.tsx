@@ -82,17 +82,17 @@ export function MyProjectsPage() {
   }
 
   return (
-    <div className="space-y-5 text-white">
+    <div className="client-workspace-view space-y-5 text-zinc-900">
       <Breadcrumb items={[{ label: "Home", to: "/dashboard" }, { label: "My Projects" }]} />
 
       <header>
-        <h1 className="text-3xl font-bold tracking-tight text-white">Projects</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-zinc-900">Projects</h1>
         <p className="mt-1 text-sm text-zinc-400">Manage multiple projects, their assets, and subscriptions independently.</p>
       </header>
 
       <section className="rounded-3xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass sm:p-6">
           <div>
-            <h2 className="text-xl font-semibold text-white">Your Projects</h2>
+            <h2 className="text-xl font-semibold text-zinc-900">Your Projects</h2>
             <p className="text-sm text-zinc-400">Manage your existing projects and their subscriptions.</p>
           </div>
 

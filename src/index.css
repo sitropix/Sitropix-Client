@@ -90,22 +90,22 @@
     text-wrap: balance;
   }
 
-  /* Compatibility remap for legacy hardcoded Tailwind arbitrary colors (client portal only). */
-  /* These get overridden by admin-theme specific rules below */
-  .bg-\[\#15191C\] {
+  /* Light mode only: remap legacy dark-surface hex classes to soft gray (client-facing pages). */
+  /* In dark mode, real #15191C / borders apply so cards stay legible with light text. */
+  html:not([data-theme="dark"]) .bg-\[\#15191C\] {
     background-color: #d4d8df;
   }
-  .border-\[\#24292E\] {
+  html:not([data-theme="dark"]) .border-\[\#24292E\] {
     border-color: #acadb1;
   }
-  .border-\[\#2b3137\] {
+  html:not([data-theme="dark"]) .border-\[\#2b3137\] {
     border-color: #acadb1;
   }
-  .via-\[\#0f1419\] {
+  html:not([data-theme="dark"]) .via-\[\#0f1419\] {
     --tw-gradient-to: rgb(212 216 223 / 0) var(--tw-gradient-to-position);
     --tw-gradient-stops: var(--tw-gradient-from), #d4d8df var(--tw-gradient-via-position), var(--tw-gradient-to);
   }
-  .to-\[\#0b0f14\] {
+  html:not([data-theme="dark"]) .to-\[\#0b0f14\] {
     --tw-gradient-to: #acadb1 var(--tw-gradient-to-position);
   }
   
@@ -123,6 +123,43 @@
   .admin-theme .border-\[\#2b3137\],
   .admin-theme [class*="border-\[#2b3137\]"] {
     border-color: #2b3137 !important;
+  }
+
+  html:not([data-theme="dark"]) .client-portal-main .client-workspace-view {
+    color: #0f172a;
+  }
+
+  html[data-theme="dark"] .client-portal-main .client-workspace-view {
+    color: #f4f4f5;
+  }
+
+  /* Light mode: headings on remapped light-gray #15191C cards */
+  html:not([data-theme="dark"]) .client-portal-main .bg-\[\#15191C\] :is(h1, h2, h3, h4, h5, h6) {
+    color: #0a0a0a !important;
+  }
+
+  html[data-theme="dark"] .client-portal-main .subscription-hero-title {
+    color: #fafafa !important;
+  }
+
+  html[data-theme="dark"] .client-portal-main .client-workspace-view > header :is(h1, h2) {
+    color: #fafafa !important;
+  }
+
+  .client-ink-on-panel {
+    color: #0a0a0a;
+  }
+
+  html[data-theme="dark"] .client-portal-main .client-ink-on-panel {
+    color: #fafafa !important;
+  }
+
+  html:not([data-theme="dark"]) .client-portal-main .client-plan-card-inactive {
+    color: #0f172a !important;
+  }
+
+  html[data-theme="dark"] .client-portal-main .client-plan-card-inactive {
+    color: #fafafa !important;
   }
 
   /* Light-mode depth for dashboard inner plan cards. */
