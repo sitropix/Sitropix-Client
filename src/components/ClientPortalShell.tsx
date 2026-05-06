@@ -6,7 +6,10 @@ import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
 import { fetchUiPreferences, patchUiPreferences } from "@/services/authApi";
 import { getOnboardingStatusFromProjects } from "@/services/onboardingStore";
-import { hasValidProjectPlan, listProjectsByUser } from "@/services/projectsStore";
+import {
+  hasValidProjectPlan,
+  listProjectsByUser,
+} from "@/services/projectsStore";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 
@@ -263,7 +266,8 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
     shouldRestrictNav &&
     !allowedDuringOnboarding.some((p) => matchesAllowedPath(pathname, p));
   const requiresProjectCreation = !onboarding.hasProject;
-  const onboardingPopupVisible = isRestrictedPage && (requiresProjectCreation || showOnboardingPopup);
+  const onboardingPopupVisible =
+    isRestrictedPage && (requiresProjectCreation || showOnboardingPopup);
 
   useEffect(() => {
     let cancelled = false;
@@ -393,11 +397,6 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                       >
                         <span className="min-w-0 truncate">{item.label}</span>
                         <span className="inline-flex items-center gap-1 text-zinc-500">
-                          {item.badge ? (
-                            <span className="portal-nav-badge shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 ring-1 ring-zinc-300">
-                              {item.badge}
-                            </span>
-                          ) : null}
                           <LockIcon className="h-3.5 w-3.5 shrink-0" />
                         </span>
                       </button>
@@ -412,11 +411,6 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                       title={item.label}
                     >
                       <span className="min-w-0 truncate">{item.label}</span>
-                      {item.badge ? (
-                        <span className="portal-nav-badge shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 ring-1 ring-zinc-300">
-                          {item.badge}
-                        </span>
-                      ) : null}
                     </NavLink>
                   );
                 })}
@@ -495,11 +489,6 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                       >
                         <span className="min-w-0 truncate">{item.label}</span>
                         <span className="inline-flex items-center gap-1 text-zinc-500">
-                          {item.badge ? (
-                            <span className="shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 ring-1 ring-zinc-300">
-                              {item.badge}
-                            </span>
-                          ) : null}
                           <LockIcon className="h-3.5 w-3.5 shrink-0" />
                         </span>
                       </button>
@@ -517,11 +506,6 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                       }}
                     >
                       <span className="min-w-0 truncate">{item.label}</span>
-                      {item.badge ? (
-                        <span className="shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 ring-1 ring-zinc-300">
-                          {item.badge}
-                        </span>
-                      ) : null}
                     </NavLink>
                   );
                 })}
