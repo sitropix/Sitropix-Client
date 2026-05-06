@@ -1,6 +1,5 @@
 import {
   api,
-  getAccessToken,
   refreshAccessToken,
   setAccessToken,
   type AuthUser,
