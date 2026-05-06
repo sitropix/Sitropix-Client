@@ -262,12 +262,14 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
     };
   }, [userId]);
 
-  const isRestrictedPage =
-    shouldRestrictNav &&
-    !allowedDuringOnboarding.some((p) => matchesAllowedPath(pathname, p));
   const requiresProjectCreation = !onboarding.hasProject;
+  const hideOnboardingPopupOnPaths = ["/projects", "/projects/", "/subscription"];
+  const shouldHideOnboardingPopupForCurrentPath =
+    hideOnboardingPopupOnPaths.some((p) => matchesAllowedPath(pathname, p));
   const onboardingPopupVisible =
-    isRestrictedPage && (requiresProjectCreation || showOnboardingPopup);
+    shouldRestrictNav &&
+    !shouldHideOnboardingPopupForCurrentPath &&
+    (requiresProjectCreation || showOnboardingPopup);
 
   useEffect(() => {
     let cancelled = false;
@@ -584,9 +586,9 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                     </button>
                   ) : null}
                 </div>
-                <p className="inline-flex rounded-full bg-indigo-500/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-200">
+                {/* <p className="inline-flex rounded-full bg-indigo-500/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-200">
                   First login
-                </p>
+                </p> */}
                 <h3 className="mt-2 text-xl font-bold">
                   {requiresProjectCreation
                     ? "Create your first project to continue"
@@ -616,7 +618,7 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                     to="/projects"
                     className="rounded-lg border border-zinc-500 bg-[#2A3037] px-3 py-2 text-sm font-semibold text-white"
                   >
-                    Go to Projects
+                    Create a Project
                   </Link>
                   <Link
                     to="/subscription"
