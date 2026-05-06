@@ -228,7 +228,11 @@ export function ProjectDashboardPage() {
               <input
                 type="file"
                 className="hidden"
-                onChange={(e) => setAssetFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => {
+                  setAssetFile(e.target.files?.[0] ?? null);
+                  // Allow selecting the same file again in the next pick.
+                  e.currentTarget.value = "";
+                }}
               />
             </label>
           </div>
@@ -315,6 +319,7 @@ export function ProjectDashboardPage() {
                 return;
               }
               setAssetFile(null);
+              setNotice(null);
               setTick((v) => v + 1);
             }}
           >

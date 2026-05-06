@@ -233,6 +233,10 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
     "/projects",
     "/projects/",
   ];
+  const matchesAllowedPath = (target: string, candidate: string) =>
+    candidate.endsWith("/")
+      ? target.startsWith(candidate)
+      : target === candidate || target.startsWith(`${candidate}/`);
   const userHasActiveSubscriptionAnywhere = useMemo(
     () => projects.some((project) => hasValidProjectPlan(project)),
     [projects],
@@ -257,9 +261,9 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
 
   const isRestrictedPage =
     shouldRestrictNav &&
-    !allowedDuringOnboarding.some((p) =>
-      p.endsWith("/") ? pathname.startsWith(p) : pathname === p,
-    );
+    !allowedDuringOnboarding.some((p) => matchesAllowedPath(pathname, p));
+  const requiresProjectCreation = !onboarding.hasProject;
+  const onboardingPopupVisible = isRestrictedPage && (requiresProjectCreation || showOnboardingPopup);
 
   useEffect(() => {
     let cancelled = false;
@@ -285,6 +289,10 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
   }, [projectsKey]);
 
   useEffect(() => {
+    if (requiresProjectCreation) {
+      setShowOnboardingPopup(true);
+      return;
+    }
     if (!user?.id) return;
     let cancelled = false;
     void fetchUiPreferences()
@@ -299,10 +307,10 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, requiresProjectCreation]);
 
   useEffect(() => {
-    if (!isRestrictedPage || !showOnboardingPopup) return;
+    if (!onboardingPopupVisible || requiresProjectCreation) return;
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       setShowOnboardingPopup(false);
@@ -312,11 +320,7 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isRestrictedPage, showOnboardingPopup]);
-
-  const pendingCount = projects.filter(
-    (project) => project.subscriptionStatus !== "active",
-  ).length;
+  }, [onboardingPopupVisible, requiresProjectCreation]);
 
   const sortedPlans = [...(portal?.plans ?? [])].sort(
     (a, b) => a.priceMonthlyCents - b.priceMonthlyCents,
@@ -336,13 +340,12 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
 
   const links = [
     { to: "/dashboard", label: "Home" },
+    { to: "/projects", label: "My Projects" },
     {
       to: "/subscription-management",
       label: "Payment Management",
-      badge: pendingCount,
     },
     { to: "/subscription", label: "Plans & Add-Ons" },
-    { to: "/projects", label: "My Projects" },
     { to: "/requests", label: "Support" },
     { to: "/workspace", label: "Workspace Files" },
     { to: "/kb", label: "Knowledge Base" },
@@ -375,7 +378,9 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                 {links.map((item) => {
                   const locked =
                     shouldRestrictNav &&
-                    !allowedDuringOnboarding.some((p) => item.to.startsWith(p));
+                    !allowedDuringOnboarding.some((p) =>
+                      matchesAllowedPath(item.to, p),
+                    );
                   if (locked) {
                     return (
                       <button
@@ -475,7 +480,9 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                 {links.map((item) => {
                   const locked =
                     shouldRestrictNav &&
-                    !allowedDuringOnboarding.some((p) => item.to.startsWith(p));
+                    !allowedDuringOnboarding.some((p) =>
+                      matchesAllowedPath(item.to, p),
+                    );
                   if (locked) {
                     return (
                       <button
@@ -554,17 +561,18 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
         <main className="client-portal-main relative bg-[#ebedf1] px-4 py-6 lg:px-8 lg:py-8">
           <div
             className={
-              isRestrictedPage && showOnboardingPopup
+              onboardingPopupVisible
                 ? "pointer-events-none select-none blur-[3px]"
                 : ""
             }
           >
             {children}
           </div>
-          {isRestrictedPage && showOnboardingPopup ? (
+          {onboardingPopupVisible ? (
             <div
               className="fixed inset-0 z-[70] grid place-items-center bg-black/70 p-4 backdrop-blur-[2px]"
               onClick={() => {
+                if (requiresProjectCreation) return;
                 setShowOnboardingPopup(false);
                 void patchUiPreferences({
                   dismissedOnboardingPopup: true,
@@ -576,28 +584,34 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="mb-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowOnboardingPopup(false);
-                      void patchUiPreferences({
-                        dismissedOnboardingPopup: true,
-                      }).catch(() => {});
-                    }}
-                    className="grid h-7 w-7 place-items-center rounded-full border border-zinc-500 bg-[#2A3037] text-zinc-200 hover:border-zinc-300"
-                    aria-label="Close popup"
-                  >
-                    ×
-                  </button>
+                  {!requiresProjectCreation ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowOnboardingPopup(false);
+                        void patchUiPreferences({
+                          dismissedOnboardingPopup: true,
+                        }).catch(() => {});
+                      }}
+                      className="grid h-7 w-7 place-items-center rounded-full border border-zinc-500 bg-[#2A3037] text-zinc-200 hover:border-zinc-300"
+                      aria-label="Close popup"
+                    >
+                      ×
+                    </button>
+                  ) : null}
                 </div>
                 <p className="inline-flex rounded-full bg-indigo-500/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-200">
                   First login
                 </p>
                 <h3 className="mt-2 text-xl font-bold">
-                  Complete onboarding to unlock all pages
+                  {requiresProjectCreation
+                    ? "Create your first project to continue"
+                    : "Complete onboarding to unlock all pages"}
                 </h3>
                 <p className="mt-2 text-sm text-zinc-400">
-                  Finish these steps, then continue to subscription and payment.
+                  {requiresProjectCreation
+                    ? "This prompt stays visible until at least one project is created."
+                    : "Finish these steps, then continue to subscription and payment."}
                 </p>
                 <ul className="mt-4 space-y-2 text-sm">
                   <li className="rounded-xl border border-[#2A3037] bg-[#0F1318] px-3 py-2">
@@ -622,7 +636,11 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                   </Link>
                   <Link
                     to="/subscription"
-                    className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-canvas"
+                    className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+                      requiresProjectCreation
+                        ? "pointer-events-none bg-zinc-600 text-zinc-300"
+                        : "bg-white text-canvas"
+                    }`}
                   >
                     Continue to Subscription
                   </Link>

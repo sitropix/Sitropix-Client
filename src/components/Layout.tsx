@@ -12,6 +12,8 @@ export function Layout() {
   const { isAuthenticated } = useAuth();
   const { isAdmin } = useAuthz();
 
+  const isAuthPage = pathname === "/login" || pathname === "/signup";
+
   const clientPortalPaths = [
     "/dashboard",
     "/subscription-management",
@@ -27,9 +29,14 @@ export function Layout() {
     "/profile",
     "/ticket",
   ];
-  const isClientPortalPath = clientPortalPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  const isClientPortalPath = clientPortalPaths.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
   const useClientPortalShell = isAuthenticated && isClientPortalPath;
-  const useAdminShell = isAuthenticated && isAdmin && (pathname === "/admin" || pathname.startsWith("/admin/"));
+  const useAdminShell =
+    isAuthenticated &&
+    isAdmin &&
+    (pathname === "/admin" || pathname.startsWith("/admin/"));
 
   if (useAdminShell) {
     return (
@@ -47,6 +54,10 @@ export function Layout() {
         </ClientPortalShell>
       </SubscriptionPortalProvider>
     );
+  }
+
+  if (isAuthPage) {
+    return <Outlet />;
   }
 
   return (

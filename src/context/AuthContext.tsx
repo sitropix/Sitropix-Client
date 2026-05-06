@@ -40,17 +40,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     async function bootstrap() {
-      const token = getAccessToken();
-      if (!token) {
-        setLoading(false);
-        return;
-      }
       const refreshed = await refreshAccessToken();
       if (refreshed?.user) {
         setUser(refreshed.user);
         setIsFirstLogin(false);
+      } else {
+        // Keep local token storage consistent when refresh cookie is missing/expired.
+        setAccessToken(null);
       }
-      else setAccessToken(null);
       setLoading(false);
     }
     void bootstrap();

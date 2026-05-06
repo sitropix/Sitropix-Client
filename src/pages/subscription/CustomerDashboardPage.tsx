@@ -251,7 +251,7 @@ export function CustomerDashboardPage() {
                   </div>
                   <Link
                     to="/subscription-management"
-                    className="plan-cta-light mt-auto inline-flex min-w-[140px] self-start ml-[20%] items-center justify-center rounded-lg bg-zinc-900 px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-zinc-800"
+                    className="plan-cta-light mt-auto inline-flex w-full min-w-0 items-center justify-center rounded-lg bg-zinc-900 px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-zinc-800"
                   >
                     Manage
                   </Link>
@@ -265,7 +265,7 @@ export function CustomerDashboardPage() {
                     </p>
                     <Link
                       to="/subscription"
-                      className="plan-cta-light mt-auto inline-flex min-w-[140px] self-start ml-[20%] items-center justify-center rounded-lg bg-zinc-900 px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-zinc-800"
+                      className="plan-cta-light mt-auto inline-flex w-full min-w-0 items-center justify-center rounded-lg bg-zinc-900 px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-zinc-800"
                     >
                       View {nextPlan.name}
                     </Link>
