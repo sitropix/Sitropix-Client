@@ -8,7 +8,8 @@
   }
   body {
     @apply min-h-screen bg-canvas text-zinc-900 font-sans;
-    background-image: radial-gradient(
+    background-image:
+      radial-gradient(
         ellipse 120% 80% at 50% -30%,
         rgba(172, 173, 177, 0.22),
         transparent
@@ -18,12 +19,12 @@
 
   /* ========== ADMIN THEME (Neon Green + Black) ========== */
   .admin-theme {
-    --admin-lime: #84CC16;
+    --admin-lime: #84cc16;
     --admin-lime-dim: #65a30d;
     --admin-canvas: #0a0a0a;
-    --admin-surface: #15191C;
-    --admin-surface-alt: #1C2126;
-    --admin-border: #24292E;
+    --admin-surface: #15191c;
+    --admin-surface-alt: #1c2126;
+    --admin-border: #24292e;
     --admin-border-alt: #2b3137;
     --admin-text: #ffffff;
     --admin-text-muted: #a1a1aa;
@@ -57,7 +58,8 @@
 
   html[data-theme="dark"] body {
     @apply text-zinc-100;
-    background-image: radial-gradient(
+    background-image:
+      radial-gradient(
         ellipse 120% 80% at 50% -30%,
         rgba(255, 255, 255, 0.05),
         transparent
@@ -103,22 +105,24 @@
   }
   html:not([data-theme="dark"]) .via-\[\#0f1419\] {
     --tw-gradient-to: rgb(212 216 223 / 0) var(--tw-gradient-to-position);
-    --tw-gradient-stops: var(--tw-gradient-from), #d4d8df var(--tw-gradient-via-position), var(--tw-gradient-to);
+    --tw-gradient-stops:
+      var(--tw-gradient-from), #d4d8df var(--tw-gradient-via-position),
+      var(--tw-gradient-to);
   }
   html:not([data-theme="dark"]) .to-\[\#0b0f14\] {
     --tw-gradient-to: #acadb1 var(--tw-gradient-to-position);
   }
-  
+
   /* Admin theme: restore original dark colors (higher specificity) */
   .admin-theme .bg-\[\#15191C\],
   .admin-theme.bg-\[\#15191C\],
   .admin-theme [class*="bg-\[#15191C\]"] {
-    background-color: #15191C !important;
+    background-color: #15191c !important;
   }
   .admin-theme .border-\[\#24292E\],
   .admin-theme.border-\[\#24292E\],
   .admin-theme [class*="border-\[#24292E\]"] {
-    border-color: #24292E !important;
+    border-color: #24292e !important;
   }
   .admin-theme .border-\[\#2b3137\],
   .admin-theme [class*="border-\[#2b3137\]"] {
@@ -134,7 +138,10 @@
   }
 
   /* Light mode: headings on remapped light-gray #15191C cards */
-  html:not([data-theme="dark"]) .client-portal-main .bg-\[\#15191C\] :is(h1, h2, h3, h4, h5, h6) {
+  html:not([data-theme="dark"])
+    .client-portal-main
+    .bg-\[\#15191C\]
+    :is(h1, h2, h3, h4, h5, h6) {
     color: #0a0a0a !important;
   }
 
@@ -142,7 +149,11 @@
     color: #fafafa !important;
   }
 
-  html[data-theme="dark"] .client-portal-main .client-workspace-view > header :is(h1, h2) {
+  html[data-theme="dark"]
+    .client-portal-main
+    .client-workspace-view
+    > header
+    :is(h1, h2) {
     color: #fafafa !important;
   }
 
@@ -165,7 +176,11 @@
   /* Light-mode depth for dashboard inner plan cards. */
   html:not([data-theme="dark"]) .plan-highlight-card {
     border: 1px solid rgba(194, 199, 207, 0.92) !important;
-    background: linear-gradient(155deg, rgba(245, 246, 249, 0.95) 0%, rgba(235, 237, 242, 0.92) 100%) !important;
+    background: linear-gradient(
+      155deg,
+      rgba(245, 246, 249, 0.95) 0%,
+      rgba(235, 237, 242, 0.92) 100%
+    ) !important;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.9),
       0 10px 22px rgba(75, 85, 99, 0.12),
@@ -174,7 +189,12 @@
 
   /* Light-theme only: slight sky tint for realistic glass surface. */
   html:not([data-theme="dark"]) .jump-back-panel {
-    background: linear-gradient(132deg, rgba(240, 246, 255, 0.86) 0%, rgba(235, 241, 250, 0.82) 52%, rgba(239, 244, 252, 0.84) 100%) !important;
+    background: linear-gradient(
+      132deg,
+      rgba(240, 246, 255, 0.86) 0%,
+      rgba(235, 241, 250, 0.82) 52%,
+      rgba(239, 244, 252, 0.84) 100%
+    ) !important;
     border-color: rgba(210, 218, 230, 0.95) !important;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.88),
@@ -184,7 +204,12 @@
 
   /* Light-theme only: electric-blue semi-rounded chip behind hero eyebrow. */
   html:not([data-theme="dark"]) .hero-eyebrow-chip {
-    background: linear-gradient(135deg, rgba(66, 153, 225, 0.2) 0%, rgba(96, 165, 250, 0.14) 55%, rgba(59, 130, 246, 0.2) 100%) !important;
+    background: linear-gradient(
+      135deg,
+      rgba(66, 153, 225, 0.2) 0%,
+      rgba(96, 165, 250, 0.14) 55%,
+      rgba(59, 130, 246, 0.2) 100%
+    ) !important;
     border: 1px solid rgba(59, 130, 246, 0.28) !important;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.72),
@@ -193,7 +218,12 @@
 
   /* Liquid card style for top-right profile control. */
   .profile-liquid-card {
-    background: linear-gradient(145deg, rgba(255, 255, 255, 0.84) 0%, rgba(242, 245, 250, 0.78) 58%, rgba(233, 237, 243, 0.82) 100%) !important;
+    background: linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.84) 0%,
+      rgba(242, 245, 250, 0.78) 58%,
+      rgba(233, 237, 243, 0.82) 100%
+    ) !important;
     border-color: rgba(187, 195, 208, 0.95) !important;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.92),
@@ -205,7 +235,12 @@
 
   .profile-liquid-card:hover,
   .profile-liquid-card.profile-liquid-open {
-    background: linear-gradient(145deg, rgba(255, 255, 255, 0.9) 0%, rgba(246, 248, 252, 0.84) 60%, rgba(236, 240, 247, 0.88) 100%) !important;
+    background: linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.9) 0%,
+      rgba(246, 248, 252, 0.84) 60%,
+      rgba(236, 240, 247, 0.88) 100%
+    ) !important;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.95),
       inset 0 -1px 0 rgba(154, 164, 179, 0.28),
@@ -215,11 +250,17 @@
 
   .profile-liquid-avatar {
     background: linear-gradient(160deg, #111111 0%, #000000 100%) !important;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 2px 8px rgba(0, 0, 0, 0.42) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 2px 8px rgba(0, 0, 0, 0.42) !important;
   }
 
   .profile-liquid-plan {
-    background: linear-gradient(140deg, rgba(215, 219, 226, 0.95) 0%, rgba(203, 209, 218, 0.92) 100%) !important;
+    background: linear-gradient(
+      140deg,
+      rgba(215, 219, 226, 0.95) 0%,
+      rgba(203, 209, 218, 0.92) 100%
+    ) !important;
     border: 1px solid rgba(179, 186, 197, 0.9);
   }
 
@@ -228,7 +269,12 @@
   }
 
   html[data-theme="dark"] .hero-eyebrow-chip {
-    background: linear-gradient(135deg, rgba(30, 64, 175, 0.34) 0%, rgba(37, 99, 235, 0.24) 55%, rgba(29, 78, 216, 0.32) 100%) !important;
+    background: linear-gradient(
+      135deg,
+      rgba(30, 64, 175, 0.34) 0%,
+      rgba(37, 99, 235, 0.24) 55%,
+      rgba(29, 78, 216, 0.32) 100%
+    ) !important;
     border: 1px solid rgba(96, 165, 250, 0.36) !important;
     color: #dbeafe !important;
     box-shadow:
@@ -238,7 +284,12 @@
   }
 
   html[data-theme="dark"] .profile-liquid-card {
-    background: linear-gradient(145deg, rgba(23, 23, 23, 0.92) 0%, rgba(19, 19, 19, 0.9) 58%, rgba(16, 16, 16, 0.92) 100%) !important;
+    background: linear-gradient(
+      145deg,
+      rgba(23, 23, 23, 0.92) 0%,
+      rgba(19, 19, 19, 0.9) 58%,
+      rgba(16, 16, 16, 0.92) 100%
+    ) !important;
     border-color: rgba(90, 97, 109, 0.82) !important;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.1),
@@ -249,7 +300,12 @@
 
   html[data-theme="dark"] .profile-liquid-card:hover,
   html[data-theme="dark"] .profile-liquid-card.profile-liquid-open {
-    background: linear-gradient(145deg, rgba(28, 28, 28, 0.94) 0%, rgba(21, 21, 21, 0.92) 58%, rgba(18, 18, 18, 0.94) 100%) !important;
+    background: linear-gradient(
+      145deg,
+      rgba(28, 28, 28, 0.94) 0%,
+      rgba(21, 21, 21, 0.92) 58%,
+      rgba(18, 18, 18, 0.94) 100%
+    ) !important;
     border-color: rgba(103, 112, 126, 0.86) !important;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.14),
@@ -258,7 +314,11 @@
   }
 
   html[data-theme="dark"] .profile-liquid-plan {
-    background: linear-gradient(145deg, rgba(66, 66, 66, 0.88) 0%, rgba(54, 54, 54, 0.86) 100%) !important;
+    background: linear-gradient(
+      145deg,
+      rgba(66, 66, 66, 0.88) 0%,
+      rgba(54, 54, 54, 0.86) 100%
+    ) !important;
     border-color: rgba(112, 112, 112, 0.72);
     color: #e5e7eb !important;
   }
@@ -348,8 +408,17 @@
   /* Match "Jump back in" card to primary hero surface in dark mode. */
   html[data-theme="dark"] .jump-back-panel {
     background-color: rgba(17, 17, 17, 0.92) !important;
-    background-image: radial-gradient(circle at 18% 35%, rgba(140, 140, 140, 0.12), transparent 42%),
-      radial-gradient(circle at 88% 88%, rgba(140, 140, 140, 0.12), transparent 72%) !important;
+    background-image:
+      radial-gradient(
+        circle at 18% 35%,
+        rgba(140, 140, 140, 0.12),
+        transparent 42%
+      ),
+      radial-gradient(
+        circle at 88% 88%,
+        rgba(140, 140, 140, 0.12),
+        transparent 72%
+      ) !important;
     border-color: transparent !important;
     backdrop-filter: none !important;
     box-shadow:
@@ -451,8 +520,7 @@
     color: #f9fafb !important;
     border-left-color: rgba(163, 163, 163, 0.95) !important;
     background: rgba(26, 26, 26, 0.99) !important;
-    box-shadow:
-      0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
   }
 
   html[data-theme="dark"] .portal-nav-badge {
@@ -467,8 +535,17 @@
   html[data-theme="dark"] .plan-highlight-card {
     border-color: transparent !important;
     background-color: rgba(20, 20, 20, 0.94) !important;
-    background-image: radial-gradient(circle at 14% 22%, rgba(180, 180, 180, 0.16), transparent 40%),
-      radial-gradient(circle at 86% 86%, rgba(170, 170, 170, 0.12), transparent 72%) !important;
+    background-image:
+      radial-gradient(
+        circle at 14% 22%,
+        rgba(180, 180, 180, 0.16),
+        transparent 40%
+      ),
+      radial-gradient(
+        circle at 86% 86%,
+        rgba(170, 170, 170, 0.12),
+        transparent 72%
+      ) !important;
     box-shadow:
       inset 0 0 0 1px rgba(255, 255, 255, 0.08),
       0 14px 28px rgba(0, 0, 0, 0.38),
@@ -493,7 +570,11 @@
   /* Subscription Management page polish: stronger hierarchy and cleaner dark surfaces. */
   html[data-theme="dark"] .subscription-mgmt-hero {
     border-color: transparent !important;
-    background: linear-gradient(120deg, rgba(16, 16, 16, 0.97) 0%, rgba(12, 12, 12, 0.95) 70%) !important;
+    background: linear-gradient(
+      120deg,
+      rgba(16, 16, 16, 0.97) 0%,
+      rgba(12, 12, 12, 0.95) 70%
+    ) !important;
     box-shadow:
       inset 0 0 0 1px rgba(255, 255, 255, 0.05),
       0 16px 34px rgba(0, 0, 0, 0.48),
@@ -518,7 +599,11 @@
 
   html[data-theme="dark"] .subscription-detail-shell {
     border-color: rgba(64, 64, 64, 0.9) !important;
-    background: linear-gradient(130deg, rgba(20, 20, 20, 0.97) 0%, rgba(14, 14, 14, 0.95) 100%) !important;
+    background: linear-gradient(
+      130deg,
+      rgba(20, 20, 20, 0.97) 0%,
+      rgba(14, 14, 14, 0.95) 100%
+    ) !important;
     box-shadow:
       inset 0 0 0 1px rgba(255, 255, 255, 0.03),
       0 10px 24px rgba(0, 0, 0, 0.35) !important;
@@ -526,10 +611,16 @@
 
   html[data-theme="dark"] .subscription-control-panel {
     border-color: rgba(64, 64, 64, 0.88) !important;
-    background: linear-gradient(135deg, rgba(19, 19, 19, 0.95) 0%, rgba(13, 13, 13, 0.92) 100%) !important;
+    background: linear-gradient(
+      135deg,
+      rgba(19, 19, 19, 0.95) 0%,
+      rgba(13, 13, 13, 0.92) 100%
+    ) !important;
   }
 
-  html[data-theme="dark"] .subscription-inline-actions button:not(:disabled):hover {
+  html[data-theme="dark"]
+    .subscription-inline-actions
+    button:not(:disabled):hover {
     transform: translateY(-1px);
   }
 
@@ -583,7 +674,8 @@
 /* ========== ADMIN THEME OVERRIDES (Neon Green + Black) ========== */
 .admin-theme {
   background: #0a0a0a !important;
-  background-image: radial-gradient(
+  background-image:
+    radial-gradient(
       ellipse 120% 80% at 50% -30%,
       rgba(132, 204, 22, 0.06),
       transparent
@@ -602,17 +694,17 @@
 .admin-theme[class*="bg-"][class*="#15191C"],
 .admin-theme aside,
 .admin-theme aside[class] {
-  background-color: #15191C !important;
+  background-color: #15191c !important;
 }
 
 .admin-theme .bg-\[\#1C2126\],
 .admin-theme[class*="bg-"][class*="#1C2126"] {
-  background-color: #1C2126 !important;
+  background-color: #1c2126 !important;
 }
 
 .admin-theme .border-\[\#24292E\],
 .admin-theme[class*="border-"][class*="#24292E"] {
-  border-color: #24292E !important;
+  border-color: #24292e !important;
 }
 
 .admin-theme .border-\[\#2b3137\] {
@@ -635,7 +727,10 @@
 }
 
 /* Override generic gradient backgrounds in admin (but preserve specific lime gradients) */
-.admin-theme [class*="bg-gradient"]:not([class*="from-brand-lime"]):not([class*="from-zinc"]) {
+.admin-theme
+  [class*="bg-gradient"]:not([class*="from-brand-lime"]):not(
+    [class*="from-zinc"]
+  ) {
   background-image: none !important;
   background-color: rgba(30, 30, 30, 0.5) !important;
 }
@@ -645,7 +740,8 @@
 .admin-theme [class*="from-brand-lime"] {
   --tw-gradient-from: rgba(132, 204, 22, 0.3) var(--tw-gradient-from-position) !important;
   --tw-gradient-to: rgba(132, 204, 22, 0.15) var(--tw-gradient-to-position) !important;
-  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+  --tw-gradient-stops:
+    var(--tw-gradient-from), var(--tw-gradient-to) !important;
 }
 
 /* Header bar dark background */
@@ -655,15 +751,15 @@
 }
 
 .admin-theme .text-brand-lime {
-  color: #84CC16 !important;
+  color: #84cc16 !important;
 }
 
 .admin-theme .bg-brand-lime {
-  background-color: #84CC16 !important;
+  background-color: #84cc16 !important;
 }
 
 .admin-theme .border-brand-lime {
-  border-color: #84CC16 !important;
+  border-color: #84cc16 !important;
 }
 
 .admin-theme .border-brand-lime\/25,
@@ -739,7 +835,9 @@
 }
 
 .admin-theme .shadow-glass {
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03), 0 12px 28px rgba(0, 0, 0, 0.45) !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 12px 28px rgba(0, 0, 0, 0.45) !important;
 }
 
 .admin-theme .shadow-2xl {
@@ -766,8 +864,8 @@
 .admin-theme input,
 .admin-theme select,
 .admin-theme textarea {
-  background-color: #15191C !important;
-  border-color: #24292E !important;
+  background-color: #15191c !important;
+  border-color: #24292e !important;
   color: #d4d4d8 !important;
 }
 
@@ -787,7 +885,11 @@
 /* Avatar circle with neon green gradient */
 .admin-theme .bg-gradient-to-br.from-brand-lime\/30.to-brand-lime\/15,
 .admin-theme [class*="from-brand-lime"][class*="to-brand-lime"] {
-  background: linear-gradient(to bottom right, rgba(132, 204, 22, 0.3), rgba(132, 204, 22, 0.15)) !important;
+  background: linear-gradient(
+    to bottom right,
+    rgba(132, 204, 22, 0.3),
+    rgba(132, 204, 22, 0.15)
+  ) !important;
 }
 
 /* Ensure text-canvas in admin is dark */
@@ -817,7 +919,7 @@
 
 /* Force sidebar to be dark */
 .admin-theme aside {
-  background-color: #15191C !important;
+  background-color: #15191c !important;
   border-right-color: rgba(255, 255, 255, 0.1) !important;
 }
 

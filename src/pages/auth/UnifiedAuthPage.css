@@ -1,0 +1,156 @@
+.auth-landing-shell {
+  --auth-landing-bg: #fafafa;
+  --auth-landing-card-bg: rgba(255, 255, 255, 0.9);
+  --auth-landing-card-border: #e5e7eb;
+  --auth-landing-card-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.16);
+  --auth-landing-surface: #ffffff;
+  --auth-landing-surface-muted: rgba(249, 250, 251, 0.5);
+  --auth-landing-surface-border: #e5e7eb;
+  --auth-landing-text-strong: #000000;
+  --auth-landing-text-label: #374151;
+  --auth-landing-text-muted: #6b7280;
+  --auth-landing-text-soft: #9ca3af;
+  --auth-landing-input-bg: #ffffff;
+  --auth-landing-input-border: #e5e7eb;
+  --auth-landing-input-placeholder: #9ca3af;
+  --auth-landing-input-focus-border: #60a5fa;
+  --auth-landing-input-focus-ring: rgba(191, 219, 254, 0.95);
+  --auth-landing-btn-bg: #000000;
+  --auth-landing-btn-fg: #ffffff;
+  --auth-landing-btn-hover: #111827;
+  --auth-landing-pill-bg: rgba(249, 250, 251, 0.5);
+  --auth-landing-pill-active-bg: #ffffff;
+  --auth-landing-pill-active-border: #e5e7eb;
+  background-color: var(--auth-landing-bg);
+  color: var(--auth-landing-text-strong);
+}
+
+html.dark .auth-landing-shell,
+html[data-theme="dark"] .auth-landing-shell {
+  --auth-landing-bg: #050505;
+  --auth-landing-card-bg: rgba(10, 10, 10, 0.8);
+  --auth-landing-card-border: rgba(255, 255, 255, 0.05);
+  --auth-landing-card-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+  --auth-landing-surface: rgba(255, 255, 255, 0.02);
+  --auth-landing-surface-muted: rgba(255, 255, 255, 0.02);
+  --auth-landing-surface-border: rgba(255, 255, 255, 0.05);
+  --auth-landing-text-strong: rgba(255, 255, 255, 0.92);
+  --auth-landing-text-label: rgba(255, 255, 255, 0.8);
+  --auth-landing-text-muted: rgba(255, 255, 255, 0.5);
+  --auth-landing-text-soft: rgba(255, 255, 255, 0.4);
+  --auth-landing-input-bg: rgba(255, 255, 255, 0.02);
+  --auth-landing-input-border: rgba(255, 255, 255, 0.05);
+  --auth-landing-input-placeholder: rgba(255, 255, 255, 0.35);
+  --auth-landing-input-focus-border: rgba(255, 255, 255, 0.2);
+  --auth-landing-input-focus-ring: transparent;
+  --auth-landing-btn-bg: #ffffff;
+  --auth-landing-btn-fg: #000000;
+  --auth-landing-btn-hover: rgba(255, 255, 255, 0.9);
+  --auth-landing-pill-bg: rgba(255, 255, 255, 0.02);
+  --auth-landing-pill-active-bg: rgba(255, 255, 255, 0.08);
+  --auth-landing-pill-active-border: rgba(255, 255, 255, 0.05);
+}
+
+.auth-landing-glass-card {
+  border: 1px solid var(--auth-landing-card-border);
+  background-color: var(--auth-landing-card-bg);
+  box-shadow: var(--auth-landing-card-shadow);
+}
+
+.auth-landing-block {
+  border: 1px solid var(--auth-landing-surface-border);
+  background-color: var(--auth-landing-surface-muted);
+}
+
+.auth-landing-input {
+  border: 1px solid var(--auth-landing-input-border);
+  background-color: var(--auth-landing-input-bg);
+  color: var(--auth-landing-text-strong);
+}
+
+.auth-landing-input::placeholder {
+  color: var(--auth-landing-input-placeholder);
+}
+
+.auth-landing-input:focus {
+  border-color: var(--auth-landing-input-focus-border);
+  box-shadow: 0 0 0 2px var(--auth-landing-input-focus-ring);
+}
+
+.auth-landing-input:read-only {
+  background-color: var(--auth-landing-pill-bg);
+  color: var(--auth-landing-text-muted);
+}
+
+.auth-landing-cta {
+  background-color: var(--auth-landing-btn-bg);
+  color: var(--auth-landing-btn-fg);
+}
+
+.auth-landing-cta:hover {
+  background-color: var(--auth-landing-btn-hover);
+}
+
+.auth-landing-segment {
+  border: 1px solid var(--auth-landing-surface-border);
+  background-color: var(--auth-landing-pill-bg);
+}
+
+.auth-landing-segment-btn {
+  color: var(--auth-landing-text-soft);
+}
+
+.auth-landing-segment-btn:hover {
+  color: var(--auth-landing-text-muted);
+}
+
+.auth-landing-segment-btn.is-active {
+  border: 1px solid var(--auth-landing-pill-active-border);
+  background-color: var(--auth-landing-pill-active-bg);
+  color: var(--auth-landing-text-strong);
+}
+
+.auth-landing-theme-toggle {
+  border: 1px solid var(--auth-landing-surface-border);
+  background-color: var(--auth-landing-surface);
+  color: var(--auth-landing-text-muted);
+}
+
+.auth-landing-theme-toggle:hover {
+  background-color: var(--auth-landing-pill-bg);
+}
+
+.auth-landing-text-strong {
+  color: var(--auth-landing-text-strong);
+}
+
+.auth-landing-text-muted {
+  color: var(--auth-landing-text-muted);
+}
+
+.auth-landing-text-soft {
+  color: var(--auth-landing-text-soft);
+}
+
+.auth-landing-label {
+  color: var(--auth-landing-text-label);
+}
+
+.auth-landing-link {
+  color: #3b82f6;
+}
+
+.auth-landing-link:hover {
+  color: #2563eb;
+}
+
+html.dark .auth-landing-link,
+html[data-theme="dark"] .auth-landing-link {
+  color: #60a5fa;
+}
+
+html.dark .auth-landing-link:hover,
+html[data-theme="dark"] .auth-landing-link:hover {
+  color: #93c5fd;
+}
+

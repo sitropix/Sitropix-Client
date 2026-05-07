@@ -1,14 +1,15 @@
-import { FormEvent, useEffect, useState } from "react";
-import {
-  Link,
-  useNavigate,
-  useSearchParams,
-  useLocation,
-} from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
-import { ApiRequestError } from "@/services/http";
 import { fetchInviteInfo, type InviteInfoResponse } from "@/services/authApi";
+import { ApiRequestError } from "@/services/http";
+import { FormEvent, useEffect, useState } from "react";
+import "./UnifiedAuthPage.css";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 
 type AuthMode = "signin" | "signup";
 
@@ -146,12 +147,17 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
     }
   }
 
+  const authInputClassName =
+    "auth-landing-input w-full rounded-2xl px-4 py-4 text-[15px] outline-none transition-all";
+  const authActionButtonClassName =
+    "auth-landing-cta mt-4 flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-4 text-[16px] font-bold shadow-lg shadow-black/10 transition-colors disabled:cursor-not-allowed disabled:opacity-70 dark:shadow-[0_0_20px_rgba(255,255,255,0.15)]";
+
   return (
-    <div className="relative flex min-h-screen overflow-hidden bg-[#fafafa] font-body text-foreground selection:bg-primary/30 dark:bg-[#050505]">
+    <div className="auth-landing-shell relative flex min-h-screen overflow-hidden font-body selection:bg-primary/30">
       <button
         type="button"
         onClick={toggleTheme}
-        className="absolute right-4 top-4 z-20 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 shadow-sm backdrop-blur transition hover:bg-gray-50 dark:border-white/10 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15 sm:right-6 sm:top-6"
+        className="auth-landing-theme-toggle absolute right-4 top-4 z-20 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur transition sm:right-6 sm:top-6"
         aria-label={`Switch to ${isDark ? "light" : "dark"} theme`}
         title={`Switch to ${isDark ? "light" : "dark"} theme`}
       >
@@ -165,33 +171,27 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
       <div className="relative z-10 hidden w-1/2 flex-col justify-between p-12 xl:p-16 lg:flex">
         <div className="absolute right-0 top-1/2 h-3/4 w-px -translate-y-1/2 bg-gradient-to-b from-transparent via-black/10 to-transparent dark:via-white/10" />
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-3">
-            <span className="grid size-10 place-items-center rounded-2xl border border-gray-200 bg-gradient-to-tr from-white to-gray-100 shadow-sm backdrop-blur-md dark:border-white/10 dark:from-white/10 dark:to-white/5 dark:shadow-[0_0_20px_rgba(255,255,255,0.05)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                aria-hidden
-                className="text-black dark:text-white"
-              >
-                <path
-                  d="M12 3v4M12 17v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M3 12h4M17 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </span>
-            <div className="leading-none">
-              <p className="text-[20px] font-bold tracking-tight text-black dark:text-white">
-                Sitropix
-              </p>
-              <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-white/55">
-                Support
-              </p>
-            </div>
+          <div className="size-10 rounded-2xl bg-gradient-to-tr from-white to-gray-100 flex items-center justify-center border border-gray-200 shadow-sm backdrop-blur-md dark:from-white/10 dark:to-white/5 dark:border-white/10 dark:shadow-[0_0_20px_rgba(255,255,255,0.05)]">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden
+              className="auth-landing-text-strong"
+            >
+              <polygon
+                points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </div>
+          <p className="auth-landing-text-strong font-bold text-[20px] leading-none tracking-tight">
+            Sitropix
+          </p>
         </div>
         <div className="relative max-w-xl xl:max-w-2xl">
           <div className="pointer-events-none absolute -left-8 -top-8 size-32 rounded-full bg-primary/10 blur-[60px] dark:bg-primary/20" />
@@ -200,14 +200,17 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-50" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.4)] dark:shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
             </span>
-            <span className="text-[12px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-300">
+            <span className="auth-landing-text-muted text-[12px] font-bold uppercase tracking-widest">
               Unified Client Portal
             </span>
           </div>
-          <h1 className="mb-6 bg-gradient-to-b from-black via-gray-800 to-gray-500 bg-clip-text text-[52px] font-headings font-black leading-[1.05] tracking-tighter text-transparent drop-shadow-sm xl:text-[64px] dark:from-white dark:via-white/80 dark:to-white/30 dark:drop-shadow-lg">
+          <h1
+            className="mb-6 text-[52px] font-headings font-black leading-[1.05] tracking-tighter xl:text-[64px]"
+            style={{ color: isDark ? "rgba(255, 255, 255, 0.92)" : "#111827" }}
+          >
             One workspace for all your projects.
           </h1>
-          <p className="mb-12 max-w-lg text-[18px] font-medium leading-relaxed text-gray-600 xl:text-[20px] dark:text-white/50">
+          <p className="auth-landing-text-muted mb-12 max-w-lg text-[18px] font-medium leading-relaxed xl:text-[20px]">
             Sign in to manage subscriptions, collaborate on assets, and get
             premium support in a single, secure environment.
           </p>
@@ -216,39 +219,90 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
             <div className="absolute bottom-8 left-6 top-8 w-px bg-gradient-to-b from-blue-300 via-purple-300 to-transparent opacity-50 dark:from-blue-400 dark:via-purple-400" />
             <div className="relative flex items-start gap-5 rounded-3xl border border-gray-200 bg-white/50 p-5 shadow-sm backdrop-blur-xl dark:border-white/[0.03] dark:bg-white/[0.01] dark:shadow-none">
               <div className="relative z-10 size-12 shrink-0 rounded-2xl bg-gradient-to-b from-blue-100 to-white p-[1px] shadow-[0_4px_12px_rgba(59,130,246,0.1)] dark:from-blue-500/20 dark:to-transparent dark:shadow-[0_0_30px_rgba(59,130,246,0.15)]">
-                <div className="flex h-full w-full items-center justify-center rounded-[15px] bg-white dark:bg-[#0a0a0a]" />
+                <div className="flex h-full w-full items-center justify-center rounded-[15px] bg-white dark:bg-[#0a0a0a]">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    className="text-blue-500 dark:text-blue-400"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                    <polyline points="2 17 12 22 22 17" />
+                    <polyline points="2 12 12 17 22 12" />
+                  </svg>
+                </div>
               </div>
               <div className="pt-1.5">
-                <h3 className="mb-1.5 text-[16px] font-bold tracking-tight text-black dark:text-white">
+                <h3 className="auth-landing-text-strong mb-1.5 text-[16px] font-bold tracking-tight">
                   Manage Multiple Projects
                 </h3>
-                <p className="text-[14px] leading-snug text-gray-500 dark:text-white/40">
+                <p className="auth-landing-text-soft text-[14px] leading-snug">
                   Switch between workspaces seamlessly and track progress.
                 </p>
               </div>
             </div>
             <div className="relative flex items-start gap-5 rounded-3xl border border-gray-200 bg-white/50 p-5 shadow-sm backdrop-blur-xl dark:border-white/[0.03] dark:bg-white/[0.01] dark:shadow-none">
               <div className="relative z-10 size-12 shrink-0 rounded-2xl bg-gradient-to-b from-purple-100 to-white p-[1px] shadow-[0_4px_12px_rgba(168,85,247,0.1)] dark:from-purple-500/20 dark:to-transparent dark:shadow-[0_0_30px_rgba(168,85,247,0.15)]">
-                <div className="flex h-full w-full items-center justify-center rounded-[15px] bg-white dark:bg-[#0a0a0a]" />
+                <div className="flex h-full w-full items-center justify-center rounded-[15px] bg-white dark:bg-[#0a0a0a]">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    className="text-purple-500 dark:text-purple-400"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                    <line x1="1" y1="10" x2="23" y2="10" />
+                  </svg>
+                </div>
               </div>
               <div className="pt-1.5">
-                <h3 className="mb-1.5 text-[16px] font-bold tracking-tight text-black dark:text-white">
+                <h3 className="auth-landing-text-strong mb-1.5 text-[16px] font-bold tracking-tight">
                   Unified Billing &amp; Subscriptions
                 </h3>
-                <p className="text-[14px] leading-snug text-gray-500 dark:text-white/40">
+                <p className="auth-landing-text-soft text-[14px] leading-snug">
                   View invoices, upgrade plans, and manage add-ons centrally.
                 </p>
               </div>
             </div>
             <div className="relative flex items-start gap-5 rounded-3xl border border-gray-200 bg-white/50 p-5 shadow-sm backdrop-blur-xl dark:border-white/[0.03] dark:bg-white/[0.01] dark:shadow-none">
               <div className="relative z-10 size-12 shrink-0 rounded-2xl bg-gradient-to-b from-emerald-100 to-white p-[1px] shadow-[0_4px_12px_rgba(16,185,129,0.1)] dark:from-emerald-500/20 dark:to-transparent dark:shadow-[0_0_30px_rgba(16,185,129,0.15)]">
-                <div className="flex h-full w-full items-center justify-center rounded-[15px] bg-white dark:bg-[#0a0a0a]" />
+                <div className="flex h-full w-full items-center justify-center rounded-[15px] bg-white dark:bg-[#0a0a0a]">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    className="text-emerald-500 dark:text-emerald-400"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <circle cx="12" cy="12" r="4" />
+                    <line x1="4.93" y1="4.93" x2="9.17" y2="9.17" />
+                    <line x1="14.83" y1="14.83" x2="19.07" y2="19.07" />
+                    <line x1="14.83" y1="9.17" x2="19.07" y2="4.93" />
+                    <line x1="14.83" y1="9.17" x2="18.36" y2="5.64" />
+                    <line x1="4.93" y1="19.07" x2="9.17" y2="14.83" />
+                  </svg>
+                </div>
               </div>
               <div className="pt-1.5">
-                <h3 className="mb-1.5 text-[16px] font-bold tracking-tight text-black dark:text-white">
+                <h3 className="auth-landing-text-strong mb-1.5 text-[16px] font-bold tracking-tight">
                   Priority Support
                 </h3>
-                <p className="text-[14px] leading-snug text-gray-500 dark:text-white/40">
+                <p className="auth-landing-text-soft text-[14px] leading-snug">
                   Raise tickets and get help directly from your portal
                   dashboard.
                 </p>
@@ -256,37 +310,68 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-8 text-[13px] font-medium text-gray-400 dark:text-white/40">
+        <div className="auth-landing-text-soft mt-2 flex items-center gap-8 text-[13px] font-medium">
           <span className="cursor-default">Privacy Policy</span>
           <span className="cursor-default">Terms of Service</span>
-          <div className="ml-auto flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-600 shadow-sm backdrop-blur-sm dark:border-white/5 dark:bg-white/5 dark:text-white/60">
+          <div className="auth-landing-theme-toggle ml-auto flex items-center gap-2 rounded-full px-4 py-2 shadow-sm backdrop-blur-sm">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              className="text-emerald-500 dark:text-emerald-400/80"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              <polyline points="9 12 11 14 15 10" />
+            </svg>
             <span>Enterprise-grade security</span>
           </div>
         </div>
       </div>
 
       <section className="relative z-10 flex w-full items-center justify-center p-6 sm:p-12 lg:w-1/2">
-        <div className="relative w-full max-w-[440px] overflow-hidden rounded-[32px] border border-gray-200 bg-white/90 p-8 shadow-2xl backdrop-blur-2xl dark:border-white/[0.05] dark:bg-[#0a0a0a]/80 dark:shadow-[0_0_50px_rgba(0,0,0,0.5)] sm:p-10">
+        <div className="absolute top-8 left-8 lg:hidden flex items-center gap-3">
+          <div className="size-10 rounded-2xl bg-gradient-to-tr from-white to-gray-100 flex items-center justify-center border border-gray-200 backdrop-blur-md shadow-sm dark:from-white/10 dark:to-white/5 dark:border-white/10">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              className="auth-landing-text-strong"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5" />
+            </svg>
+          </div>
+        </div>
+        <div className="auth-landing-glass-card relative w-full max-w-[440px] overflow-hidden rounded-[32px] p-8 backdrop-blur-2xl sm:p-10">
           <div className="pointer-events-none absolute -right-32 -top-32 h-64 w-64 rounded-full bg-blue-500/5 blur-[60px] dark:bg-blue-500/10" />
           <div className="pointer-events-none absolute -bottom-32 -left-32 h-64 w-64 rounded-full bg-purple-500/5 blur-[60px] dark:bg-purple-500/10" />
           <div className="relative z-10 mb-10">
-            <h2 className="mb-2 text-[32px] font-headings font-bold tracking-tight text-black dark:text-white">
+            <h2 className="auth-landing-text-strong mb-2 text-[32px] font-headings font-bold tracking-tight">
               {mode === "signin" ? "Welcome back" : "Create your workspace"}
             </h2>
-            <p className="text-[15px] text-gray-500 dark:text-white/50">
+            <p className="auth-landing-text-muted text-[15px]">
               {mode === "signin"
                 ? "Enter your details to access your workspace."
                 : "Start a new subscription workspace in a few clicks."}
             </p>
           </div>
-          <div className="relative z-10 mb-8 flex rounded-2xl border border-gray-200 bg-gray-50/50 p-1 text-[14px] dark:border-white/[0.05] dark:bg-white/[0.02]">
+          <div className="auth-landing-segment relative z-10 mb-8 flex rounded-2xl p-1 text-[14px]">
             <button
               type="button"
               onClick={() => setMode("signin")}
-              className={`flex-1 rounded-xl py-2.5 text-center font-bold transition ${
+              className={`auth-landing-segment-btn flex-1 rounded-xl py-2.5 text-center font-bold transition ${
                 mode === "signin"
-                  ? "border border-gray-200 bg-white text-black shadow-sm dark:border-white/[0.05] dark:bg-white/[0.08] dark:text-white"
-                  : "text-gray-400 transition-colors hover:text-gray-600 dark:text-white/40 dark:hover:text-white/60"
+                  ? "is-active shadow-sm"
+                  : "transition-colors"
               }`}
             >
               Sign in
@@ -294,10 +379,10 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
             <button
               type="button"
               onClick={() => setMode("signup")}
-              className={`flex-1 rounded-xl py-2.5 text-center font-bold transition ${
+              className={`auth-landing-segment-btn flex-1 rounded-xl py-2.5 text-center font-bold transition ${
                 mode === "signup"
-                  ? "border border-gray-200 bg-white text-black shadow-sm dark:border-white/[0.05] dark:bg-white/[0.08] dark:text-white"
-                  : "text-gray-400 transition-colors hover:text-gray-600 dark:text-white/40 dark:hover:text-white/60"
+                  ? "is-active shadow-sm"
+                  : "transition-colors"
               }`}
             >
               Create account
@@ -313,7 +398,7 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
                 <div className="space-y-2">
                   <label
                     htmlFor="login-email"
-                    className="block text-[13px] font-bold text-gray-700 dark:text-white/80"
+                    className="auth-landing-label block text-[13px] font-bold"
                   >
                     Email Address
                   </label>
@@ -324,7 +409,7 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
                     placeholder="name@company.com"
                     type="email"
                     autoComplete="email"
-                    className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-4 text-[15px] text-black outline-none transition-all placeholder:text-gray-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-white/[0.05] dark:bg-white/[0.02] dark:text-white/80 dark:placeholder:text-white/35 dark:focus:border-white/20 dark:focus:ring-0"
+                    className={authInputClassName}
                   />
                 </div>
 
@@ -332,12 +417,12 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
                   <div className="flex items-center justify-between">
                     <label
                       htmlFor="login-password"
-                      className="block text-[13px] font-bold text-gray-700 dark:text-white/80"
+                      className="auth-landing-label block text-[13px] font-bold"
                     >
                       Password
                     </label>
                     <Link
-                      className="text-[13px] font-medium text-blue-500 transition-colors hover:text-blue-600 dark:text-blue-400"
+                      className="auth-landing-link text-[13px] font-medium transition-colors"
                       to="/forgot-password"
                     >
                       Forgot password?
@@ -350,11 +435,11 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
                     placeholder="••••••••"
                     type="password"
                     autoComplete="current-password"
-                    className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-4 text-[15px] text-black outline-none transition-all placeholder:text-gray-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-white/[0.05] dark:bg-white/[0.02] dark:text-white/80 dark:placeholder:text-white/35 dark:focus:border-white/20 dark:focus:ring-0"
+                    className={authInputClassName}
                   />
                 </div>
 
-                <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-white/50">
+                <label className="auth-landing-text-muted flex items-center gap-2 text-sm">
                   <input
                     checked={remember}
                     onChange={(e) => setRemember(e.target.checked)}
@@ -373,7 +458,7 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
                 <button
                   type="submit"
                   disabled={loginSubmitting}
-                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-black px-5 py-4 text-[16px] font-bold text-white shadow-lg shadow-black/10 transition-colors hover:bg-gray-900 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-white dark:text-black dark:hover:bg-white/90 dark:shadow-[0_0_20px_rgba(255,255,255,0.15)]"
+                  className={authActionButtonClassName}
                 >
                   {loginSubmitting ? "Signing in…" : "Sign into Workspace"}
                 </button>
@@ -387,19 +472,19 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
                 </p>
               )}
               {inviteInfo?.message && !inviteError && (
-                <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-600 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-white/70">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-sky-700 dark:text-blue-300">
+                <div className="auth-landing-block auth-landing-text-muted mt-4 rounded-2xl p-3 text-sm">
+                  <p className="auth-landing-link text-xs font-semibold uppercase tracking-wide">
                     Message from your team
                   </p>
-                  <p className="mt-2 whitespace-pre-wrap text-gray-700 dark:text-white/80">
+                  <p className="auth-landing-label mt-2 whitespace-pre-wrap">
                     {inviteInfo.message}
                   </p>
                 </div>
               )}
               {inviteInfo?.planName && !inviteError && (
-                <p className="mt-3 text-xs text-gray-500 dark:text-white/50">
+                <p className="auth-landing-text-muted mt-3 text-xs">
                   Plan included:{" "}
-                  <span className="text-black dark:text-white">
+                  <span className="auth-landing-text-strong">
                     {inviteInfo.planName}
                   </span>
                 </p>
@@ -417,7 +502,7 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
                     minLength={2}
                     maxLength={120}
                     required
-                    className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-4 text-[15px] text-black outline-none transition-all placeholder:text-gray-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-white/[0.05] dark:bg-white/[0.02] dark:text-white/80 dark:placeholder:text-white/35 dark:focus:border-white/20 dark:focus:ring-0"
+                    className={authInputClassName}
                   />
                   <input
                     value={signupEmail}
@@ -426,7 +511,7 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
                     type="email"
                     required
                     readOnly={Boolean(inviteToken && inviteInfo)}
-                    className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-4 text-[15px] text-black outline-none transition-all placeholder:text-gray-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 read-only:bg-gray-50 read-only:text-gray-500 dark:border-white/[0.05] dark:bg-white/[0.02] dark:text-white/80 dark:placeholder:text-white/35 dark:focus:border-white/20 dark:focus:ring-0 dark:read-only:bg-white/[0.04] dark:read-only:text-white/50"
+                    className={authInputClassName}
                   />
                   <input
                     value={signupPassword}
@@ -436,7 +521,7 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
                     minLength={8}
                     maxLength={200}
                     required
-                    className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-4 text-[15px] text-black outline-none transition-all placeholder:text-gray-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-white/[0.05] dark:bg-white/[0.02] dark:text-white/80 dark:placeholder:text-white/35 dark:focus:border-white/20 dark:focus:ring-0"
+                    className={authInputClassName}
                   />
                   {signupError && (
                     <p className="text-sm text-rose-500 dark:text-red-400">
@@ -453,7 +538,7 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
                     disabled={
                       signupSubmitting || Boolean(inviteToken && !inviteInfo)
                     }
-                    className="relative mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-black px-5 py-4 text-[16px] font-bold text-white shadow-lg shadow-black/10 transition-colors hover:bg-gray-900 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-white dark:text-black dark:hover:bg-white/90 dark:shadow-[0_0_20px_rgba(255,255,255,0.15)]"
+                    className={`relative ${authActionButtonClassName}`}
                   >
                     {signupSubmitting
                       ? "Creating account…"
