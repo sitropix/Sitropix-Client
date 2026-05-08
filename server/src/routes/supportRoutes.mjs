@@ -9,6 +9,7 @@ import { validate } from "../middleware/validate.mjs";
 import { createTicketSchema, replyTicketSchema } from "../schemas/supportSchemas.mjs";
 import { log } from "../observability/logger.mjs";
 import { sendTransactionalEmail } from "../services/emailService.mjs";
+import { findPrimaryUserSubscription } from "../services/subscriptionLookup.mjs";
 import {
   absoluteTicketAttachmentPath,
   ensureTicketAttachmentsDir,
@@ -96,8 +97,7 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
   const payload = payloadResult.data;
   const files = Array.isArray(req.files) ? req.files : [];
   
-  const subscription = await prisma.subscription.findUnique({
-    where: { userId: req.auth.userId },
+  const subscription = await findPrimaryUserSubscription(req.auth.userId, {
     include: { plan: { select: { name: true } } },
   });
   const userPlan = subscription?.plan?.name ?? "No Plan";
@@ -229,7 +229,7 @@ router.post("/tickets/:id/messages", validate(replyTicketSchema), async (req, re
   });
   await prisma.supportTicket.update({
     where: { id: ticket.id },
-    data: { status: "open", updatedAt: new Date() },
+    data: { updatedAt: new Date() },
   });
   return res.status(201).json({ id: msg.id, createdAt: msg.createdAt });
 });

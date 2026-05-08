@@ -31,6 +31,16 @@ function parseAllowedRedirectOrigins(appUrl) {
   return [...new Set([...base, ...extra])];
 }
 
+function optionalPositiveInt(name) {
+  const raw = process.env[name];
+  if (raw == null || String(raw).trim() === "") return null;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer when set.`);
+  }
+  return value;
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? process.env.API_SERVER_PORT ?? 8787),
@@ -38,6 +48,8 @@ export const env = {
     "DATABASE_URL",
     "postgresql://postgres:Vamsi%401432@localhost:5432/postgres",
   ),
+  prismaPoolConnectionLimit: optionalPositiveInt("PRISMA_POOL_CONNECTION_LIMIT"),
+  prismaPoolTimeoutSeconds: optionalPositiveInt("PRISMA_POOL_TIMEOUT_SECONDS"),
   jwtAccessSecret: required("JWT_ACCESS_SECRET", DEV_ACCESS_SECRET),
   jwtRefreshSecret: required("JWT_REFRESH_SECRET", DEV_REFRESH_SECRET),
   jwtAccessTtl: process.env.JWT_ACCESS_TTL ?? "15m",

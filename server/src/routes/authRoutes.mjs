@@ -217,9 +217,6 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { email: email.toLowerCase() },
     });
-    console.log("user", user);
-    console.log("email", email);
-    console.log("password", password);
     const auditCtx = requestAuditContext(req);
     if (!user) {
       metricsAuth.loginFail();
@@ -235,7 +232,6 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
       });
     }
     const ok = await bcrypt.compare(password, user.passwordHash);
-    console.log("ok", ok);
     if (!ok) {
       metricsAuth.loginFail();
       await logAuditEvent({

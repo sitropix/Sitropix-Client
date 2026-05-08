@@ -19,6 +19,8 @@ export async function requireAuth(req, res, next) {
 export function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.auth) return res.status(401).json({ error: "unauthorized" });
+    // master_admin is a superset of admin privileges for route guards.
+    if (req.auth.role === "master_admin" && roles.includes("admin")) return next();
     if (!roles.includes(req.auth.role)) return res.status(403).json({ error: "forbidden" });
     return next();
   };
