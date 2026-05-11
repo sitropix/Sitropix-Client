@@ -26,6 +26,47 @@ function formatPayload(payload: Record<string, unknown>) {
   }));
 }
 
+function unwrapCalPayload(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (o.data && typeof o.data === "object" && !Array.isArray(o.data)) {
+    return o.data as Record<string, unknown>;
+  }
+  return o;
+}
+
+function formatCalMeetingLines(raw: unknown): string[] {
+  const d = unwrapCalPayload(raw);
+  if (!d) return [];
+  const lines: string[] = [];
+  const title = typeof d.title === "string" ? d.title : null;
+  const st = typeof d.start === "string" ? d.start : typeof d.startTime === "string" ? d.startTime : null;
+  const et = typeof d.end === "string" ? d.end : typeof d.endTime === "string" ? d.endTime : null;
+  const video =
+    typeof d.videoCallUrl === "string"
+      ? d.videoCallUrl
+      : typeof d.meetingUrl === "string"
+        ? d.meetingUrl
+        : null;
+  if (title) lines.push(`Title: ${title}`);
+  if (st) {
+    try {
+      lines.push(`Start: ${new Date(st).toLocaleString()}`);
+    } catch {
+      lines.push(`Start: ${st}`);
+    }
+  }
+  if (et) {
+    try {
+      lines.push(`End: ${new Date(et).toLocaleString()}`);
+    } catch {
+      lines.push(`End: ${et}`);
+    }
+  }
+  if (video) lines.push(`Join: ${video}`);
+  return lines;
+}
+
 export function CrmManagementPage() {
   const [items, setItems] = useState<CrmLeadListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -306,6 +347,23 @@ export function CrmManagementPage() {
               <div>Submitted: {new Date(detail.submission.submittedAt).toLocaleString()}</div>
               {detail.submission.calBookingId ? <div>Cal booking id: {detail.submission.calBookingId}</div> : null}
             </div>
+
+            {detail.submission.calMeetingDetailsJson != null ? (
+              <div className="mt-6 rounded-lg border border-white/10 bg-black/25 p-4">
+                <h3 className="font-semibold text-white">Cal.com meeting details</h3>
+                <ul className="mt-2 space-y-1 text-xs text-neutral-300">
+                  {formatCalMeetingLines(detail.submission.calMeetingDetailsJson).map((line, i) => (
+                    <li key={`${i}-${line.slice(0, 24)}`}>{line}</li>
+                  ))}
+                </ul>
+                <details className="mt-3 text-xs text-neutral-500">
+                  <summary className="cursor-pointer text-neutral-400 hover:text-neutral-200">Raw API response</summary>
+                  <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded border border-white/10 bg-black/40 p-2 text-[10px] text-neutral-400">
+                    {JSON.stringify(detail.submission.calMeetingDetailsJson, null, 2)}
+                  </pre>
+                </details>
+              </div>
+            ) : null}
 
             <h3 className="mt-8 font-semibold text-white">Status history</h3>
             <ul className="mt-2 space-y-2 text-xs text-neutral-300">

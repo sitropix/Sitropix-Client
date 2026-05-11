@@ -89,6 +89,10 @@ export const env = {
   /** Set to `true` to skip CSRF on POST /api/forms/.../submit (local testing only). */
   formPublicCsrfDisabled:
     (process.env.FORM_PUBLIC_CSRF_DISABLED ?? "").toLowerCase() === "true",
+  /** Cal.com API key (e.g. cal_live_...) — used server-side to enrich bookings after form submit. */
+  calApiKey: String(process.env.CAL_API_KEY ?? "").trim(),
+  /** Cal.com API v2 version header (see Cal docs). */
+  calApiVersion: String(process.env.CAL_API_VERSION ?? "2024-08-13").trim(),
 };
 env.allowedRedirectOrigins = parseAllowedRedirectOrigins(env.appUrl);
 

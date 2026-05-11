@@ -1,9 +1,24 @@
+import { NoModuleAccess } from "@/components/NoModuleAccess";
+import { ApiRequestError, isModuleForbiddenError } from "@/services/http";
+import {
+  createAdminForm,
+  fetchAdminFormDetail,
+  fetchAdminFormEmbed,
+  fetchAdminForms,
+  patchAdminForm,
+  replaceAdminFormFields,
+} from "@/services/subscriptionsApi";
+import type {
+  FormDefinitionDetail,
+  FormDefinitionListItem,
+  FormFieldRow,
+} from "@/types/subscription";
 import type { DragEndEvent } from "@dnd-kit/core";
 import {
   DndContext,
-  closestCenter,
   KeyboardSensor,
   PointerSensor,
+  closestCenter,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -16,17 +31,6 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { NoModuleAccess } from "@/components/NoModuleAccess";
-import { ApiRequestError, isModuleForbiddenError } from "@/services/http";
-import {
-  createAdminForm,
-  fetchAdminFormDetail,
-  fetchAdminFormEmbed,
-  fetchAdminForms,
-  patchAdminForm,
-  replaceAdminFormFields,
-} from "@/services/subscriptionsApi";
-import type { FormDefinitionDetail, FormDefinitionListItem, FormFieldRow } from "@/types/subscription";
 
 const FIELD_TYPES = [
   "text",
@@ -61,7 +65,10 @@ function normalizeSlugInput(raw: string): string {
 
 function formatFlattenedIssues(issues: unknown): string | null {
   if (!issues || typeof issues !== "object") return null;
-  const f = issues as { formErrors?: string[]; fieldErrors?: Record<string, string[] | undefined> };
+  const f = issues as {
+    formErrors?: string[];
+    fieldErrors?: Record<string, string[] | undefined>;
+  };
   const parts: string[] = [...(f.formErrors ?? [])];
   for (const [key, errs] of Object.entries(f.fieldErrors ?? {})) {
     if (errs?.length) parts.push(`${key}: ${errs.join("; ")}`);
@@ -71,56 +78,198 @@ function formatFlattenedIssues(issues: unknown): string | null {
 
 function formatFormCreateFailure(err: unknown): string {
   if (err instanceof ApiRequestError) {
-    if (err.status === 409) return "That slug is already in use. Choose a different URL slug.";
+    if (err.status === 409)
+      return "That slug is already in use. Choose a different URL slug.";
     const fromIssues = formatFlattenedIssues(err.issues);
     if (err.status === 400 && fromIssues) return `Invalid form: ${fromIssues}`;
-    if (err.status === 403 && err.code === "module_forbidden") return "You don't have access to the Forms module.";
+    if (err.status === 403 && err.code === "module_forbidden")
+      return "You don't have access to the Forms module.";
     return err.message || "Could not create form.";
   }
   return "Could not create form.";
 }
 
-function emptyValidation(): Record<string, unknown> {
-  return {};
-}
-
 function defaultFields(): LocalField[] {
+  const industryOpts = [
+    "Software & Technology",
+    "Healthcare",
+    "Finance & Banking",
+    "Retail & E-commerce",
+    "Manufacturing",
+    "Education",
+    "Professional Services",
+    "Other",
+  ];
+  const goalOpts = [
+    "Product demo",
+    "Partnership",
+    "Support",
+    "General inquiry",
+    "Other",
+  ];
+  const timelineOpts = [
+    "ASAP",
+    "1–3 months",
+    "3–6 months",
+    "6+ months",
+    "Just exploring",
+  ];
+  const budgetOpts = [
+    "Under $5k",
+    "$5k–$25k",
+    "$25k–$100k",
+    "$100k+",
+    "Prefer not to say",
+  ];
   const base: Omit<LocalField, "draftId">[] = [
     {
-      key: "full_name",
-      label: "Full name",
+      key: "first_name",
+      label: "First Name",
       type: "text",
       required: true,
       fieldOrder: 0,
       optionsJson: [],
-      validationJson: emptyValidation(),
+      validationJson: {
+        sectionKey: "name",
+        sectionTitle: "Enter Your Name",
+        sectionRequired: true,
+        layout: "half",
+      },
     },
     {
-      key: "email",
-      label: "Work email",
-      type: "email",
+      key: "last_name",
+      label: "Last Name",
+      type: "text",
       required: true,
       fieldOrder: 1,
       optionsJson: [],
-      validationJson: emptyValidation(),
+      validationJson: { sectionKey: "name", layout: "half" },
+    },
+    {
+      key: "email",
+      label: "Email",
+      type: "email",
+      required: true,
+      fieldOrder: 2,
+      optionsJson: [],
+      validationJson: {
+        sectionKey: "email",
+        sectionTitle: "Enter your Email address",
+        sectionRequired: true,
+        placeholder: "you@company.com",
+      },
+    },
+    {
+      key: "phone",
+      label: "Phone",
+      type: "tel",
+      required: true,
+      fieldOrder: 3,
+      optionsJson: [],
+      validationJson: {
+        sectionKey: "phone",
+        sectionTitle: "Enter your Phone Number",
+        sectionRequired: true,
+        placeholder: "+1 …",
+      },
     },
     {
       key: "company",
       label: "Company",
       type: "text",
-      required: false,
-      fieldOrder: 2,
+      required: true,
+      fieldOrder: 4,
       optionsJson: [],
-      validationJson: emptyValidation(),
+      validationJson: {
+        sectionKey: "company",
+        sectionTitle: "Business Name",
+        sectionRequired: true,
+        placeholder: "Company name",
+      },
     },
     {
-      key: "message",
-      label: "How can we help?",
+      key: "industry",
+      label: "Industry",
+      type: "select",
+      required: true,
+      fieldOrder: 5,
+      optionsJson: industryOpts,
+      validationJson: {
+        sectionKey: "industry",
+        sectionTitle: "Industry",
+        sectionRequired: true,
+        placeholder: "Select an option",
+      },
+    },
+    {
+      key: "primary_goal",
+      label: "Primary Goal",
+      type: "select",
+      required: true,
+      fieldOrder: 6,
+      optionsJson: goalOpts,
+      validationJson: {
+        sectionKey: "goal",
+        sectionTitle: "What is your Primary Goal",
+        sectionRequired: true,
+        placeholder: "Select an option",
+      },
+    },
+    {
+      key: "timeline",
+      label: "Timeline",
+      type: "select",
+      required: true,
+      fieldOrder: 7,
+      optionsJson: timelineOpts,
+      validationJson: {
+        sectionKey: "timeline",
+        sectionTitle: "What is your Timeline",
+        sectionRequired: true,
+        placeholder: "Select an option",
+      },
+    },
+    {
+      key: "budget_range",
+      label: "Budget Range",
+      type: "select",
+      required: false,
+      fieldOrder: 8,
+      optionsJson: budgetOpts,
+      validationJson: {
+        sectionKey: "budget",
+        sectionTitle: "Budget Range",
+        sectionRequired: false,
+        placeholder: "Select an option",
+      },
+    },
+    {
+      key: "additional_info",
+      label: "Anything else we should know?",
       type: "textarea",
       required: false,
-      fieldOrder: 3,
+      fieldOrder: 9,
       optionsJson: [],
-      validationJson: emptyValidation(),
+      validationJson: {
+        sectionKey: "notes",
+        sectionTitle: "Anything else we should know?",
+        sectionRequired: false,
+        placeholder: "Type your answer here…",
+      },
+    },
+    {
+      key: "discovery_call",
+      label: "Would you like to book a discovery call?",
+      type: "select",
+      required: true,
+      fieldOrder: 10,
+      optionsJson: ["Yes", "No"],
+      validationJson: {
+        sectionKey: "discovery",
+        sectionTitle: "Would you like to book a discovery call?",
+        sectionRequired: true,
+        placeholder: "Select an option",
+      },
     },
   ];
   return base.map((row) => ({ ...row, draftId: newDraftId() }));
@@ -146,12 +295,21 @@ function toApiField(f: LocalField, order: number): Omit<FormFieldRow, "id"> {
 
 function readVj(f: LocalField): Record<string, unknown> {
   const v = f.validationJson;
-  return v && typeof v === "object" ? { ...(v as Record<string, unknown>) } : {};
+  return v && typeof v === "object"
+    ? { ...(v as Record<string, unknown>) }
+    : {};
 }
 
 function DragHandleIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+    <svg
+      className={className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
       <circle cx="9" cy="7" r="1.25" />
       <circle cx="15" cy="7" r="1.25" />
       <circle cx="9" cy="12" r="1.25" />
@@ -177,7 +335,8 @@ function SortableFieldCard({
   const placeholder = typeof vj.placeholder === "string" ? vj.placeholder : "";
   const strictE164 = vj.strictE164 === true;
   const pattern = typeof vj.pattern === "string" ? vj.pattern : "";
-  const defaultValue = typeof vj.defaultValue === "string" ? vj.defaultValue : "";
+  const defaultValue =
+    typeof vj.defaultValue === "string" ? vj.defaultValue : "";
   const minLength = vj.minLength != null ? String(vj.minLength) : "";
   const maxLength = vj.maxLength != null ? String(vj.maxLength) : "";
   const numMin = vj.min != null ? String(vj.min) : "";
@@ -194,7 +353,14 @@ function SortableFieldCard({
     });
   }
 
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
     id: field.draftId,
   });
   const style = {
@@ -222,7 +388,11 @@ function SortableFieldCard({
   const showNumberMeta = field.type === "number";
 
   return (
-    <div ref={setNodeRef} style={style} className="rounded-xl border border-white/10 bg-black/20">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="rounded-xl border border-white/10 bg-black/20"
+    >
       <div className="grid gap-3 p-4 md:grid-cols-12">
         <button
           type="button"
@@ -278,7 +448,11 @@ function SortableFieldCard({
           />
         </label>
         <div className="md:col-span-1 flex items-end justify-end pb-1">
-          <button type="button" className="text-xs text-red-400 hover:underline" onClick={() => onRemove(index)}>
+          <button
+            type="button"
+            className="text-xs text-red-400 hover:underline"
+            onClick={() => onRemove(index)}
+          >
             Remove
           </button>
         </div>
@@ -307,11 +481,15 @@ function SortableFieldCard({
           <div className="border-t border-white/10 px-4 pb-4 pt-3 space-y-4">
             {field.type === "hidden" ? (
               <label className="block text-xs">
-                <span className="text-neutral-500">Default value (stored server-side; not shown publicly)</span>
+                <span className="text-neutral-500">
+                  Default value (stored server-side; not shown publicly)
+                </span>
                 <input
                   className="mt-1 w-full rounded border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-xs text-white"
                   value={defaultValue}
-                  onChange={(e) => patchValidation({ defaultValue: e.target.value })}
+                  onChange={(e) =>
+                    patchValidation({ defaultValue: e.target.value })
+                  }
                   placeholder="utm_source=web"
                 />
               </label>
@@ -323,7 +501,9 @@ function SortableFieldCard({
                 <input
                   className="mt-1 w-full rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-white"
                   value={placeholder}
-                  onChange={(e) => patchValidation({ placeholder: e.target.value })}
+                  onChange={(e) =>
+                    patchValidation({ placeholder: e.target.value })
+                  }
                   placeholder="Shown inside the empty field on the public form"
                 />
               </label>
@@ -340,7 +520,10 @@ function SortableFieldCard({
                     value={minLength}
                     onChange={(e) =>
                       patchValidation({
-                        minLength: e.target.value === "" ? undefined : Number(e.target.value),
+                        minLength:
+                          e.target.value === ""
+                            ? undefined
+                            : Number(e.target.value),
                       })
                     }
                   />
@@ -354,17 +537,24 @@ function SortableFieldCard({
                     value={maxLength}
                     onChange={(e) =>
                       patchValidation({
-                        maxLength: e.target.value === "" ? undefined : Number(e.target.value),
+                        maxLength:
+                          e.target.value === ""
+                            ? undefined
+                            : Number(e.target.value),
                       })
                     }
                   />
                 </label>
                 <label className="text-xs md:col-span-3">
-                  <span className="text-neutral-500">Regex pattern (JavaScript)</span>
+                  <span className="text-neutral-500">
+                    Regex pattern (JavaScript)
+                  </span>
                   <input
                     className="mt-1 w-full rounded border border-white/10 bg-black/40 px-2 py-1 font-mono text-xs text-white"
                     value={pattern}
-                    onChange={(e) => patchValidation({ pattern: e.target.value || undefined })}
+                    onChange={(e) =>
+                      patchValidation({ pattern: e.target.value || undefined })
+                    }
                   />
                 </label>
               </div>
@@ -376,7 +566,9 @@ function SortableFieldCard({
                   type="checkbox"
                   className="h-4 w-4 accent-brand-lime"
                   checked={strictE164}
-                  onChange={(e) => patchValidation({ strictE164: e.target.checked })}
+                  onChange={(e) =>
+                    patchValidation({ strictE164: e.target.checked })
+                  }
                 />
                 Require E.164 format (e.g. +14155552671)
               </label>
@@ -385,7 +577,9 @@ function SortableFieldCard({
             {showPhoneExtra ? (
               <div className="grid gap-3 md:grid-cols-3">
                 <label className="text-xs md:col-span-3">
-                  <span className="text-neutral-500">Optional min / max length (digits + symbols)</span>
+                  <span className="text-neutral-500">
+                    Optional min / max length (digits + symbols)
+                  </span>
                   <div className="mt-1 flex gap-2">
                     <input
                       type="number"
@@ -394,7 +588,10 @@ function SortableFieldCard({
                       value={minLength}
                       onChange={(e) =>
                         patchValidation({
-                          minLength: e.target.value === "" ? undefined : Number(e.target.value),
+                          minLength:
+                            e.target.value === ""
+                              ? undefined
+                              : Number(e.target.value),
                         })
                       }
                     />
@@ -405,7 +602,10 @@ function SortableFieldCard({
                       value={maxLength}
                       onChange={(e) =>
                         patchValidation({
-                          maxLength: e.target.value === "" ? undefined : Number(e.target.value),
+                          maxLength:
+                            e.target.value === ""
+                              ? undefined
+                              : Number(e.target.value),
                         })
                       }
                     />
@@ -424,7 +624,10 @@ function SortableFieldCard({
                     value={numMin}
                     onChange={(e) =>
                       patchValidation({
-                        min: e.target.value === "" ? undefined : Number(e.target.value),
+                        min:
+                          e.target.value === ""
+                            ? undefined
+                            : Number(e.target.value),
                       })
                     }
                   />
@@ -437,7 +640,10 @@ function SortableFieldCard({
                     value={numMax}
                     onChange={(e) =>
                       patchValidation({
-                        max: e.target.value === "" ? undefined : Number(e.target.value),
+                        max:
+                          e.target.value === ""
+                            ? undefined
+                            : Number(e.target.value),
                       })
                     }
                   />
@@ -450,7 +656,10 @@ function SortableFieldCard({
                     value={numStep}
                     onChange={(e) =>
                       patchValidation({
-                        step: e.target.value === "" ? undefined : Number(e.target.value),
+                        step:
+                          e.target.value === ""
+                            ? undefined
+                            : Number(e.target.value),
                       })
                     }
                   />
@@ -473,7 +682,17 @@ export function FormBuilderPage() {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [settingsJson, setSettingsJson] = useState(
-    '{\n  "allowedOrigins": [],\n  "calEmbedUrl": "",\n  "calIntegration": false\n}',
+    [
+      "{",
+      '  "allowedOrigins": [],',
+      `  "calEmbedUrl": "${process.env.VITE_CAL_EMBED_URL}",`,
+      '  "calIntegration": true,',
+      '  "calDiscoveryFieldKey": "discovery_call",',
+      '  "calDiscoveryYesValues": ["Yes", "yes"],',
+      '  "brandLogoText": null,',
+      '  "footerAttribution": "Powered by Sitropix"',
+      "}",
+    ].join("\n"),
   );
   const [fieldDraft, setFieldDraft] = useState<LocalField[]>(defaultFields());
   const [embedOpen, setEmbedOpen] = useState<string | null>(null);
@@ -487,11 +706,15 @@ export function FormBuilderPage() {
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
   );
 
   const patchField = useCallback((idx: number, patch: Partial<LocalField>) => {
-    setFieldDraft((prev) => prev.map((row, i) => (i === idx ? { ...row, ...patch } : row)));
+    setFieldDraft((prev) =>
+      prev.map((row, i) => (i === idx ? { ...row, ...patch } : row)),
+    );
   }, []);
 
   const removeField = useCallback((idx: number) => {
@@ -526,7 +749,9 @@ export function FormBuilderPage() {
         type: f.type,
         required: f.required,
         fieldOrder: f.fieldOrder,
-        optionsJson: Array.isArray(f.optionsJson) ? (f.optionsJson as string[]) : [],
+        optionsJson: Array.isArray(f.optionsJson)
+          ? (f.optionsJson as string[])
+          : [],
         validationJson: (f.validationJson as Record<string, unknown>) ?? {},
       })),
     );
@@ -623,15 +848,20 @@ export function FormBuilderPage() {
   return (
     <div className="space-y-10">
       <header>
-        <h1 className="text-3xl font-black tracking-tight text-white">Form builder</h1>
+        <h1 className="text-3xl font-black tracking-tight text-white">
+          Form builder
+        </h1>
         <p className="mt-2 text-sm text-neutral-400">
-          Create embeddable lead capture forms. Drag fields to reorder; expand &quot;Placeholder &amp; validation&quot;
-          for rules. Submissions flow into the CRM module.
+          Create embeddable lead capture forms. Drag fields to reorder; expand
+          &quot;Placeholder &amp; validation&quot; for rules. Submissions flow
+          into the CRM module.
         </p>
       </header>
 
       {notice ? (
-        <p className="rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-neutral-200">{notice}</p>
+        <p className="rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-neutral-200">
+          {notice}
+        </p>
       ) : null}
 
       <section className="rounded-2xl border border-white/10 bg-[#15191C] p-6">
@@ -657,13 +887,18 @@ export function FormBuilderPage() {
               required
               aria-describedby="form-slug-hint"
             />
-            <span id="form-slug-hint" className="mt-1 block text-xs text-neutral-500">
-              Lowercase letters, numbers, single hyphens only (e.g. partner-intake). Spaces become hyphens.
+            <span
+              id="form-slug-hint"
+              className="mt-1 block text-xs text-neutral-500"
+            >
+              Lowercase letters, numbers, single hyphens only (e.g.
+              partner-intake). Spaces become hyphens.
             </span>
           </label>
           <label className="block text-sm md:col-span-2">
             <span className="text-neutral-400">
-              Settings JSON (allowedOrigins, calEmbedUrl, calIntegration)
+              Settings JSON (allowedOrigins, calEmbedUrl, calIntegration,
+              calDiscoveryFieldKey, brandLogoText, footerAttribution)
             </span>
             <textarea
               className="mt-1 min-h-[100px] w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 font-mono text-xs text-white outline-none focus:border-brand-lime/50"
@@ -700,7 +935,9 @@ export function FormBuilderPage() {
               {items.map((row) => (
                 <tr key={row.id} className="text-neutral-200">
                   <td className="py-3 pr-4 font-medium">{row.name}</td>
-                  <td className="py-3 pr-4 font-mono text-xs text-neutral-400">{row.slug}</td>
+                  <td className="py-3 pr-4 font-mono text-xs text-neutral-400">
+                    {row.slug}
+                  </td>
                   <td className="py-3 pr-4">{row.isActive ? "Yes" : "No"}</td>
                   <td className="py-3 pr-4">{row.submissionCount}</td>
                   <td className="py-3 space-x-2">
@@ -711,7 +948,11 @@ export function FormBuilderPage() {
                     >
                       Edit
                     </button>
-                    <button type="button" className="text-neutral-400 hover:text-white" onClick={() => void loadEmbed(row.id)}>
+                    <button
+                      type="button"
+                      className="text-neutral-400 hover:text-white"
+                      onClick={() => void loadEmbed(row.id)}
+                    >
                       Embed
                     </button>
                   </td>
@@ -733,8 +974,12 @@ export function FormBuilderPage() {
         <section className="rounded-2xl border border-brand-lime/25 bg-[#15191C] p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h2 className="text-lg font-bold text-white">Editing: {detail.name}</h2>
-              <p className="mt-1 font-mono text-xs text-neutral-500">embedKey: {detail.embedKey}</p>
+              <h2 className="text-lg font-bold text-white">
+                Editing: {detail.name}
+              </h2>
+              <p className="mt-1 font-mono text-xs text-neutral-500">
+                embedKey: {detail.embedKey}
+              </p>
             </div>
             <button
               type="button"
@@ -780,11 +1025,24 @@ export function FormBuilderPage() {
               </button>
             </div>
 
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={fieldDraft.map((f) => f.draftId)} strategy={verticalListSortingStrategy}>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={fieldDraft.map((f) => f.draftId)}
+                strategy={verticalListSortingStrategy}
+              >
                 <div className="space-y-4">
                   {fieldDraft.map((f, idx) => (
-                    <SortableFieldCard key={f.draftId} field={f} index={idx} onPatch={patchField} onRemove={removeField} />
+                    <SortableFieldCard
+                      key={f.draftId}
+                      field={f}
+                      index={idx}
+                      onPatch={patchField}
+                      onRemove={removeField}
+                    />
                   ))}
                 </div>
               </SortableContext>
@@ -811,15 +1069,23 @@ export function FormBuilderPage() {
       ) : null}
 
       {embedOpen && embedPayload ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          role="dialog"
+        >
           <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-[#12181f] p-6 shadow-xl">
             <h3 className="text-lg font-bold text-white">Embed</h3>
             <p className="mt-2 text-sm text-neutral-400">
-              Host this URL in an iframe on your marketing site, or POST directly to the submit URL from your own UI.
+              Host this URL in an iframe on your marketing site, or POST
+              directly to the submit URL from your own UI.
             </p>
             <label className="mt-4 block text-xs text-neutral-500">
               iframe src
-              <input readOnly className="mt-1 w-full rounded border border-white/10 bg-black/40 px-2 py-2 font-mono text-xs text-white" value={embedPayload.iframeSrc} />
+              <input
+                readOnly
+                className="mt-1 w-full rounded border border-white/10 bg-black/40 px-2 py-2 font-mono text-xs text-white"
+                value={embedPayload.iframeSrc}
+              />
             </label>
             <label className="mt-4 block text-xs text-neutral-500">
               HTML snippet (iframe)
@@ -841,9 +1107,15 @@ export function FormBuilderPage() {
             ) : null}
             {embedPayload.configUrlV1 ? (
               <p className="mt-2 text-xs text-neutral-500">
-                v1 config: <span className="font-mono text-neutral-300">{embedPayload.configUrlV1}</span>
+                v1 config:{" "}
+                <span className="font-mono text-neutral-300">
+                  {embedPayload.configUrlV1}
+                </span>
                 <br />
-                v1 submit: <span className="font-mono text-neutral-300">{embedPayload.submitUrlV1}</span>
+                v1 submit:{" "}
+                <span className="font-mono text-neutral-300">
+                  {embedPayload.submitUrlV1}
+                </span>
               </p>
             ) : null}
             <button

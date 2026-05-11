@@ -16,6 +16,27 @@ function readVj(field) {
   return v;
 }
 
+/** Text/textarea answers that should be validated (and stored) as RFC-style emails. */
+export function textFieldValidatesAsEmail(field) {
+  if (field.type !== "text" && field.type !== "textarea") return false;
+  const vj = readVj(field);
+  if (vj.format === "email") return true;
+  const kl = String(field.key || "").toLowerCase();
+  return kl === "email" || kl === "e_mail" || kl.endsWith("_email");
+}
+
+/** Fields whose primary value is an email address (typed or configured text). */
+export function fieldSuppliesEmailAddress(field) {
+  if (field.type === "email") return true;
+  return textFieldValidatesAsEmail(field);
+}
+
+export function isValidEmailString(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return false;
+  return z.string().email().safeParse(s).success;
+}
+
 /** After type checks, enforce admin-configured constraints. Mutates issues; may delete invalid keys from `out`. */
 function refineConstraints(fields, out, issues) {
   for (const f of fields) {
@@ -142,6 +163,13 @@ export function validateFormAnswers(fields, answers) {
         if (i !== -1) s = s.slice(i + 7);
       }
       if (s.length > MAX_FILE_BASE64) issues.push({ key: f.key, message: "file_too_large" });
+      else out[f.key] = s;
+      continue;
+    }
+
+    if (textFieldValidatesAsEmail(f)) {
+      const s = String(raw).trim();
+      if (!z.string().email().safeParse(s).success) issues.push({ key: f.key, message: "invalid_email" });
       else out[f.key] = s;
       continue;
     }

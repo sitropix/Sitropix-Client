@@ -4,7 +4,12 @@ import { prisma } from "../db/client.mjs";
 import { env } from "../config/env.mjs";
 import { validate } from "../middleware/validate.mjs";
 import { publicSubmitSchema } from "../schemas/formCrmSchemas.mjs";
-import { extractLeadContact, hashIp, isAllowedMeetingUrl } from "../services/crmLeadHelpers.mjs";
+import {
+  extractLeadContact,
+  hashIp,
+  isAllowedPublicMeetingUrl,
+} from "../services/crmLeadHelpers.mjs";
+import { fetchCalBookingByUid } from "../services/calBookingFetch.mjs";
 import { validateFormAnswers } from "../services/formAnswerValidation.mjs";
 import { sanitizePayloadValues } from "../services/formInputSanitize.mjs";
 import { logAuditEvent, requestAuditContext } from "../services/auditLogService.mjs";
@@ -43,6 +48,43 @@ function readCalIntegration(settings) {
   return settings?.calIntegration === true || settings?.calIntegration === "true";
 }
 
+function readCalDiscoveryFieldKey(settings) {
+  const k = settings?.calDiscoveryFieldKey;
+  return typeof k === "string" && k.trim() ? k.trim() : "discovery_call";
+}
+
+function readCalDiscoveryYesValues(settings) {
+  const raw = settings?.calDiscoveryYesValues;
+  if (Array.isArray(raw) && raw.length) return raw.map((x) => String(x));
+  return ["Yes", "yes", "YES"];
+}
+
+/** When true, visitor must complete Cal (or explicitly skip) before submit. */
+function wantsCalScheduling(form, settings, answers) {
+  if (!readCalIntegration(settings)) return false;
+  const key = readCalDiscoveryFieldKey(settings);
+  const hasDiscoveryField = form.fields.some((f) => f.key === key);
+  if (!hasDiscoveryField) return true;
+  const raw = answers?.[key];
+  const val = raw == null ? "" : String(raw).trim();
+  if (!val) return false;
+  return readCalDiscoveryYesValues(settings).includes(val);
+}
+
+function extractCalLinkFromEmbedUrl(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  try {
+    const withProto = /^https?:\/\//i.test(s) ? s : `https://${s}`;
+    const u = new URL(withProto);
+    const path = u.pathname.replace(/^\/+|\/+$/g, "");
+    return path && path.length ? path : null;
+  } catch {
+    const noProto = s.replace(/^https?:\/\//i, "").split("?")[0]?.replace(/^\/*/, "") ?? "";
+    return noProto || null;
+  }
+}
+
 router.get("/:embedKey/config", async (req, res) => {
   const { embedKey } = req.params;
   const form = await prisma.formDefinition.findFirst({
@@ -55,6 +97,8 @@ router.get("/:embedKey/config", async (req, res) => {
 
   const settings = form.settingsJson && typeof form.settingsJson === "object" ? form.settingsJson : {};
   const calIntegration = readCalIntegration(settings);
+  const calEmbedUrl = settings.calEmbedUrl != null ? String(settings.calEmbedUrl) : "";
+  const calLink = extractCalLinkFromEmbedUrl(calEmbedUrl);
   const csrfToken = issueFormCsrfToken(embedKey);
 
   return res.json({
@@ -67,8 +111,14 @@ router.get("/:embedKey/config", async (req, res) => {
     slug: form.slug,
     csrfToken,
     settings: {
-      calEmbedUrl: settings.calEmbedUrl ?? null,
+      calEmbedUrl: calEmbedUrl || null,
+      calLink,
       calIntegration,
+      calDiscoveryFieldKey: readCalDiscoveryFieldKey(settings),
+      calDiscoveryYesValues: readCalDiscoveryYesValues(settings),
+      brandLogoText: typeof settings.brandLogoText === "string" ? settings.brandLogoText : null,
+      footerAttribution:
+        typeof settings.footerAttribution === "string" ? settings.footerAttribution : "Powered by Sitropix",
       allowedOrigins: settings.allowedOrigins ?? [],
     },
     fields: form.fields.map((f) => ({
@@ -109,21 +159,6 @@ router.post("/:embedKey/submit", submitLimiter, validate(publicSubmitSchema), as
     return res.status(403).json({ error: "origin_not_allowed" });
   }
 
-  let meetingUrl = body.meetingUrl?.trim() || null;
-  if (meetingUrl && !isAllowedMeetingUrl(meetingUrl)) {
-    return res.status(400).json({ error: "invalid_meeting_url", message: "Meeting URL must be an allowed HTTPS Cal link." });
-  }
-
-  const calIntegration = readCalIntegration(settings);
-  const hasBooking = Boolean(body.calBookingId?.trim());
-  const hasMeeting = Boolean(meetingUrl || hasBooking);
-  if (calIntegration && !hasMeeting && !body.schedulingSkipped) {
-    return res.status(400).json({
-      error: "scheduling_required_or_skip",
-      message: "Complete Cal scheduling or set schedulingSkipped: true in the submit payload.",
-    });
-  }
-
   const { values, issues } = validateFormAnswers(form.fields, body.answers);
   if (issues.length > 0) {
     return res.status(400).json({
@@ -134,6 +169,44 @@ router.post("/:embedKey/submit", submitLimiter, validate(publicSubmitSchema), as
   }
 
   const sanitized = sanitizePayloadValues(values);
+
+  const hasBooking = Boolean(body.calBookingId?.trim());
+  let meetingUrl = body.meetingUrl?.trim() || null;
+  if (meetingUrl && !isAllowedPublicMeetingUrl(meetingUrl, { hasCalBookingId: hasBooking })) {
+    return res.status(400).json({
+      error: "invalid_meeting_url",
+      message: "Meeting URL must be HTTPS and an allowed host (Cal.com or common video links when booking id is present).",
+    });
+  }
+
+  let calMeetingDetailsJson = null;
+  let meetingScheduledAt = null;
+  const bookingUid = body.calBookingId?.trim() || null;
+  if (bookingUid && env.calApiKey) {
+    const fetched = await fetchCalBookingByUid(bookingUid);
+    if (fetched.ok && fetched.body != null) {
+      calMeetingDetailsJson = fetched.body;
+      if (fetched.meetingUrl && isAllowedPublicMeetingUrl(fetched.meetingUrl, { hasCalBookingId: true })) {
+        meetingUrl = meetingUrl || fetched.meetingUrl;
+      }
+      if (fetched.startTime) {
+        const d = new Date(fetched.startTime);
+        if (!Number.isNaN(d.getTime())) meetingScheduledAt = d;
+      }
+    }
+  }
+
+  const hasMeeting = Boolean(
+    hasBooking ||
+      (meetingUrl && isAllowedPublicMeetingUrl(meetingUrl, { hasCalBookingId: hasBooking })),
+  );
+  const mustSchedule = wantsCalScheduling(form, settings, sanitized);
+  if (mustSchedule && !hasMeeting && !body.schedulingSkipped) {
+    return res.status(400).json({
+      error: "scheduling_required_or_skip",
+      message: "Complete Cal scheduling or set schedulingSkipped: true in the submit payload.",
+    });
+  }
 
   const initialStatus = hasMeeting ? "MEETING_SCHEDULED" : "YET_TO_CONTACT";
 
@@ -158,10 +231,13 @@ router.post("/:embedKey/submit", submitLimiter, validate(publicSubmitSchema), as
           utmJson: utmMerged,
           ipHash,
           userAgent: req.get("user-agent")?.slice(0, 512) ?? null,
-          calBookingId: body.calBookingId?.trim() || null,
+          calBookingId: bookingUid || null,
           meetingUrlAtSubmit: meetingUrl,
+          calMeetingDetailsJson: calMeetingDetailsJson ?? undefined,
         },
       });
+
+      const leadMeetingAt = hasMeeting ? meetingScheduledAt ?? new Date() : null;
 
       const lead = await tx.crmLead.create({
         data: {
@@ -173,7 +249,7 @@ router.post("/:embedKey/submit", submitLimiter, validate(publicSubmitSchema), as
           company: contact.company,
           status: initialStatus,
           meetingLink: meetingUrl,
-          meetingScheduledAt: hasMeeting ? new Date() : null,
+          meetingScheduledAt: leadMeetingAt,
         },
       });
 

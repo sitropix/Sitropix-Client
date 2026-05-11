@@ -385,6 +385,7 @@ export interface CrmLeadDetailPayload {
     submittedAt: string;
     calBookingId: string | null;
     meetingUrlAtSubmit: string | null;
+    calMeetingDetailsJson?: unknown;
   };
   statusLogs: Array<{
     id: string;

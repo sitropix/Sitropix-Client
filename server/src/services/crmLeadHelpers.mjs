@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { fieldSuppliesEmailAddress, isValidEmailString } from "./formAnswerValidation.mjs";
 
 /**
  * Accept HTTPS meeting URLs for Cal.com (and optionally Cal.com app host).
@@ -21,6 +20,40 @@ export function isAllowedMeetingUrl(urlString) {
   }
 }
 
+const VIDEO_MEETING_HOSTS = new Set([
+  "meet.google.com",
+  "zoom.us",
+  "www.zoom.us",
+  "teams.microsoft.com",
+  "teams.live.com",
+  "whereby.com",
+  "daily.co",
+  "meet.jit.si",
+]);
+
+function hostAllowedForVideoMeeting(host) {
+  const h = host.toLowerCase();
+  if (VIDEO_MEETING_HOSTS.has(h)) return true;
+  if (h.endsWith(".zoom.us") || h.endsWith(".teams.microsoft.com")) return true;
+  return false;
+}
+
+/**
+ * Public form submit: allow Cal links always; with a booking id, allow typical HTTPS video URLs returned by Cal.
+ */
+export function isAllowedPublicMeetingUrl(urlString, opts = {}) {
+  const hasCalBookingId = Boolean(opts.hasCalBookingId);
+  try {
+    const u = new URL(String(urlString || "").trim());
+    if (u.protocol !== "https:") return false;
+    if (isAllowedMeetingUrl(u.href)) return true;
+    if (hasCalBookingId && hostAllowedForVideoMeeting(u.hostname)) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function hashIp(ip) {
   const raw = String(ip || "unknown").slice(0, 120);
   return crypto.createHash("sha256").update(raw).digest("hex").slice(0, 48);
@@ -36,6 +69,9 @@ export function extractLeadContact(fields, answers) {
   let phone = null;
   let company = null;
 
+  let firstName = null;
+  let lastName = null;
+
   for (const f of fields) {
     const v = byKey[f.key];
     if (v === undefined || v === null) continue;
@@ -43,17 +79,30 @@ export function extractLeadContact(fields, answers) {
     if (!s) continue;
     const kl = f.key.toLowerCase();
     const tl = f.type?.toLowerCase() ?? "";
-    if (tl === "email" || kl.includes("email")) email = email || s;
+    if (fieldSuppliesEmailAddress(f) && isValidEmailString(s)) email = email || s.toLowerCase();
     if (tl === "tel" || tl === "phone" || kl.includes("phone") || kl.includes("mobile")) phone = phone || s;
-    if (kl.includes("name") || tl === "text") {
+    if (kl === "first_name" || kl === "firstname" || kl === "first") firstName = firstName || s;
+    if (kl === "last_name" || kl === "lastname" || kl === "last") lastName = lastName || s;
+    const isSplitNameKey =
+      kl === "first_name" ||
+      kl === "last_name" ||
+      kl === "firstname" ||
+      kl === "lastname" ||
+      kl === "first" ||
+      kl === "last";
+    if (!isSplitNameKey && (kl.includes("name") || tl === "text")) {
       if (!fullName && (kl.includes("name") || f.label?.toLowerCase().includes("name"))) fullName = s;
     }
     if (kl.includes("company") || kl.includes("organization")) company = company || s;
   }
 
+  if (!fullName && (firstName || lastName)) {
+    fullName = [firstName, lastName].filter(Boolean).join(" ").trim() || null;
+  }
+
   if (!email) {
     for (const v of Object.values(byKey)) {
-      if (typeof v === "string" && EMAIL_RE.test(v.trim())) {
+      if (typeof v === "string" && isValidEmailString(v)) {
         email = v.trim().toLowerCase();
         break;
       }

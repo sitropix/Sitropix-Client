@@ -353,6 +353,7 @@ crmRouter.get("/leads/:id", async (req, res) => {
       submittedAt: lead.submission.submittedAt,
       calBookingId: lead.submission.calBookingId,
       meetingUrlAtSubmit: lead.submission.meetingUrlAtSubmit,
+      calMeetingDetailsJson: lead.submission.calMeetingDetailsJson ?? null,
     },
     statusLogs: lead.statusLogs.map((log) => ({
       id: log.id,
