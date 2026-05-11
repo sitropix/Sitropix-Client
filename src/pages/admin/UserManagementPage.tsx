@@ -15,6 +15,7 @@ import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
 import type { Role } from "@/types/subscription";
+import { useAuth } from "@/context/AuthContext";
 
 const TEAM_PAGE_SIZE = 10;
 
@@ -36,6 +37,8 @@ const modules = [
 export function UserManagementPage() {
   const { cache, updateCache } = useAdminPrefetch();
   const { showSuccess, showError } = useToast();
+  const { user } = useAuth();
+  const isMasterAdmin = user?.role === "master_admin";
   const [data, setData] = useState<{
     users: Array<{
       id: string;
@@ -107,6 +110,7 @@ export function UserManagementPage() {
   }
 
   async function saveAccess(userId: string) {
+    if (!isMasterAdmin) return;
     setSavingAccessForUserId(userId);
     setModuleAccessSaving(true);
     try {
@@ -213,6 +217,11 @@ export function UserManagementPage() {
         <p className="mt-2 text-sm text-neutral-400">
           Manage team members, access roles, deactivation, password actions, and module-level permissions.
         </p>
+        {!isMasterAdmin && (
+          <p className="mt-2 text-xs text-amber-300">
+            Read-only mode: only master admins can edit team access, roles, invites, and account actions.
+          </p>
+        )}
       </header>
 
       <section className="rounded-xl border border-[#24292E] bg-[#15191C] p-5">
@@ -221,18 +230,21 @@ export function UserManagementPage() {
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
+            disabled={!isMasterAdmin}
             placeholder="Full name"
             className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white"
           />
           <input
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            disabled={!isMasterAdmin}
             placeholder="Email"
             className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white"
           />
           <select
             value={role}
             onChange={(e) => setRole(e.target.value as Role)}
+            disabled={!isMasterAdmin}
             className="rounded border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white"
           >
             <option value="support">Support</option>
@@ -242,7 +254,7 @@ export function UserManagementPage() {
           </select>
           <button
             type="button"
-            disabled={inviting}
+            disabled={!isMasterAdmin || inviting}
             onClick={() => {
               setInviting(true);
               void inviteAdminUser({ name: name.trim(), email: email.trim(), role })
@@ -286,7 +298,7 @@ export function UserManagementPage() {
                 <div className="col-span-2">
                   <select
                     value={u.role}
-                    disabled={isLoading}
+                    disabled={!isMasterAdmin || isLoading}
                     onChange={(e) => {
                       setActionLoading((prev) => ({ ...prev, [u.id]: true }));
                       void setAdminUserRole(u.id, e.target.value as Role)
@@ -321,7 +333,7 @@ export function UserManagementPage() {
                   </button>
                   <button
                     type="button"
-                    disabled={isLoading}
+                    disabled={!isMasterAdmin || isLoading}
                     onClick={() => openResetPasswordDialog({ id: u.id, name: u.name, email: u.email })}
                     className="rounded border border-[#24292E] bg-[#1C2126] px-2 py-1 text-xs text-white disabled:opacity-50"
                   >
@@ -330,7 +342,7 @@ export function UserManagementPage() {
                   {u.status === "active" ? (
                     <button
                       type="button"
-                      disabled={isLoading}
+                      disabled={!isMasterAdmin || isLoading}
                       onClick={() =>
                         setDeactivateConfirm({ open: true, user: { id: u.id, name: u.name, email: u.email }, isActive: true })
                       }
@@ -341,7 +353,7 @@ export function UserManagementPage() {
                   ) : (
                     <button
                       type="button"
-                      disabled={isLoading}
+                      disabled={!isMasterAdmin || isLoading}
                       onClick={() =>
                         setDeactivateConfirm({ open: true, user: { id: u.id, name: u.name, email: u.email }, isActive: false })
                       }
@@ -364,6 +376,7 @@ export function UserManagementPage() {
                           <input
                             type="checkbox"
                             checked={moduleDraft[m] ?? false}
+                            disabled={!isMasterAdmin}
                             onChange={(e) => setModuleDraft((prev) => ({ ...prev, [m]: e.target.checked }))}
                             className="accent-brand-lime"
                           />
@@ -374,7 +387,7 @@ export function UserManagementPage() {
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#2b3137] pt-3">
                       <button
                         type="button"
-                        disabled={savingAccessForUserId === u.id || moduleAccessSaving}
+                        disabled={savingAccessForUserId === u.id || moduleAccessSaving || !isMasterAdmin}
                         onClick={() => void saveAccess(u.id)}
                         className="ml-auto flex items-center gap-2 rounded bg-brand-lime px-4 py-2 text-xs font-semibold text-canvas disabled:opacity-50"
                       >
@@ -464,4 +477,3 @@ export function UserManagementPage() {
     </div>
   );
 }
-

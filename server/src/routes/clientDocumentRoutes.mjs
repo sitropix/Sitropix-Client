@@ -214,7 +214,7 @@ router.delete("/projects/:projectId/assets/:type", async (req, res) => {
 
 /* ------------- Admin document uploads ------------- */
 const adminDoc = express.Router();
-adminDoc.use(requireAuth, requireRole("admin"));
+adminDoc.use(requireAuth, requireRole("admin", "master_admin"));
 
 adminDoc.get("/users/:userId/documents", async (req, res) => {
   const rows = await prisma.clientDocument.findMany({
