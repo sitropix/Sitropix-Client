@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { randomUUID } from "node:crypto";
 import { env } from "../config/env.mjs";
 
 function userId(user) {
@@ -12,7 +13,7 @@ export function signAccessToken(user) {
 }
 
 export function signRefreshToken(user) {
-  return jwt.sign({ sub: userId(user), type: "refresh" }, env.jwtRefreshSecret, {
+  return jwt.sign({ sub: userId(user), type: "refresh", jti: randomUUID() }, env.jwtRefreshSecret, {
     expiresIn: `${env.jwtRefreshTtlDays}d`,
   });
 }

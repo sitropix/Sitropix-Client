@@ -13,12 +13,15 @@ import {
   revokeAdminInvite,
 } from "@/services/subscriptionsApi";
 import type { AdminInviteRow, Plan } from "@/types/subscription";
+import { useAuth } from "@/context/AuthContext";
 
 const INVITES_PAGE_SIZE = 10;
 
 export function InvitesPage() {
   const { cache, updateCache } = useAdminPrefetch();
   const { showSuccess, showError } = useToast();
+  const { user } = useAuth();
+  const isMasterAdmin = user?.role === "master_admin";
   const [invites, setInvites] = useState<AdminInviteRow[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [email, setEmail] = useState("");
@@ -57,6 +60,7 @@ export function InvitesPage() {
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
+    if (!isMasterAdmin) return;
     if (!email.trim()) return;
     setCreating(true);
     try {
@@ -108,6 +112,11 @@ export function InvitesPage() {
         <p className="mt-2 max-w-2xl text-sm text-ink-muted">
           Send a secure signup link by email. Optional plan pre-assigns a trial subscription after they register with the same email.
         </p>
+        {!isMasterAdmin && (
+          <p className="mt-2 text-xs text-amber-300">
+            Read-only mode: only master admins can create, resend, or revoke invites.
+          </p>
+        )}
       </header>
 
       <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
@@ -116,6 +125,7 @@ export function InvitesPage() {
           <input
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            disabled={!isMasterAdmin}
             placeholder="Recipient email"
             type="email"
             required
@@ -124,6 +134,7 @@ export function InvitesPage() {
           <select
             value={planId}
             onChange={(e) => setPlanId(e.target.value)}
+            disabled={!isMasterAdmin}
             className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
           >
             <option value="">No pre-assigned plan</option>
@@ -136,6 +147,7 @@ export function InvitesPage() {
           <input
             value={expiresDays}
             onChange={(e) => setExpiresDays(e.target.value)}
+            disabled={!isMasterAdmin}
             placeholder="Expires in days (1–90)"
             type="number"
             min={1}
@@ -145,13 +157,14 @@ export function InvitesPage() {
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
+            disabled={!isMasterAdmin}
             placeholder="Custom onboarding message (optional)"
             rows={3}
             className="md:col-span-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
           />
           <button
             type="submit"
-            disabled={creating}
+            disabled={creating || !isMasterAdmin}
             className="flex items-center justify-center gap-2 rounded-full bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim disabled:opacity-50 md:col-span-2"
           >
             {creating && <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />}
@@ -193,9 +206,10 @@ export function InvitesPage() {
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    disabled={busyInviteId === inv.id}
+                    disabled={busyInviteId === inv.id || !isMasterAdmin}
                     onClick={() =>
                       void (async () => {
+                        if (!isMasterAdmin) return;
                         setBusyInviteId(inv.id);
                         try {
                           await resendAdminInvite(inv.id);
@@ -216,7 +230,7 @@ export function InvitesPage() {
                   </button>
                   <button
                     type="button"
-                    disabled={busyInviteId === inv.id}
+                    disabled={busyInviteId === inv.id || !isMasterAdmin}
                     onClick={() => setRevokeConfirm({ open: true, invite: inv })}
                     className="rounded-lg border border-rose-500/30 px-3 py-1.5 text-xs text-rose-100 disabled:opacity-40"
                   >

@@ -78,6 +78,13 @@ const DEFAULT_EMAIL_TEMPLATES = [
   },
 ];
 
+function requireMasterAdmin(req, res, next) {
+  if (req.auth?.role !== "master_admin") {
+    return res.status(403).json({ error: "forbidden" });
+  }
+  return next();
+}
+
 const funnelEventLimiter = rateLimit({
   windowMs: 60_000,
   max: 90,
@@ -978,7 +985,7 @@ adminRouter.patch("/addons/:id", validate(addonPatchSchema), async (req, res) =>
   return res.json(updated);
 });
 
-adminRouter.post("/invites", validate(createInviteSchema), async (req, res) => {
+adminRouter.post("/invites", requireMasterAdmin, validate(createInviteSchema), async (req, res) => {
   const { email, planId, message, expiresInDays } = req.validatedBody;
   const emailLower = email.toLowerCase();
   if (planId) {
@@ -1050,7 +1057,7 @@ adminRouter.get("/invites", async (_req, res) => {
   );
 });
 
-adminRouter.delete("/invites/:id", async (req, res) => {
+adminRouter.delete("/invites/:id", requireMasterAdmin, async (req, res) => {
   const row = await prisma.invite.findUnique({ where: { id: req.params.id } });
   if (!row) return res.status(404).json({ error: "not_found" });
   if (row.acceptedAt) return res.status(400).json({ error: "already_accepted" });
@@ -1058,7 +1065,7 @@ adminRouter.delete("/invites/:id", async (req, res) => {
   return res.json({ ok: true });
 });
 
-adminRouter.post("/invites/:id/resend", async (req, res) => {
+adminRouter.post("/invites/:id/resend", requireMasterAdmin, async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const row = await prisma.invite.findUnique({
     where: { id: req.params.id },
@@ -1691,7 +1698,7 @@ adminRouter.get("/user-management/users", async (_req, res) => {
   });
 });
 
-adminRouter.post("/user-management/invite", async (req, res) => {
+adminRouter.post("/user-management/invite", requireMasterAdmin, async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const name = String(req.body?.name ?? "").trim();
   const email = String(req.body?.email ?? "").trim().toLowerCase();
@@ -1733,7 +1740,7 @@ adminRouter.post("/user-management/invite", async (req, res) => {
   return res.status(201).json({ ok: true, id: invite.id, email });
 });
 
-adminRouter.post("/user-management/users/:id/deactivate", async (req, res) => {
+adminRouter.post("/user-management/users/:id/deactivate", requireMasterAdmin, async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const userId = String(req.params.id);
   if (userId === req.auth.userId) return res.status(400).json({ error: "cannot_deactivate_self" });
@@ -1757,7 +1764,7 @@ adminRouter.post("/user-management/users/:id/deactivate", async (req, res) => {
   return res.json({ ok: true });
 });
 
-adminRouter.post("/user-management/users/:id/reactivate", async (req, res) => {
+adminRouter.post("/user-management/users/:id/reactivate", requireMasterAdmin, async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const userId = String(req.params.id);
   const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -1777,7 +1784,7 @@ adminRouter.post("/user-management/users/:id/reactivate", async (req, res) => {
   return res.json({ ok: true });
 });
 
-adminRouter.patch("/user-management/users/:id/role", validate(adminUserRolePatchSchema), async (req, res) => {
+adminRouter.patch("/user-management/users/:id/role", requireMasterAdmin, validate(adminUserRolePatchSchema), async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const userId = String(req.params.id);
   const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -1802,7 +1809,7 @@ adminRouter.patch("/user-management/users/:id/role", validate(adminUserRolePatch
   return res.json({ ok: true, id: updated.id, role: updated.role });
 });
 
-adminRouter.put("/user-management/users/:id/module-access", validate(adminUserModuleAccessPutSchema), async (req, res) => {
+adminRouter.put("/user-management/users/:id/module-access", requireMasterAdmin, validate(adminUserModuleAccessPutSchema), async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const userId = String(req.params.id);
   const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -1828,7 +1835,7 @@ adminRouter.put("/user-management/users/:id/module-access", validate(adminUserMo
   return res.json({ ok: true });
 });
 
-adminRouter.post("/user-management/users/:id/password-reset-link", async (req, res) => {
+adminRouter.post("/user-management/users/:id/password-reset-link", requireMasterAdmin, async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const userId = String(req.params.id);
   const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -1860,7 +1867,7 @@ adminRouter.post("/user-management/users/:id/password-reset-link", async (req, r
   return res.json({ ok: true });
 });
 
-adminRouter.post("/user-management/users/:id/set-password", validate(adminUserSetPasswordSchema), async (req, res) => {
+adminRouter.post("/user-management/users/:id/set-password", requireMasterAdmin, validate(adminUserSetPasswordSchema), async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const userId = String(req.params.id);
   const user = await prisma.user.findUnique({ where: { id: userId } });

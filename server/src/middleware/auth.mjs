@@ -19,9 +19,9 @@ export async function requireAuth(req, res, next) {
 export function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.auth) return res.status(401).json({ error: "unauthorized" });
-    // master_admin is a superset of admin privileges for route guards.
-    if (req.auth.role === "master_admin" && roles.includes("admin")) return next();
-    if (!roles.includes(req.auth.role)) return res.status(403).json({ error: "forbidden" });
+    const { role } = req.auth;
+    const allowed = roles.includes(role) || (role === "master_admin" && roles.includes("admin"));
+    if (!allowed) return res.status(403).json({ error: "forbidden" });
     return next();
   };
 }
@@ -29,25 +29,28 @@ export function requireRole(...roles) {
 export function requireModuleAccess(moduleKey) {
   return async (req, res, next) => {
     if (!req.auth) return res.status(401).json({ error: "unauthorized" });
-    if (req.auth.role === "master_admin") return next();
-    if (req.auth.role === "user") return res.status(403).json({ error: "forbidden" });
-    const row = await prisma.userModuleAccess.findUnique({
-      where: { userId_moduleKey: { userId: req.auth.userId, moduleKey } },
-    });
-    if (!row) {
-      return res.status(403).json({
-        error: "module_forbidden",
-        moduleKey,
-        message: "Your account does not currently have access to this admin module.",
+    const { role, userId } = req.auth;
+
+    if (role === "master_admin" || role === "admin") return next();
+    if (role === "user") return res.status(403).json({ error: "forbidden" });
+
+    const forbiddenBody = {
+      error: "module_forbidden",
+      moduleKey,
+      message: "Your account does not currently have access to this admin module.",
+    };
+
+    try {
+      const row = await prisma.userModuleAccess.findUnique({
+        where: { userId_moduleKey: { userId, moduleKey } },
+      });
+      if (!row || !row.enabled) return res.status(403).json(forbiddenBody);
+      return next();
+    } catch {
+      return res.status(503).json({
+        error: "module_access_unavailable",
+        message: "Module access checks are temporarily unavailable.",
       });
     }
-    if (!row.enabled) {
-      return res.status(403).json({
-        error: "module_forbidden",
-        moduleKey,
-        message: "Your account does not currently have access to this admin module.",
-      });
-    }
-    return next();
   };
 }
