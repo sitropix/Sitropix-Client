@@ -18,6 +18,8 @@ import {
   bootstrapSubscriptionSchema,
   changePlanSchema,
   checkoutSessionSchema,
+  addonCheckoutSessionSchema,
+  confirmAddonCheckoutSchema,
   couponSchema,
   funnelEventSchema,
   paymentMethodSchema,
@@ -451,11 +453,31 @@ router.post("/change-plan", validate(changePlanSchema), async (req, res) => {
     });
   }
 
-  const updated = await prisma.subscription.update({
+  let updated = await prisma.subscription.update({
     where: { id: sub.id },
     data: { planId: nextPlan.id, billingCycle: cycle },
     include: { plan: true },
   });
+
+  if (projectId) {
+    try {
+      await syncSubscriptionFromStripeForUserId(req.auth.userId, { projectId });
+    } catch {
+      /* non-fatal */
+    }
+    const refreshed = await findUserProjectSubscription(req.auth.userId, projectId, { include: { plan: true } });
+    if (refreshed) updated = refreshed;
+    await prisma.project.updateMany({
+      where: { id: projectId, ownerUserId: req.auth.userId },
+      data: {
+        planId: updated.planId,
+        planName: updated.plan?.name ?? nextPlan.name,
+        billingCycle: updated.billingCycle,
+        planValidUntil: updated.currentPeriodEnd,
+        subscriptionStatus: "active",
+      },
+    });
+  }
   await logAuditEvent({
     action: "subscription.plan_changed",
     actorUserId: req.auth.userId,
@@ -652,8 +674,29 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
   let planLineItem = null;
   if (stripePriceId) {
     try {
-      await stripe.prices.retrieve(stripePriceId);
-      planLineItem = { price: stripePriceId, quantity: 1 };
+      const priceObj = await stripe.prices.retrieve(stripePriceId, { expand: ["product"] });
+      const product = priceObj.product;
+      const productInactive =
+        typeof product === "object" &&
+        product !== null &&
+        "active" in product &&
+        product.active === false;
+      const priceInactive = priceObj.active === false;
+      if (priceInactive || productInactive) {
+        log.warn("checkout_session.inactive_stripe_price_or_product_fallback", {
+          userId: req.auth.userId,
+          planId: plan.id,
+          billingCycle,
+          stripePriceId,
+          priceInactive,
+          productInactive,
+          ...(typeof product === "object" && product !== null && "id" in product
+            ? { stripeProductId: product.id }
+            : {}),
+        });
+      } else {
+        planLineItem = { price: stripePriceId, quantity: 1 };
+      }
     } catch (e) {
       const msg = String(e?.message ?? "");
       if (!msg.includes("No such price")) throw e;
@@ -704,14 +747,14 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
   } catch {
     checkoutSuccessUrl = successUrl;
   }
+  /** One-time add-on charges on the first invoice only — not recurring subscription items. */
   const addonLineItems = normalizedAddons.map((code) => {
     const item = addonCatalog.get(code);
     if (!item) return null;
     return {
       price_data: {
         currency: plan.currency.toLowerCase(),
-        product_data: { name: item.label },
-        recurring: { interval: billingCycle === "yearly" ? "year" : "month" },
+        product_data: { name: `${item.label} (add-on, one-time)` },
         unit_amount: item.amountCents,
       },
       quantity: 1,
@@ -746,6 +789,156 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
     sessionId: session.id,
   });
   return res.json({ url: session.url });
+});
+
+/** One-time payment for add-on(s) on an existing project subscription; merges codes into `project.addonsJson`. */
+router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), async (req, res) => {
+  assertStripeConfigured();
+  const {
+    projectId,
+    addonCodes: rawCodes,
+    successUrl: successUrlOverride,
+    cancelUrl: cancelUrlOverride,
+  } = req.validatedBody;
+  subscriptionDebug(req, "addon_checkout_session.start", {
+    userId: req.auth.userId,
+    projectId,
+    requestedAddonCount: rawCodes.length,
+  });
+  const project = await prisma.project.findFirst({ where: { id: projectId, ownerUserId: req.auth.userId } });
+  if (!project) return res.status(404).json({ error: "project_not_found" });
+  const sub = await findUserProjectSubscription(req.auth.userId, projectId, { include: { plan: true } });
+  if (!sub || !["active", "trialing"].includes(sub.status)) {
+    return res.status(409).json({ error: "subscription_not_active" });
+  }
+  if (!sub.stripeCustomerId) {
+    return res.status(400).json({
+      error: "missing_stripe_customer",
+      message: "Billing profile is incomplete. Open subscription checkout once, then retry add-ons.",
+    });
+  }
+  const existing = Array.isArray(project.addonsJson) ? project.addonsJson.filter((v) => typeof v === "string") : [];
+  const addonCatalogRows = await fetchSubscriptionAddonCatalog();
+  const addonByCode = new Map(addonCatalogRows.map((r) => [r.code, r]));
+  const requested = Array.from(
+    new Set(rawCodes.map((c) => String(c ?? "").trim()).filter((c) => addonByCode.has(c) && !existing.includes(c))),
+  );
+  if (requested.length === 0) {
+    return res.status(400).json({ error: "no_new_addons_to_purchase" });
+  }
+  const currency = (sub.plan?.currency ?? addonByCode.get(requested[0])?.currency ?? "USD").toLowerCase();
+  const successUrl = successUrlOverride ?? env.stripeSuccessUrl;
+  const cancelUrl = cancelUrlOverride ?? env.stripeCancelUrl;
+  if (!isAllowedRedirect(successUrl) || !isAllowedRedirect(cancelUrl)) {
+    return res.status(400).json({
+      error: "invalid_redirect_url",
+      message: "Redirect URL is not in the allowed origin list.",
+    });
+  }
+  const u = new URL(successUrl);
+  u.searchParams.set("subscriptionFunnel", "addon_checkout_return");
+  u.searchParams.set("projectId", projectId);
+  const qs = u.searchParams.toString();
+  const checkoutSuccessUrl = `${u.origin}${u.pathname}?${qs}&session_id={CHECKOUT_SESSION_ID}${u.hash || ""}`;
+  const lineItems = requested.map((code) => {
+    const item = addonByCode.get(code);
+    return {
+      price_data: {
+        currency,
+        product_data: { name: `${item.label} (add-on)` },
+        unit_amount: item.priceCents,
+      },
+      quantity: 1,
+    };
+  });
+  const checkoutMetadata = {
+    userId: req.auth.userId,
+    projectId,
+    kind: "project_addon_payment",
+    addonCodes: requested.join(","),
+  };
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    customer: sub.stripeCustomerId,
+    line_items: lineItems,
+    success_url: checkoutSuccessUrl,
+    cancel_url: cancelUrl,
+    metadata: checkoutMetadata,
+    payment_intent_data: {
+      metadata: checkoutMetadata,
+    },
+  });
+  subscriptionDebug(req, "addon_checkout_session.success", {
+    userId: req.auth.userId,
+    projectId,
+    sessionId: session.id,
+    addonCodes: requested,
+  });
+  return res.json({ url: session.url });
+});
+
+router.post("/confirm-addon-checkout", validate(confirmAddonCheckoutSchema), async (req, res) => {
+  assertStripeConfigured();
+  const { sessionId, projectId } = req.validatedBody;
+  subscriptionDebug(req, "addon_checkout_confirm.start", { userId: req.auth.userId, projectId, sessionId });
+  const project = await prisma.project.findFirst({ where: { id: projectId, ownerUserId: req.auth.userId } });
+  if (!project) return res.status(404).json({ error: "project_not_found" });
+  let session;
+  try {
+    session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] });
+  } catch (e) {
+    return res.status(400).json({ error: "invalid_session", message: e?.message ?? "Could not load checkout session." });
+  }
+  if (session.mode !== "payment") return res.status(400).json({ error: "wrong_session_mode" });
+  if (session.payment_status !== "paid") {
+    return res.status(409).json({ error: "payment_not_complete", status: session.payment_status });
+  }
+  const meta = session.metadata ?? {};
+  if (String(meta.userId ?? "") !== req.auth.userId || String(meta.projectId ?? "") !== projectId) {
+    return res.status(403).json({ error: "session_metadata_mismatch" });
+  }
+  if (String(meta.kind ?? "") !== "project_addon_payment") {
+    return res.status(400).json({ error: "wrong_session_kind" });
+  }
+  const codes = String(meta.addonCodes ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (codes.length === 0) return res.status(400).json({ error: "missing_addon_codes" });
+  const addonCatalogRows = await fetchSubscriptionAddonCatalog();
+  const valid = new Set(addonCatalogRows.map((r) => r.code));
+  const normalized = codes.filter((c) => valid.has(c));
+  const dedupeId = `stripe_session_${sessionId}`;
+  const invoices = Array.isArray(project.invoicesJson) ? project.invoicesJson : [];
+  if (invoices.some((inv) => inv && inv.id === dedupeId)) {
+    subscriptionDebug(req, "addon_checkout_confirm.idempotent", { userId: req.auth.userId, projectId, sessionId });
+    return res.json({ ok: true, alreadyProcessed: true });
+  }
+  const existing = Array.isArray(project.addonsJson) ? project.addonsJson.filter((v) => typeof v === "string") : [];
+  const merged = Array.from(new Set([...existing, ...normalized]));
+  const amountCents = normalized.reduce((sum, code) => {
+    const row = addonCatalogRows.find((r) => r.code === code);
+    return sum + (row?.priceCents ?? 0);
+  }, 0);
+  const currency = addonCatalogRows.find((r) => r.code === normalized[0])?.currency ?? "USD";
+  const invoiceNumber = `ADD-${String(invoices.length + 1).padStart(4, "0")}`;
+  const nextInvoices = [
+    {
+      id: dedupeId,
+      invoiceNumber,
+      amountCents,
+      currency,
+      status: "succeeded",
+      paidAt: new Date().toISOString(),
+    },
+    ...invoices,
+  ];
+  await prisma.project.update({
+    where: { id: project.id },
+    data: { addonsJson: merged, invoicesJson: nextInvoices },
+  });
+  subscriptionDebug(req, "addon_checkout_confirm.success", { userId: req.auth.userId, projectId, addonCodes: normalized });
+  return res.json({ ok: true });
 });
 
 router.post("/billing-portal", validate(billingPortalSchema), async (req, res) => {

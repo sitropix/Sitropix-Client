@@ -1,4 +1,8 @@
-import { REQUIRED_PROJECT_ASSETS, hasValidProjectPlan, listProjectsByUser } from "@/services/projectsStore";
+import {
+  CORE_REQUIRED_PROJECT_ASSETS,
+  hasValidProjectPlan,
+  listProjectsByUser,
+} from "@/services/projectsStore";
 import { fetchProjectAssets } from "@/services/subscriptionsApi";
 import type { ProjectRecord } from "@/types/project";
 
@@ -33,7 +37,7 @@ export async function getOnboardingStatusFromProjects(
       }),
     );
     hasAssetsReady = assetsByProject.some((assets) =>
-      REQUIRED_PROJECT_ASSETS.every((req) =>
+      CORE_REQUIRED_PROJECT_ASSETS.every((req) =>
         assets.some((asset) => asset.type === req.type),
       ),
     );
@@ -57,7 +61,7 @@ export async function getProjectAssetReadinessForProjects(projects: ProjectRecor
     projects.map(async (project) => {
       try {
         const assets = await fetchProjectAssets(project.id);
-        const ready = REQUIRED_PROJECT_ASSETS.every((req) =>
+        const ready = CORE_REQUIRED_PROJECT_ASSETS.every((req) =>
           assets.some((asset) => asset.type === req.type),
         );
         return [project.id, ready] as const;

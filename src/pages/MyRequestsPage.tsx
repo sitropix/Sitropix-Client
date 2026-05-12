@@ -179,6 +179,11 @@ export function MyRequestsPage() {
                             {t.department}
                           </span>
                         ) : null}
+                        {t.projectName ? (
+                          <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-900">
+                            {t.projectName}
+                          </span>
+                        ) : null}
                       </div>
                       <h2 className="mt-2.5 text-base font-semibold leading-snug text-zinc-900 group-hover:text-zinc-700 sm:text-lg">
                         {t.subject}

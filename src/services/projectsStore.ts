@@ -1,14 +1,21 @@
 import { api } from "@/services/http";
-import type { BillingCycle } from "@/types/subscription";
+import type { BillingCycle, Plan } from "@/types/subscription";
 import type { ProjectRecord, ProjectRequirementType } from "@/types/project";
 
-export const REQUIRED_PROJECT_ASSETS: Array<{ type: ProjectRequirementType; label: string }> = [
+/** All intake file categories users may upload (optional beyond the core set). */
+export const PROJECT_ASSET_TYPES: Array<{ type: ProjectRequirementType; label: string }> = [
   { type: "requirements", label: "Requirement documents" },
   { type: "branding", label: "Branding assets" },
   { type: "logos", label: "Logos" },
   { type: "brand_voice", label: "Brand voice guidelines" },
   { type: "logs", label: "Logs" },
   { type: "catalog", label: "Product catalogues" },
+];
+
+/** Minimum uploads expected for every project before checkout / leaving draft onboarding. */
+export const CORE_REQUIRED_PROJECT_ASSETS: Array<{ type: ProjectRequirementType; label: string }> = [
+  { type: "requirements", label: "Requirement documents" },
+  { type: "branding", label: "Branding assets" },
 ];
 
 function normalizeProject(project: ProjectRecord): ProjectRecord {
@@ -63,12 +70,27 @@ export async function createProject(_userId: string, name: string, description: 
 }
 
 export function hasAllRequiredAssets(project: ProjectRecord): boolean {
-  return REQUIRED_PROJECT_ASSETS.every((req) => project.assets.some((asset) => asset.type === req.type));
+  return CORE_REQUIRED_PROJECT_ASSETS.every((req) =>
+    project.assets.some((asset) => asset.type === req.type),
+  );
 }
 
 export function hasValidProjectPlan(project: ProjectRecord): boolean {
   if (project.subscriptionStatus !== "active" || !project.planId || !project.planValidUntil) return false;
   return new Date(project.planValidUntil).getTime() > Date.now();
+}
+
+/** Lowest index = entry tier. Requires non-empty `plans`. */
+export function planTierIndex(planId: string | null | undefined, plans: Plan[]): number {
+  if (!planId || plans.length === 0) return -1;
+  const sorted = [...plans].sort((a, b) => a.priceMonthlyCents - b.priceMonthlyCents);
+  return sorted.findIndex((p) => p.id === planId);
+}
+
+export function isHighestPricedPlan(planId: string | null | undefined, plans: Plan[]): boolean {
+  if (!planId || plans.length === 0) return false;
+  const sorted = [...plans].sort((a, b) => b.priceMonthlyCents - a.priceMonthlyCents);
+  return sorted[0]?.id === planId;
 }
 
 export async function activateProjectSubscription(
@@ -166,6 +188,13 @@ export interface ProjectSubscriptionDetailsRecord {
     paidAt: string | null;
     invoicePdfUrl: string | null;
   }>;
+  /** Default payment method on the Stripe subscription (from Stripe), if known. */
+  paymentMethod: {
+    brand: string;
+    last4: string;
+    expMonth: number;
+    expYear: number;
+  } | null;
 }
 
 export async function listProjectSubscriptionDetails(): Promise<ProjectSubscriptionDetailsRecord[]> {

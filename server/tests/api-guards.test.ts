@@ -6,12 +6,17 @@ describe("API guardrails", () => {
   it("returns health status without auth", async () => {
     const res = await request(app).get("/api/health");
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ ok: true, service: "zohoportal-api" });
+    expect(res.body).toMatchObject({
+      ok: true,
+      service: "sitropix-portal-api",
+    });
     expect(res.headers["x-request-id"]).toBeTruthy();
   });
 
   it("echoes incoming X-Request-Id", async () => {
-    const res = await request(app).get("/api/health").set("X-Request-Id", "client-trace-1");
+    const res = await request(app)
+      .get("/api/health")
+      .set("X-Request-Id", "client-trace-1");
     expect(res.headers["x-request-id"]).toBe("client-trace-1");
   });
 
@@ -27,4 +32,3 @@ describe("API guardrails", () => {
     expect(res.body).toMatchObject({ error: "unauthorized" });
   });
 });
-

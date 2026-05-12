@@ -4,10 +4,10 @@
  * Requires STRIPE_SECRET_KEY in .env. Safe to re-run: only creates missing prices.
  */
 import { PrismaClient } from "@prisma/client";
-import Stripe from "stripe";
 import dotenv from "dotenv";
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import Stripe from "stripe";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 dotenv.config({ path: join(root, ".env") });
@@ -21,7 +21,10 @@ if (!key) {
 const stripe = new Stripe(key);
 const prisma = new PrismaClient();
 
-const plans = await prisma.plan.findMany({ where: { archivedAt: null }, orderBy: { code: "asc" } });
+const plans = await prisma.plan.findMany({
+  where: { archivedAt: null },
+  orderBy: { code: "asc" },
+});
 for (const plan of plans) {
   const currency = (plan.currency || "USD").toLowerCase();
   let productId = plan.stripeProductId;
@@ -30,7 +33,7 @@ for (const plan of plans) {
     const product = await stripe.products.create({
       name: plan.name,
       description: plan.description || undefined,
-      metadata: { planCode: plan.code, portal: "zohoportal" },
+      metadata: { planCode: plan.code, portal: "sitropix-portal" },
     });
     productId = product.id;
     console.log(`[${plan.code}] product ${productId}`);
@@ -48,7 +51,9 @@ for (const plan of plans) {
       metadata: { planCode: plan.code, cycle: "monthly" },
     });
     monthlyId = pr.id;
-    console.log(`[${plan.code}] monthly price ${monthlyId} ($${(plan.priceMonthlyCents / 100).toFixed(2)}/${currency})`);
+    console.log(
+      `[${plan.code}] monthly price ${monthlyId} ($${(plan.priceMonthlyCents / 100).toFixed(2)}/${currency})`,
+    );
   }
 
   if (!yearlyId) {
@@ -60,7 +65,9 @@ for (const plan of plans) {
       metadata: { planCode: plan.code, cycle: "yearly" },
     });
     yearlyId = pr.id;
-    console.log(`[${plan.code}] yearly price ${yearlyId} ($${(plan.priceYearlyCents / 100).toFixed(2)}/${currency} yr)`);
+    console.log(
+      `[${plan.code}] yearly price ${yearlyId} ($${(plan.priceYearlyCents / 100).toFixed(2)}/${currency} yr)`,
+    );
   }
 
   await prisma.plan.update({

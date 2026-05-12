@@ -10,6 +10,7 @@ import {
   hasValidProjectPlan,
   listProjectsByUser,
 } from "@/services/projectsStore";
+import { PROJECTS_LIST_INVALIDATE_EVENT } from "@/services/projectsInvalidate";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 
@@ -89,7 +90,14 @@ function ThemeToggleIcon({ dark }: { dark: boolean }) {
   );
 }
 
-function HeaderProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
+function HeaderProfileMenu({
+  onNavigate,
+  workspacePlanSummary,
+}: {
+  onNavigate?: () => void;
+  /** Short label for multi-project billing (e.g. plan name or "2 active plans"). */
+  workspacePlanSummary?: string | null;
+}) {
   const { logout } = useAuth();
   const { isDark, toggleTheme } = useTheme();
   const { contact, subscription } = useUser();
@@ -108,7 +116,10 @@ function HeaderProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
   const displayName = contact
     ? `${contact.firstName} ${contact.lastName}`.trim()
     : "Customer";
-  const planLabel = subscription?.planName?.trim() || "Workspace";
+  const planLabel =
+    workspacePlanSummary?.trim() ||
+    subscription?.planName?.trim() ||
+    "Workspace";
   const initials = (
     contact?.firstName?.trim().charAt(0) ||
     contact?.lastName?.trim().charAt(0) ||
@@ -208,18 +219,21 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<
     Awaited<ReturnType<typeof listProjectsByUser>>
   >([]);
+  /** True until the in-flight project list fetch for the current user completes (avoids onboarding UI from empty state). */
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const prevResolvedUserIdRef = useRef<string | null>(null);
   const [onboarding, setOnboarding] = useState({
     hasProject: false,
     hasAssetsReady: false,
     hasActiveSubscription: false,
     completed: false,
   });
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const { isFirstLogin, user } = useAuth();
   const { isAdmin } = useAuthz();
   const { isDark, toggleTheme } = useTheme();
   const { portal } = useUser();
-  const userId = user?.id ?? portal?.user?.id ?? "guest-user";
+  const resolvedUserId = user?.id ?? portal?.user?.id ?? null;
   const projectsKey = useMemo(
     () =>
       projects
@@ -245,33 +259,72 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
     [projects],
   );
   const shouldLockByFirstLogin = isFirstLogin;
+  const projectsReady = !projectsLoading;
   const shouldRestrictNav =
+    projectsReady &&
     !userHasActiveSubscriptionAnywhere &&
     (shouldLockByFirstLogin || !onboarding.completed);
   useEffect(() => {
+    if (!resolvedUserId) {
+      prevResolvedUserIdRef.current = null;
+      setProjects([]);
+      setProjectsLoading(false);
+      return;
+    }
+    const userSwitched = prevResolvedUserIdRef.current !== resolvedUserId;
+    prevResolvedUserIdRef.current = resolvedUserId;
+    if (userSwitched) setProjectsLoading(true);
+
+    const forceList =
+      search.includes("payment_success=1") || search.includes("payment_success=true");
     let cancelled = false;
-    void listProjectsByUser(userId)
+    void listProjectsByUser(resolvedUserId, { force: forceList })
       .then((rows) => {
         if (!cancelled) setProjects(rows);
       })
       .catch(() => {
         if (!cancelled) setProjects([]);
+      })
+      .finally(() => {
+        if (!cancelled) setProjectsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [resolvedUserId, pathname, search]);
+
+  useEffect(() => {
+    if (!resolvedUserId) return;
+    const uid: string = resolvedUserId;
+    function onInvalidate() {
+      void listProjectsByUser(uid, { force: true })
+        .then((rows) => {
+          setProjects(rows);
+        })
+        .catch(() => {
+          setProjects([]);
+        });
+    }
+    window.addEventListener(PROJECTS_LIST_INVALIDATE_EVENT, onInvalidate);
+    return () => window.removeEventListener(PROJECTS_LIST_INVALIDATE_EVENT, onInvalidate);
+  }, [resolvedUserId]);
 
   const requiresProjectCreation = !onboarding.hasProject;
-  const hideOnboardingPopupOnPaths = ["/projects", "/projects/", "/subscription"];
+  const hideOnboardingPopupOnPaths = [
+    "/projects",
+    "/projects/",
+    "/subscription",
+  ];
   const shouldHideOnboardingPopupForCurrentPath =
     hideOnboardingPopupOnPaths.some((p) => matchesAllowedPath(pathname, p));
   const onboardingPopupVisible =
+    projectsReady &&
     shouldRestrictNav &&
     !shouldHideOnboardingPopupForCurrentPath &&
     (requiresProjectCreation || showOnboardingPopup);
 
   useEffect(() => {
+    if (projectsLoading || !resolvedUserId) return;
     let cancelled = false;
     void getOnboardingStatusFromProjects(projects)
       .then((status) => {
@@ -292,7 +345,7 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [projectsKey]);
+  }, [projectsKey, projectsLoading, resolvedUserId]);
 
   useEffect(() => {
     if (requiresProjectCreation) {
@@ -331,10 +384,19 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
   const sortedPlans = [...(portal?.plans ?? [])].sort(
     (a, b) => a.priceMonthlyCents - b.priceMonthlyCents,
   );
-  const currentProject = projects.find(
-    (project) => project.subscriptionStatus === "active",
+  const subscribedProjects = useMemo(
+    () => projects.filter((project) => hasValidProjectPlan(project)),
+    [projects],
   );
-  const currentPlanId = currentProject?.planId ?? null;
+  const workspacePlanSummary = useMemo(() => {
+    if (subscribedProjects.length === 0) return null;
+    if (subscribedProjects.length === 1) {
+      return subscribedProjects[0]?.planName?.trim() || "Active plan";
+    }
+    return `${subscribedProjects.length} active plans`;
+  }, [subscribedProjects]);
+  const primarySubscribed = subscribedProjects[0];
+  const currentPlanId = primarySubscribed?.planId ?? null;
   const currentIdx =
     currentPlanId != null
       ? sortedPlans.findIndex((p) => p.id === currentPlanId)
@@ -351,7 +413,7 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
       to: "/subscription-management",
       label: "Payment Management",
     },
-    { to: "/subscription", label: "Plans & Add-Ons" },
+    { to: "/subscription", label: "Plan catalog" },
     { to: "/requests", label: "Support" },
     { to: "/workspace", label: "Workspace Files" },
     { to: "/kb", label: "Knowledge Base" },
@@ -457,7 +519,10 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
             >
               <ThemeToggleIcon dark={isDark} />
             </button>
-            <HeaderProfileMenu onNavigate={() => setOpen(false)} />
+            <HeaderProfileMenu
+              onNavigate={() => setOpen(false)}
+              workspacePlanSummary={workspacePlanSummary}
+            />
           </div>
         </header>
 
@@ -545,6 +610,27 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
         )}
 
         <main className="client-portal-main relative bg-[#ebedf1] px-4 py-6 lg:px-8 lg:py-8">
+          {/* {workspacePlanSummary ? (
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-200/90 bg-gradient-to-r from-sky-50 via-white to-white px-4 py-3 shadow-sm sm:px-5">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-800/90">
+                  Active subscription
+                </p>
+                <p className="mt-0.5 truncate text-sm font-semibold text-zinc-900 sm:text-base">
+                  {workspacePlanSummary}
+                </p>
+                <p className="mt-0.5 text-xs text-zinc-600">
+                  Billing is per project — open Payment Management to change cards or invoices.
+                </p>
+              </div>
+              <Link
+                to="/subscription-management"
+                className="shrink-0 rounded-xl bg-zinc-900 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-zinc-800 sm:text-sm"
+              >
+                Manage billing
+              </Link>
+            </div>
+          ) : null} */}
           <div
             className={
               onboardingPopupVisible

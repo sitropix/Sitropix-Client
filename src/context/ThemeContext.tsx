@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 type Theme = "light" | "dark";
 
@@ -9,7 +16,7 @@ interface ThemeContextValue {
   setTheme: (theme: Theme) => void;
 }
 
-const STORAGE_KEY = "zohoportal-theme";
+const STORAGE_KEY = "sitropix-portal-theme";
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
@@ -17,7 +24,9 @@ function getInitialTheme(): Theme {
   if (typeof window === "undefined") return "light";
   const saved = window.localStorage.getItem(STORAGE_KEY);
   if (saved === "light" || saved === "dark") return saved;
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -33,13 +42,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     () => ({
       theme,
       isDark: theme === "dark",
-      toggleTheme: () => setThemeState((t) => (t === "dark" ? "light" : "dark")),
+      toggleTheme: () =>
+        setThemeState((t) => (t === "dark" ? "light" : "dark")),
       setTheme: (nextTheme: Theme) => setThemeState(nextTheme),
     }),
     [theme],
   );
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return (
+    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+  );
 }
 
 export function useTheme() {
@@ -47,4 +59,3 @@ export function useTheme() {
   if (!ctx) throw new Error("useTheme must be used within ThemeProvider");
   return ctx;
 }
-

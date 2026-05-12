@@ -150,6 +150,17 @@ export function TicketDetailPage() {
           )}
         </div>
         <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">{detail.subject}</h1>
+        {detail.projectName && detail.projectId ? (
+          <p className="text-sm text-ink-muted">
+            Linked project:{" "}
+            <Link
+              to={`/projects/${detail.projectId}`}
+              className="font-medium text-brand-lime underline-offset-2 hover:underline"
+            >
+              {detail.projectName}
+            </Link>
+          </p>
+        ) : null}
         <p className="text-xs text-ink-muted">
           Opened {formatWhen(detail.createdAt)} — last update {formatWhen(detail.updatedAt)}
         </p>

@@ -1,9 +1,12 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { RichTextEditor } from "@/components/RichTextEditor";
+import { useAuth } from "@/context/AuthContext";
 import { useTickets } from "@/hooks/useTickets";
 import { useUser } from "@/context/UserContext";
+import { listProjectsByUser } from "@/services/projectsStore";
+import type { ProjectRecord } from "@/types/project";
 import type { TicketPriority } from "@/types/support";
 
 const DEPARTMENTS = [
@@ -29,15 +32,34 @@ function stripHtml(html: string): string {
 
 export function SubmitTicketPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { submitTicket } = useTickets();
-  const { subscription } = useUser();
+  const { subscription, portal } = useUser();
+  const userId = user?.id ?? portal?.user?.id ?? "";
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [subject, setSubject] = useState("");
   const [description, setDescription] = useState("");
   const [department, setDepartment] = useState("General");
   const [priority, setPriority] = useState<TicketPriority>("medium");
+  const [projectId, setProjectId] = useState<string>("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    void listProjectsByUser(userId)
+      .then((rows) => {
+        if (!cancelled) setProjects(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setProjects([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   const currentPlan = subscription?.planName ?? "No Active Plan";
 
@@ -56,6 +78,7 @@ export function SubmitTicketPage() {
         description: description.trim(),
         departmentId: department,
         priority,
+        projectId: projectId.trim() || undefined,
         attachments,
       });
       navigate("/requests");
@@ -115,7 +138,7 @@ export function SubmitTicketPage() {
             </div>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6 lg:grid-cols-3">
             <div>
               <label htmlFor="priority" className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">
                 Priority <span className="text-rose-400">*</span>
@@ -135,12 +158,34 @@ export function SubmitTicketPage() {
             </div>
 
             <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">
-                Current Plan
+              <label htmlFor="ticket-project" className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">
+                Related project <span className="font-normal text-zinc-500">(optional)</span>
               </label>
-              <div className="mt-2 flex h-[42px] items-center rounded-xl border border-white/10 bg-black/20 px-3">
+              <p className="mt-1 text-[11px] text-ink-muted">
+                Link this ticket to a project so our team sees the right context.
+              </p>
+              <select
+                id="ticket-project"
+                value={projectId}
+                onChange={(e) => setProjectId(e.target.value)}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white outline-none transition focus:border-brand-lime/35 focus:ring-2 focus:ring-brand-lime/25"
+              >
+                <option value="">No specific project</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id} className="bg-[#0f1419]">
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">
+                Workspace plan (reference)
+              </label>
+              <div className="mt-2 flex min-h-[42px] items-center rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <span className="inline-flex items-center gap-2 text-sm text-ink-muted">
-                  <span className="inline-flex h-2 w-2 rounded-full bg-brand-lime" />
+                  <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-brand-lime" />
                   {currentPlan}
                 </span>
               </div>

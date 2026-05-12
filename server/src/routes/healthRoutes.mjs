@@ -1,6 +1,6 @@
 import express from "express";
-import { prisma } from "../db/client.mjs";
 import { env } from "../config/env.mjs";
+import { prisma } from "../db/client.mjs";
 import { getMetricsSnapshot } from "../observability/metrics.mjs";
 
 const router = express.Router();
@@ -9,7 +9,7 @@ const router = express.Router();
 router.get("/health", (_req, res) => {
   return res.json({
     ok: true,
-    service: "zohoportal-api",
+    service: "sitropix-portal-api",
     environment: env.nodeEnv,
     ts: new Date().toISOString(),
     uptimeSec: Math.round(process.uptime()),
@@ -23,14 +23,14 @@ router.get("/health/ready", async (_req, res) => {
     await prisma.$queryRaw`SELECT 1`;
     return res.json({
       ok: true,
-      service: "zohoportal-api",
+      service: "sitropix-portal-api",
       database: "up",
       latencyMs: Date.now() - t0,
     });
   } catch (e) {
     return res.status(503).json({
       ok: false,
-      service: "zohoportal-api",
+      service: "sitropix-portal-api",
       database: "down",
       error: env.nodeEnv === "development" ? e?.message : "unavailable",
     });
@@ -48,7 +48,8 @@ router.get("/metrics", (req, res) => {
     }
     return res.json({
       ...getMetricsSnapshot(),
-      _warning: "Set METRICS_BEARER_TOKEN and use Authorization: Bearer in production.",
+      _warning:
+        "Set METRICS_BEARER_TOKEN and use Authorization: Bearer in production.",
     });
   }
   const authz = String(req.headers.authorization || "");

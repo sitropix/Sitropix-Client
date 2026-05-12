@@ -249,6 +249,7 @@ model Coupon {
 model SupportTicket {
   id          String         @id @default(cuid())
   userId      String         @map("user_id")
+  projectId   String?        @map("project_id")
   subject     String
   description String         @db.Text
   status      TicketStatus   @default(open)
@@ -259,10 +260,12 @@ model SupportTicket {
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
   user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project     Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
   messages    TicketMessage[]
   attachments TicketAttachment[]
 
   @@index([userId])
+  @@index([projectId])
   @@index([status])
   @@index([priority])
   @@map("support_tickets")
@@ -439,8 +442,9 @@ model Project {
   createdAt          DateTime                  @default(now()) @map("created_at")
   updatedAt          DateTime                  @updatedAt @map("updated_at")
 
-  owner         User           @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  owner         User            @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   subscriptions Subscription[]
+  supportTickets SupportTicket[]
 
   @@index([ownerUserId, createdAt(sort: Desc)])
   @@index([subscriptionStatus])

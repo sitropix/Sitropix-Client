@@ -1,6 +1,8 @@
 import express from "express";
 import { prisma } from "../db/client.mjs";
+import { log } from "../observability/logger.mjs";
 import { requireAuth, requireRole } from "../middleware/auth.mjs";
+import { stripe } from "../services/stripeService.mjs";
 import { syncSubscriptionFromStripeForUserId } from "../services/stripeSubscriptionSync.mjs";
 import {
   findPrimaryUserSubscription,
@@ -108,6 +110,48 @@ router.get("/subscriptions", async (req, res) => {
   );
 });
 
+function summaryFromStripePaymentMethod(pm) {
+  if (!pm || typeof pm !== "object" || pm.object !== "payment_method") return null;
+  if (pm.type === "card" && pm.card) {
+    return {
+      brand: String(pm.card.display_brand ?? pm.card.brand ?? "card"),
+      last4: pm.card.last4 ?? "????",
+      expMonth: pm.card.exp_month ?? 0,
+      expYear: pm.card.exp_year ?? 0,
+    };
+  }
+  if (pm.type === "link" && pm.link) {
+    return {
+      brand: "Link",
+      last4: pm.link.email ? String(pm.link.email).slice(-4) : "••••",
+      expMonth: 0,
+      expYear: 0,
+    };
+  }
+  return null;
+}
+
+/** Default payment method attached to this Stripe subscription (card / Link). */
+async function fetchSubscriptionPaymentMethodSummary(stripeSubscriptionId) {
+  if (!stripe || !stripeSubscriptionId) return null;
+  try {
+    const sub = await stripe.subscriptions.retrieve(stripeSubscriptionId, {
+      expand: ["default_payment_method"],
+    });
+    let raw = sub.default_payment_method;
+    if (typeof raw === "string") {
+      raw = await stripe.paymentMethods.retrieve(raw);
+    }
+    return summaryFromStripePaymentMethod(raw);
+  } catch (e) {
+    log.warn("project.subscription_details.payment_method_failed", {
+      stripeSubscriptionId,
+      error: e?.message ?? String(e),
+    });
+    return null;
+  }
+}
+
 router.get("/subscriptions/details", async (req, res) => {
   const rows = await prisma.subscription.findMany({
     where: { userId: req.auth.userId },
@@ -118,8 +162,9 @@ router.get("/subscriptions/details", async (req, res) => {
     },
     orderBy: { updatedAt: "desc" },
   });
+  const paymentMethods = await Promise.all(rows.map((row) => fetchSubscriptionPaymentMethodSummary(row.stripeSubscriptionId)));
   return res.json(
-    rows.map((row) => ({
+    rows.map((row, i) => ({
       subscription: {
         id: row.id,
         userId: row.userId,
@@ -153,6 +198,7 @@ router.get("/subscriptions/details", async (req, res) => {
         paidAt: p.paidAt,
         invoicePdfUrl: p.invoicePdfUrl,
       })),
+      paymentMethod: paymentMethods[i],
     })),
   );
 });
@@ -186,22 +232,11 @@ router.post("/", async (req, res) => {
   return res.status(201).json(normalizeProject(created));
 });
 
-router.post("/:id/addons/toggle", async (req, res) => {
-  const addonCode = String(req.body?.addonCode ?? "").trim();
-  if (!addonCode) return res.status(400).json({ error: "addon_code_required" });
-  const row = await prisma.project.findFirst({
-    where: { id: req.params.id, ownerUserId: req.auth.userId },
+router.post("/:id/addons/toggle", async (_req, res) => {
+  return res.status(403).json({
+    error: "addon_toggle_disabled",
+    message: "Add-ons are purchased through checkout. Use the project dashboard to buy add-ons.",
   });
-  if (!row) return res.status(404).json({ error: "project_not_found" });
-  const curr = normalizeProject(row);
-  const nextAddons = curr.addons.includes(addonCode)
-    ? curr.addons.filter((a) => a !== addonCode)
-    : [...curr.addons, addonCode];
-  const updated = await prisma.project.update({
-    where: { id: row.id },
-    data: { addonsJson: nextAddons },
-  });
-  return res.json(normalizeProject(updated));
 });
 
 router.post("/:id/activate-subscription", async (req, res) => {
@@ -214,12 +249,16 @@ router.post("/:id/activate-subscription", async (req, res) => {
   const requestedAddonsRaw = Array.isArray(req.body?.addons) ? req.body.addons : [];
   const addonCatalogRows = await fetchSubscriptionAddonCatalog();
   const addonCatalog = new Map(addonCatalogRows.map((row) => [row.code, row.priceCents]));
-  const requestedAddons = Array.from(
+  const requestedAddonsFromBody = Array.from(
     new Set(
       requestedAddonsRaw
         .map((value) => String(value ?? "").trim())
         .filter((code) => addonCatalog.has(code)),
     ),
+  );
+  const currPre = normalizeProject(row);
+  const requestedAddons = Array.from(
+    new Set([...currPre.addons.filter((code) => addonCatalog.has(code)), ...requestedAddonsFromBody]),
   );
   if (!requestedPlanId || !Number.isFinite(requestedAmountCents) || requestedAmountCents < 0) {
     return res.status(400).json({ error: "invalid_payload" });
@@ -269,7 +308,7 @@ router.post("/:id/activate-subscription", async (req, res) => {
   if (!sub.currentPeriodEnd || sub.currentPeriodEnd.getTime() <= Date.now()) {
     return res.status(409).json({ error: "stripe_subscription_expired" });
   }
-  const curr = normalizeProject(row);
+  const curr = currPre;
   const invoiceNumber = `PRJ-${(curr.name || "NEW").slice(0, 3).toUpperCase()}-${String(curr.invoices.length + 1).padStart(4, "0")}`;
   const basePlanAmount =
     sub.billingCycle === "yearly"

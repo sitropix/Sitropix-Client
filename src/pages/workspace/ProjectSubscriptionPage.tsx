@@ -2,30 +2,23 @@ import { Breadcrumb } from "@/components/Breadcrumb";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/context/UserContext";
 import {
-  activateProjectSubscription,
   getProjectById,
-  REQUIRED_PROJECT_ASSETS,
+  CORE_REQUIRED_PROJECT_ASSETS,
+  listProjectsByUser,
+  hasValidProjectPlan,
 } from "@/services/projectsStore";
+import { PROJECT_CHECKOUT_INTENT_KEY, type ProjectCheckoutIntent } from "@/services/projectCheckoutFinalize";
 import {
+  changePlan,
+  createAddonCheckoutSession,
   createCheckoutSession,
   fetchCustomerPortal,
   fetchProjectAssets,
-  syncFromStripe,
 } from "@/services/subscriptionsApi";
 import type { BillingCycle } from "@/types/subscription";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ProjectRecord } from "@/types/project";
-
-const PROJECT_CHECKOUT_INTENT_KEY = "sitropix_project_checkout_intent_v1";
-
-type ProjectCheckoutIntent = {
-  projectId: string;
-  planId: string;
-  billingCycle: BillingCycle;
-  addons: string[];
-  startedAt: number;
-};
 
 function money(cents: number, currency = "USD") {
   return new Intl.NumberFormat(undefined, {
@@ -39,7 +32,7 @@ export function ProjectSubscriptionPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
-  const { portal } = useUser();
+  const { portal, refresh: refreshUser } = useUser();
   const userId = user?.id ?? portal?.user?.id ?? "guest-user";
   const [billingCycle, setBillingCycle] = useState<BillingCycle>("monthly");
   const [selectedPlanId, setSelectedPlanId] = useState<string>("");
@@ -58,6 +51,25 @@ export function ProjectSubscriptionPage() {
     [plans, selectedPlanId],
   );
   const addonByCode = useMemo(() => new Map(addonCatalog.map((addon) => [addon.code, addon])), [addonCatalog]);
+  const sortedPlans = useMemo(
+    () => [...plans].sort((a, b) => a.priceMonthlyCents - b.priceMonthlyCents),
+    [plans],
+  );
+  const hasLiveProjectPlan = Boolean(ownedProject && hasValidProjectPlan(ownedProject));
+  const currentTier = useMemo(() => {
+    if (!hasLiveProjectPlan || !ownedProject?.planId) return -1;
+    return sortedPlans.findIndex((p) => p.id === ownedProject.planId);
+  }, [hasLiveProjectPlan, ownedProject?.planId, sortedPlans]);
+  const selectedTier = useMemo(() => {
+    if (!selectedPlanId) return -1;
+    return sortedPlans.findIndex((p) => p.id === selectedPlanId);
+  }, [selectedPlanId, sortedPlans]);
+  const isDowngradeSelection =
+    hasLiveProjectPlan &&
+    currentTier >= 0 &&
+    selectedTier >= 0 &&
+    selectedTier < currentTier;
+  const ownedAddonCodes = useMemo(() => new Set(ownedProject?.addons ?? []), [ownedProject?.addons]);
 
   useEffect(() => {
     if (portal?.plans && portal.plans.length > 0) {
@@ -90,7 +102,7 @@ export function ProjectSubscriptionPage() {
     void fetchProjectAssets(ownedProject.id)
       .then((assets) => {
         if (cancelled) return;
-        const value = REQUIRED_PROJECT_ASSETS.every((req) =>
+        const value = CORE_REQUIRED_PROJECT_ASSETS.every((req) =>
           assets.some((asset) => asset.type === req.type),
         );
         setReady(value);
@@ -119,6 +131,49 @@ export function ProjectSubscriptionPage() {
       cancelled = true;
     };
   }, [ownedProject?.id]);
+
+  useEffect(() => {
+    if (!ownedProject || !hasValidProjectPlan(ownedProject)) return;
+    setSelectedPlanId(ownedProject.planId ?? "");
+    setBillingCycle(ownedProject.billingCycle ?? "monthly");
+    setAddons([]);
+  }, [ownedProject?.id, ownedProject?.planId]);
+
+  async function onApplySubscriptionChanges() {
+    if (!selectedPlan || !ownedProject) return;
+    if (!hasValidProjectPlan(ownedProject)) return;
+    const newAddonCodes = addons.filter((c) => !ownedAddonCodes.has(c));
+    const effectiveOwnedCycle: BillingCycle = ownedProject.billingCycle ?? "monthly";
+    const planOrCycleChanged =
+      selectedPlanId !== ownedProject.planId || billingCycle !== effectiveOwnedCycle;
+    setBusy(true);
+    setNotice(null);
+    try {
+      if (planOrCycleChanged) {
+        await changePlan(selectedPlanId, billingCycle, { projectId: ownedProject.id });
+      }
+      if (newAddonCodes.length > 0) {
+        const base = `${window.location.origin}/projects/${ownedProject.id}`;
+        const { url } = await createAddonCheckoutSession(ownedProject.id, newAddonCodes, {
+          successUrl: base,
+          cancelUrl: `${window.location.origin}/projects/${ownedProject.id}/subscription`,
+        });
+        if (!url) {
+          setNotice("Could not start add-on checkout.");
+          return;
+        }
+        window.location.assign(url);
+        return;
+      }
+      await listProjectsByUser(userId, { force: true });
+      await refreshUser();
+      navigate({ pathname: `/projects/${ownedProject.id}` }, { replace: true });
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not update subscription.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function onSecureCheckout() {
     if (!selectedPlan || !ownedProject) return;
@@ -155,6 +210,13 @@ export function ProjectSubscriptionPage() {
   }
 
   const selectedPlanAmount = selectedPlan ? (billingCycle === "monthly" ? selectedPlan.priceMonthlyCents : selectedPlan.priceYearlyCents) : 0;
+  const effectiveOwnedBilling: BillingCycle = ownedProject?.billingCycle ?? "monthly";
+  const planOrCycleDirty =
+    hasLiveProjectPlan &&
+    Boolean(ownedProject) &&
+    (selectedPlanId !== ownedProject?.planId || billingCycle !== effectiveOwnedBilling);
+  const newAddonsDirty = addons.some((code) => !ownedAddonCodes.has(code));
+  const nothingToApplyLive = hasLiveProjectPlan && !planOrCycleDirty && !newAddonsDirty;
   const addonsTotal = addons.reduce((sum, code) => {
     const item = addonByCode.get(code);
     return sum + (item?.priceCents ?? 0);
@@ -176,13 +238,13 @@ export function ProjectSubscriptionPage() {
     if (!ownedProject || intent.projectId !== ownedProject.id) return;
     const runKey = `${intent.projectId}:${intent.startedAt}`;
     if (checkoutReturnHandledRef.current === runKey) return;
-    checkoutReturnHandledRef.current = runKey;
     if (Date.now() - intent.startedAt > 2 * 60 * 60 * 1000) {
       window.localStorage.removeItem(PROJECT_CHECKOUT_INTENT_KEY);
+      checkoutReturnHandledRef.current = runKey;
       setNotice("Checkout intent expired. Please try payment again.");
       return;
     }
-
+    checkoutReturnHandledRef.current = runKey;
     setSelectedPlanId((prev) => (prev === intent.planId ? prev : intent.planId));
     setBillingCycle((prev) => (prev === intent.billingCycle ? prev : intent.billingCycle));
     setAddons((prev) => {
@@ -190,51 +252,13 @@ export function ProjectSubscriptionPage() {
       if (prev.length === next.length && prev.every((v, i) => v === next[i])) return prev;
       return next;
     });
-    setBusy(true);
-    setNotice("Verifying Stripe payment...");
-    void (async () => {
-      try {
-        await syncFromStripe({ projectId: ownedProject.id });
-        const portalPayload = await fetchCustomerPortal({ projectId: ownedProject.id });
-        const stripeSub = portalPayload.subscription;
-        const stripePeriodEnd = stripeSub?.currentPeriodEnd ?? null;
-        const isPaidState = stripeSub?.status === "active" || stripeSub?.status === "trialing";
-        if (!stripeSub || !isPaidState || !stripePeriodEnd) {
-          setNotice("Stripe payment not confirmed yet. Complete checkout and retry.");
-          return;
-        }
-        if (stripeSub.planId !== intent.planId) {
-          setNotice("Stripe subscription plan mismatch. Please retry checkout with the selected plan.");
-          return;
-        }
-        const planForAmount = portalPayload.plans.find((p) => p.id === intent.planId) ?? null;
-        const intentAddonsTotal = (intent.addons ?? []).reduce((sum, code) => {
-          const item = addonByCode.get(code);
-          return sum + (item?.priceCents ?? 0);
-        }, 0);
-        const baseAmount =
-          intent.billingCycle === "monthly"
-            ? (planForAmount?.priceMonthlyCents ?? 0)
-            : (planForAmount?.priceYearlyCents ?? 0);
-        await activateProjectSubscription(ownedProject.id, {
-          planId: intent.planId,
-          planName: planForAmount?.name ?? "Plan",
-          billingCycle: intent.billingCycle,
-          amountCents: baseAmount + intentAddonsTotal,
-          currency: planForAmount?.currency || "USD",
-          planValidUntil: stripePeriodEnd,
-          addons: intent.addons ?? [],
-        });
-        window.localStorage.removeItem(PROJECT_CHECKOUT_INTENT_KEY);
-        setNotice(null);
-        navigate(`/projects/${ownedProject.id}`, { replace: true });
-      } catch (err) {
-        setNotice(err instanceof Error ? err.message : "Failed to verify Stripe payment.");
-      } finally {
-        setBusy(false);
-      }
-    })();
-  }, [funnelState, ownedProject?.id, navigate, addonByCode]);
+    // Hand off to My Projects immediately so the user is not blocked on this page
+    // while Stripe sync + activation run (see MyProjectsPage payment_success handler).
+    navigate(
+      { pathname: "/projects", search: "?payment_success=1&payment_source=subscription" },
+      { replace: true },
+    );
+  }, [funnelState, ownedProject?.id, navigate]);
 
   if (!project && !projectLoading) return <Navigate to="/projects" replace />;
   if (!project) return <div className="p-6 text-sm text-zinc-300">Loading project...</div>;
@@ -307,13 +331,21 @@ export function ProjectSubscriptionPage() {
                 billingCycle === "monthly"
                   ? plan.priceMonthlyCents
                   : plan.priceYearlyCents;
+              const tier = sortedPlans.findIndex((p) => p.id === plan.id);
+              const locked =
+                hasLiveProjectPlan &&
+                currentTier >= 0 &&
+                tier >= 0 &&
+                tier < currentTier;
               return (
                 <article
                   key={plan.id}
                   className={`rounded-2xl border p-5 shadow-glass transition ${
-                    active
-                      ? "border-white bg-[#1C2126] text-white"
-                      : "client-plan-card-inactive border-[#2A3037] bg-[#15191C]"
+                    locked
+                      ? "cursor-not-allowed border-[#2A3037] bg-[#101317] opacity-45"
+                      : active
+                        ? "border-white bg-[#1C2126] text-white"
+                        : "client-plan-card-inactive border-[#2A3037] bg-[#15191C]"
                   }`}
                 >
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] opacity-70">
@@ -331,14 +363,19 @@ export function ProjectSubscriptionPage() {
                   </ul>
                   <button
                     type="button"
-                    onClick={() => setSelectedPlanId(plan.id)}
+                    disabled={locked}
+                    onClick={() => {
+                      if (!locked) setSelectedPlanId(plan.id);
+                    }}
                     className={`mt-4 w-full rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                      active
-                        ? "bg-white text-canvas hover:bg-zinc-100"
-                        : "bg-[#2A3037] text-white hover:bg-[#343B45]"
+                      locked
+                        ? "cursor-not-allowed bg-[#1C2126] text-zinc-500"
+                        : active
+                          ? "bg-white text-canvas hover:bg-zinc-100"
+                          : "bg-[#2A3037] text-white hover:bg-[#343B45]"
                     }`}
                   >
-                    {active ? "Selected" : "Select plan"}
+                    {locked ? "Lower tier" : active ? "Selected" : "Select plan"}
                   </button>
                 </article>
               );
@@ -348,10 +385,33 @@ export function ProjectSubscriptionPage() {
           <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
             <div className="rounded-2xl border border-[#2A3037] bg-[#15191C] p-5">
               <h3 className="text-xl font-semibold text-white">Enhance Your Plan</h3>
-              <p className="mt-1 text-sm text-zinc-400">Add powerful extras to accelerate your project.</p>
+              <p className="mt-1 text-sm text-zinc-400">
+                {hasLiveProjectPlan
+                  ? "Add-ons already on your subscription cannot be purchased again. Pick new extras to buy."
+                  : "Add powerful extras to accelerate your project."}
+              </p>
               <div className="mt-4 space-y-3">
                 {addonCatalog.map((addon) => {
+                  const owned = ownedAddonCodes.has(addon.code);
                   const selected = addons.includes(addon.code);
+                  if (owned) {
+                    return (
+                      <div
+                        key={addon.code}
+                        aria-disabled
+                        className="w-full cursor-not-allowed select-none rounded-xl border border-[#2A3037] bg-[#0F1318] px-4 py-3 text-left opacity-70"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-semibold text-zinc-400">{addon.label}</p>
+                          <p className="text-sm font-semibold text-zinc-500">{money(addon.priceCents)}</p>
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-600">{addon.desc}</p>
+                        <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                          Existing add-on
+                        </p>
+                      </div>
+                    );
+                  }
                   return (
                     <button
                       key={addon.code}
@@ -412,11 +472,19 @@ export function ProjectSubscriptionPage() {
               </div>
               <button
                 type="button"
-                disabled={!selectedPlan || busy}
-                onClick={() => void onSecureCheckout()}
+                disabled={
+                  !selectedPlan || busy || (hasLiveProjectPlan && (isDowngradeSelection || nothingToApplyLive))
+                }
+                onClick={() =>
+                  void (hasLiveProjectPlan ? onApplySubscriptionChanges() : onSecureCheckout())
+                }
                 className="mt-6 w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-canvas transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-45"
               >
-                {busy ? "Processing..." : "Proceed to Pay"}
+                {busy
+                  ? "Processing..."
+                  : hasLiveProjectPlan
+                    ? "Apply changes"
+                    : "Proceed to Pay"}
               </button>
               <p className="mt-2 text-center text-xs text-zinc-500">Secure checkout powered by Stripe</p>
             </div>

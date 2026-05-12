@@ -83,6 +83,18 @@ export const checkoutSessionSchema = z.object({
   cancelUrl: safeReturnUrlSchema.optional(),
 });
 
+export const addonCheckoutSessionSchema = z.object({
+  projectId: z.string().min(1).max(120),
+  addonCodes: z.array(z.string().min(1)).min(1).max(20),
+  successUrl: safeReturnUrlSchema.optional(),
+  cancelUrl: safeReturnUrlSchema.optional(),
+});
+
+export const confirmAddonCheckoutSchema = z.object({
+  sessionId: z.string().min(1).max(200),
+  projectId: z.string().min(1).max(120),
+});
+
 export const billingPortalSchema = z.object({
   returnUrl: safeReturnUrlSchema.optional(),
   projectId: z.string().min(1).max(120).optional(),

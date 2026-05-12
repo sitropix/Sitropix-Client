@@ -27,7 +27,10 @@ router.get("/tickets", async (req, res) => {
   const tickets = await prisma.supportTicket.findMany({
     where: { userId: req.auth.userId },
     orderBy: { updatedAt: "desc" },
-    include: { _count: { select: { messages: true } } },
+    include: {
+      _count: { select: { messages: true } },
+      project: { select: { id: true, name: true } },
+    },
   });
   return res.json(
     tickets.map((t) => ({
@@ -38,6 +41,8 @@ router.get("/tickets", async (req, res) => {
       priority: t.priority,
       department: t.department,
       userPlan: t.userPlan,
+      projectId: t.projectId ?? null,
+      projectName: t.project?.name ?? null,
       threadCount: t._count.messages,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
@@ -49,6 +54,7 @@ router.get("/tickets/:id", async (req, res) => {
   const ticket = await prisma.supportTicket.findFirst({
     where: { id: req.params.id, userId: req.auth.userId },
     include: {
+      project: { select: { id: true, name: true } },
       messages: { orderBy: { createdAt: "asc" }, include: { user: { select: { id: true, name: true, email: true } } } },
       attachments: { orderBy: { createdAt: "asc" } },
     },
@@ -62,6 +68,8 @@ router.get("/tickets/:id", async (req, res) => {
     priority: ticket.priority,
     department: ticket.department,
     userPlan: ticket.userPlan,
+    projectId: ticket.projectId ?? null,
+    projectName: ticket.project?.name ?? null,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
     messages: ticket.messages.map((m) => ({
@@ -90,13 +98,26 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
     description: req.body?.description,
     departmentId: req.body?.departmentId,
     priority: req.body?.priority,
+    projectId: req.body?.projectId,
   });
   if (!payloadResult.success) {
     return res.status(400).json({ error: "validation_error", issues: payloadResult.error.issues });
   }
   const payload = payloadResult.data;
   const files = Array.isArray(req.files) ? req.files : [];
-  
+
+  let linkedProjectId = null;
+  if (payload.projectId?.trim()) {
+    const owned = await prisma.project.findFirst({
+      where: { id: payload.projectId.trim(), ownerUserId: req.auth.userId },
+      select: { id: true },
+    });
+    if (!owned) {
+      return res.status(400).json({ error: "invalid_project", message: "Project not found or not owned by you." });
+    }
+    linkedProjectId = owned.id;
+  }
+
   const subscription = await findPrimaryUserSubscription(req.auth.userId, {
     include: { plan: { select: { name: true } } },
   });
@@ -105,6 +126,7 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
   const ticket = await prisma.supportTicket.create({
     data: {
       userId: req.auth.userId,
+      projectId: linkedProjectId,
       subject: payload.subject,
       description: payload.description,
       department: payload.departmentId ?? "General",
@@ -118,7 +140,10 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
         },
       },
     },
-    include: { messages: { orderBy: { createdAt: "asc" } } },
+    include: {
+      messages: { orderBy: { createdAt: "asc" } },
+      project: { select: { id: true, name: true } },
+    },
   });
   const firstMessage = ticket.messages[0];
 
@@ -163,6 +188,8 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
     priority: ticket.priority,
     department: ticket.department,
     userPlan: ticket.userPlan,
+    projectId: ticket.projectId ?? null,
+    projectName: ticket.project?.name ?? null,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
     threadCount: 1,

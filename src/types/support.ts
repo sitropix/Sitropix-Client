@@ -11,6 +11,8 @@ export interface SupportTicket {
   updatedAt: string;
   department?: string;
   userPlan?: string;
+  projectId?: string | null;
+  projectName?: string | null;
   threadCount?: number;
 }
 
@@ -32,6 +34,7 @@ export interface TicketMessageView {
 
 export interface SupportTicketDetail extends SupportTicket {
   messages: TicketMessageView[];
+  projectName?: string | null;
 }
 
 export interface AdminSupportTicketListItem {
@@ -41,6 +44,8 @@ export interface AdminSupportTicketListItem {
   priority?: TicketPriority;
   department: string;
   userPlan?: string;
+  projectId?: string | null;
+  projectName?: string | null;
   createdAt: string;
   updatedAt: string;
   threadCount: number;
@@ -69,5 +74,7 @@ export interface CreateTicketInput {
   description: string;
   departmentId?: string;
   priority?: TicketPriority;
+  /** Optional — must be a project you own. */
+  projectId?: string | null;
   attachments?: File[];
 }

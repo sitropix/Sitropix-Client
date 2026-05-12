@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: zohoportal-api
+    name: sitropix-portal-api
     env: node
     plan: free
     autoDeploy: true

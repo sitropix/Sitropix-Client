@@ -142,13 +142,16 @@ export async function syncSubscriptionFromStripeForUserId(userId, options = {}) 
 
   // Upsert by stripeSubscriptionId first (catches a row that already exists in another
   // project slot for the same user) then fall back to (userId, projectId).
+  const localStatus = mapStripeStatus(full);
+  const pausedAt = localStatus === "paused" ? new Date() : null;
   const data = {
     planId: plan.id,
-    status: mapStripeStatus(full.status),
+    status: localStatus,
     billingCycle,
     currentPeriodStart: periodStart,
     currentPeriodEnd: periodEnd,
     cancelAtPeriodEnd: Boolean(full.cancel_at_period_end),
+    pausedAt,
     stripeSubscriptionId: full.id,
     stripeCustomerId: customerId,
     projectId: resolvedProjectId,

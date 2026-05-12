@@ -195,9 +195,11 @@ export async function handleCheckoutSessionCompleted(session) {
       userId,
       projectId,
     });
+    const status = mapStripeStatus(stripeSub);
     const upsertData = {
       planId: plan.id,
-      status: mapStripeStatus(stripeSub.status),
+      status,
+      pausedAt: status === "paused" ? new Date() : null,
       billingCycle,
       currentPeriodStart: periodStart,
       currentPeriodEnd: periodEnd,
@@ -363,10 +365,12 @@ export async function handleSubscriptionUpdated(stripeSub) {
 
   if (existing) {
     const { start: periodStart, end: periodEnd } = subscriptionPeriodDates(stripeSub);
+    const status = mapStripeStatus(stripeSub);
     await prisma.subscription.update({
       where: { id: existing.id },
       data: {
-        status: mapStripeStatus(stripeSub.status),
+        status,
+        pausedAt: status === "paused" ? new Date() : null,
         currentPeriodStart: periodStart,
         currentPeriodEnd: periodEnd,
         cancelAtPeriodEnd: Boolean(stripeSub.cancel_at_period_end),
@@ -429,7 +433,8 @@ export async function handleSubscriptionUpdated(stripeSub) {
     stripeSubscriptionId: stripeSub.id,
   });
   const { start: periodStart, end: periodEnd } = subscriptionPeriodDates(stripeSub);
-  const status = mapStripeStatus(stripeSub.status);
+  const status = mapStripeStatus(stripeSub);
+  const pausedAt = status === "paused" ? new Date() : null;
   try {
     const target = await findSubscriptionTargetRow({
       stripeSubscriptionId: stripeSub.id,
@@ -439,6 +444,7 @@ export async function handleSubscriptionUpdated(stripeSub) {
     const data = {
       planId: plan.id,
       status,
+      pausedAt,
       billingCycle,
       currentPeriodStart: periodStart,
       currentPeriodEnd: periodEnd,

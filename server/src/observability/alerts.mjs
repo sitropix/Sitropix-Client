@@ -20,7 +20,7 @@ export async function sendAlert({ event, requestId, detail }) {
   lastType = event;
   lastAlertAt = now;
   const body = {
-    source: "zohoportal-api",
+    source: "sitropix-portal-api",
     event,
     at: new Date().toISOString(),
     requestId: requestId ?? null,
@@ -32,7 +32,10 @@ export async function sendAlert({ event, requestId, detail }) {
   try {
     const resW = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": "zohoportal-alerts/1" },
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "sitropix-portal-alerts/1",
+      },
       body: JSON.stringify(body),
       signal: ac.signal,
     });

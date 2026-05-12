@@ -2,10 +2,12 @@ import { Breadcrumb } from "@/components/Breadcrumb";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
 import { InvoiceTablePaged } from "@/components/subscription/InvoiceTablePaged";
-import { SubscriptionStatusBadge } from "@/components/subscription/SubscriptionStatusBadge";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/context/UserContext";
-import { listProjectsByUser } from "@/services/projectsStore";
+import {
+  hasValidProjectPlan,
+  listProjectsByUser,
+} from "@/services/projectsStore";
 import type { AccountProfile } from "@/types/account";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -207,23 +209,8 @@ export function CustomerDashboardPage() {
       cancelled = true;
     };
   }, [resolvedUserId]);
-  const activeProject = projects.find(
-    (project) => project.subscriptionStatus === "active",
-  );
   const greeting = greetingDisplayName(contact, portal?.user?.name);
   const invoices = portal?.invoices ?? [];
-  const sortedPlans = [...(portal?.plans ?? [])].sort(
-    (a, b) => a.priceMonthlyCents - b.priceMonthlyCents,
-  );
-  const currentPlanId = activeProject?.planId ?? null;
-  const currentIdx =
-    currentPlanId != null
-      ? sortedPlans.findIndex((p) => p.id === currentPlanId)
-      : -1;
-  const nextPlan =
-    currentIdx >= 0 && currentIdx < sortedPlans.length - 1
-      ? sortedPlans[currentIdx + 1]
-      : null;
 
   return (
     <div className="space-y-6 opacity-0 animate-fade-up [animation-fill-mode:forwards]">
@@ -264,15 +251,15 @@ export function CustomerDashboardPage() {
         </p>
       )}
 
-      {!loading && !activeProject && (
+      {!loading && projects.length === 0 && (
         <EmptyState
-          title="No project with active plan yet"
-          description="Create a project and assign a valid plan for that project to unlock full features."
+          title="No projects yet"
+          description="Create a project, complete intake, and subscribe from that project’s checkout to unlock the full workspace."
           action={{ label: "Create a Project", href: "/projects" }}
         />
       )}
 
-      {!loading && activeProject && (
+      {!loading && projects.length > 0 && (
         <>
           <section className="jump-back-panel relative overflow-hidden rounded-2xl bg-gradient-to-br from-zinc-200/70 via-sky-50/35 to-zinc-200/65 shadow-[0_0_0_1px_rgba(255,255,255,0.7),0_0_0_6px_rgba(255,255,255,0.08),0_12px_24px_rgba(53,53,54,0.12)] backdrop-blur-sm">
             <div className="border-b border-zinc-300 px-6 py-4 sm:px-7 sm:py-5">
@@ -312,55 +299,64 @@ export function CustomerDashboardPage() {
           <section className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] xl:items-start">
             <div className="dashboard-plan-shell relative overflow-hidden rounded-2xl border border-zinc-300 bg-white shadow-glass">
               <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-zinc-500/60 to-transparent" />
-              <div className="relative grid gap-5 p-5 sm:p-6 lg:min-h-[250px] xl:grid-cols-[minmax(0,1fr)_220px] xl:gap-6">
-                <div className="plan-highlight-card min-w-0 rounded-xl bg-zinc-50/60 p-3.5 flex flex-col">
+              <div className="relative flex flex-col gap-5 p-5 sm:p-6 lg:min-h-[250px] xl:gap-6">
+                <div className="plan-highlight-card flex min-w-0 flex-col rounded-xl bg-zinc-50/60 p-3.5">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                    Current plan
+                    Plans by project
                   </p>
-                  <div className="mt-2">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <h2 className="text-xl font-semibold tracking-tight text-zinc-900 sm:text-2xl">
-                        {activeProject.planName ?? "Current plan"}
-                      </h2>
-                      <SubscriptionStatusBadge status="active" />
-                    </div>
-                    <p className="mt-2.5 text-sm text-zinc-700">
-                      Next billing date{" "}
-                      <span className="font-medium text-zinc-900">
-                        {formatDate(
-                          activeProject.invoices[0]?.paidAt ?? undefined,
-                        )}
-                      </span>
-                    </p>
+                  <div className="mt-2 max-h-[220px] space-y-2 overflow-y-auto pr-1">
+                    {projects.map((p) => {
+                      const live = hasValidProjectPlan(p);
+                      const holding =
+                        !live &&
+                        (p.subscriptionStatus === "on_hold" ||
+                          (p.planId && p.planName && p.planValidUntil));
+                      const label = live
+                        ? "Active"
+                        : holding
+                          ? "On hold"
+                          : "Not subscribed";
+                      return (
+                        <div
+                          key={p.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-200/80 bg-white/80 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-zinc-900">
+                              {p.name}
+                            </p>
+                            <p className="truncate text-xs text-zinc-600">
+                              {p.planName ?? "—"}
+                              {live && p.planValidUntil ? (
+                                <span className="text-zinc-500">
+                                  {" "}
+                                  · Renews {formatDate(p.planValidUntil)}
+                                </span>
+                              ) : null}
+                            </p>
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                              live
+                                ? "bg-emerald-100 text-emerald-900"
+                                : holding
+                                  ? "bg-amber-100 text-amber-900"
+                                  : "bg-zinc-200 text-zinc-700"
+                            }`}
+                          >
+                            {label}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                   <Link
                     to="/subscription-management"
-                    className="plan-cta-light mt-auto inline-flex w-full min-w-0 items-center justify-center rounded-lg bg-zinc-900 px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-zinc-800"
+                    className="plan-cta-light mt-3 inline-flex w-full min-w-0 items-center justify-center rounded-lg bg-zinc-900 px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-zinc-800"
                   >
-                    Manage
+                    Manage billing
                   </Link>
                 </div>
-                {nextPlan ? (
-                  <div className="plan-highlight-card rounded-xl bg-zinc-50/60 p-3.5 flex flex-col">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                      Upgrade
-                    </p>
-                    <p className="mt-1.5 text-xs font-semibold text-zinc-900">
-                      Upgrade to {nextPlan.name}
-                    </p>
-                    <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-600">
-                      Move up from{" "}
-                      {activeProject.planName ?? "your current plan"} for more
-                      capacity and support.
-                    </p>
-                    <Link
-                      to="/subscription"
-                      className="plan-cta-light mt-auto inline-flex w-full min-w-0 items-center justify-center rounded-lg bg-zinc-900 px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-zinc-800"
-                    >
-                      View {nextPlan.name}
-                    </Link>
-                  </div>
-                ) : null}
               </div>
             </div>
 

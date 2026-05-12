@@ -169,7 +169,7 @@ export async function persistStripeIdsOnPlanIfMissing(planId, { priceId, billing
   await prisma.plan.update({ where: { id: planId }, data });
 }
 
-export function mapStripeStatus(status) {
+function mapStripeStatusValue(status) {
   switch (status) {
     case "trialing":
       return "trialing";
@@ -185,4 +185,20 @@ export function mapStripeStatus(status) {
     default:
       return "past_due";
   }
+}
+
+/**
+ * Map Stripe subscription state → local SubscriptionStatus.
+ *
+ * Important: Stripe's UI may show "Collection Paused" when `pause_collection` is set,
+ * while the subscription `status` can still be "active". We treat `pause_collection`
+ * as local `paused` so the self-serve Pause/Resume UI stays accurate.
+ */
+export function mapStripeStatus(stripeSubOrStatus) {
+  if (stripeSubOrStatus && typeof stripeSubOrStatus === "object") {
+    // `pause_collection` is null when collection is active, and an object when paused.
+    if (stripeSubOrStatus.pause_collection != null) return "paused";
+    return mapStripeStatusValue(stripeSubOrStatus.status);
+  }
+  return mapStripeStatusValue(stripeSubOrStatus);
 }

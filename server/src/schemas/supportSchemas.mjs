@@ -5,6 +5,8 @@ export const createTicketSchema = z.object({
   description: z.string().min(10).max(50000),
   departmentId: z.string().max(120).optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+  /** Optional project to associate (must be owned by the authenticated user). */
+  projectId: z.string().min(1).max(80).optional(),
 });
 
 export const replyTicketSchema = z.object({

@@ -2,11 +2,16 @@ import { Breadcrumb } from "@/components/Breadcrumb";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/context/UserContext";
 import {
-  REQUIRED_PROJECT_ASSETS,
+  CORE_REQUIRED_PROJECT_ASSETS,
+  PROJECT_ASSET_TYPES,
   getProjectById,
   hasValidProjectPlan,
-  toggleProjectAddon,
+  isHighestPricedPlan,
 } from "@/services/projectsStore";
+import {
+  confirmAddonCheckoutSession,
+  createAddonCheckoutSession,
+} from "@/services/subscriptionsApi";
 import {
   deleteProjectAssetFile,
   downloadProjectAssetFromServer,
@@ -16,7 +21,7 @@ import {
 } from "@/services/subscriptionsApi";
 import type { ProjectRecord, ProjectRequirementType } from "@/types/project";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 function money(cents: number, currency = "USD") {
   return new Intl.NumberFormat(undefined, {
@@ -48,6 +53,7 @@ export function ProjectDashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { portal } = useUser();
+  const [searchParams, setSearchParams] = useSearchParams();
   const addonCatalog = useMemo(() => portal?.addons ?? [], [portal?.addons]);
   const userId = user?.id ?? portal?.user?.id ?? "guest-user";
   const [, setTick] = useState(0);
@@ -62,6 +68,8 @@ export function ProjectDashboardPage() {
   const quickUploadRef = useRef<HTMLInputElement | null>(null);
   const [rawProject, setRawProject] = useState<ProjectRecord | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
+  const [addonCheckoutBusy, setAddonCheckoutBusy] = useState(false);
+  const addonReturnHandledRef = useRef<string | null>(null);
   const ownedProject =
     rawProject && rawProject.ownerUserId === userId ? rawProject : null;
   async function refreshProject() {
@@ -76,12 +84,48 @@ export function ProjectDashboardPage() {
   useEffect(() => {
     void refreshProject();
   }, [projectId]);
-  async function refreshAssets() {
+
+  const addonFunnel = searchParams.get("subscriptionFunnel");
+  const addonSessionId = searchParams.get("session_id");
+  const addonProjectParam = searchParams.get("projectId");
+
+  useEffect(() => {
+    if (addonFunnel !== "addon_checkout_return") return;
+    if (!addonSessionId || !addonProjectParam || addonProjectParam !== projectId) return;
+    if (addonReturnHandledRef.current === addonSessionId) return;
+    addonReturnHandledRef.current = addonSessionId;
+    void (async () => {
+      try {
+        await confirmAddonCheckoutSession(projectId, addonSessionId);
+        // Redirect to the My Projects overview; do not auto-open this project.
+        navigate(
+          { pathname: "/projects", search: "?payment_success=1&payment_source=addon" },
+          { replace: true },
+        );
+        return;
+      } catch (err) {
+        setNotice(
+          err instanceof Error ? err.message : "Could not confirm add-on purchase.",
+        );
+      }
+      // If we stay here (error), clear the query params to avoid noisy retries.
+      setSearchParams({}, { replace: true });
+    })();
+  }, [
+    addonFunnel,
+    addonSessionId,
+    addonProjectParam,
+    projectId,
+    setSearchParams,
+    navigate,
+  ]);
+  async function refreshAssets(opts?: { silent?: boolean }) {
     if (!ownedProject) {
       setAssetsLoading(false);
       return;
     }
-    setAssetsLoading(true);
+    const silent = opts?.silent === true;
+    if (!silent) setAssetsLoading(true);
     try {
       const rows = await fetchProjectAssets(ownedProject.id);
       setServerAssets(rows);
@@ -89,19 +133,24 @@ export function ProjectDashboardPage() {
       setServerAssets([]);
       setNotice("Could not load project assets from server.");
     } finally {
-      setAssetsLoading(false);
+      if (!silent) setAssetsLoading(false);
     }
   }
   useEffect(() => {
     void refreshAssets();
   }, [ownedProject?.id]);
-  const completedCount = REQUIRED_PROJECT_ASSETS.filter((req) =>
+  const coreRequired = CORE_REQUIRED_PROJECT_ASSETS;
+  const completedCoreCount = coreRequired.filter((req) =>
     serverAssets.some((asset) => asset.type === req.type),
   ).length;
-  const needsOnboarding = completedCount < REQUIRED_PROJECT_ASSETS.length;
+  const assetsReady = !assetsLoading;
+  const needsOnboarding = assetsReady && completedCoreCount < coreRequired.length;
   const hasValidPlan = ownedProject ? hasValidProjectPlan(ownedProject) : false;
-  const showSetupOverlay = needsOnboarding || !hasValidPlan;
-  const allRequirementsDone = !needsOnboarding;
+  const plans = portal?.plans ?? [];
+  const hideUpgradeCard =
+    hasValidPlan && isHighestPricedPlan(ownedProject?.planId ?? null, plans);
+  const showSetupOverlay = assetsReady && (needsOnboarding || !hasValidPlan);
+  const allRequirementsDone = assetsReady && !needsOnboarding;
 
   if (!ownedProject && !projectLoading)
     return <Navigate to="/projects" replace />;
@@ -196,23 +245,25 @@ export function ProjectDashboardPage() {
             </button>
           </article>
 
-          <article className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-              Upgrade
-            </p>
-            <h2 className="mt-2 text-3xl font-bold leading-tight text-white">
-              Upgrade to Pro
-            </h2>
-            <p className="mt-3 text-sm text-zinc-400">
-              Move up from Growth for more capacity and support.
-            </p>
-            <Link
-              to={`/projects/${project.id}/subscription`}
-              className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-white px-3 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200"
-            >
-              View Pro
-            </Link>
-          </article>
+          {!hideUpgradeCard ? (
+            <article className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                Upgrade
+              </p>
+              <h2 className="mt-2 text-3xl font-bold leading-tight text-white">
+                Upgrade to Pro
+              </h2>
+              <p className="mt-3 text-sm text-zinc-400">
+                Move up from Growth for more capacity and support.
+              </p>
+              <Link
+                to={`/projects/${project.id}/subscription`}
+                className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-white px-3 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200"
+              >
+                View Pro
+              </Link>
+            </article>
+          ) : null}
         </div>
 
         <article className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
@@ -282,7 +333,7 @@ export function ProjectDashboardPage() {
                       onClick={async () => {
                         try {
                           await deleteProjectAssetFile(project.id, asset.type);
-                          await refreshAssets();
+                          await refreshAssets({ silent: true });
                         } catch (err) {
                           setNotice(
                             err instanceof Error
@@ -309,7 +360,7 @@ export function ProjectDashboardPage() {
               if (!assetFile) return;
               try {
                 await uploadProjectAssetFile(project.id, assetType, assetFile);
-                await refreshAssets();
+                await refreshAssets({ silent: true });
               } catch (err) {
                 setNotice(
                   err instanceof Error
@@ -330,7 +381,7 @@ export function ProjectDashboardPage() {
               }
               className="rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm text-white"
             >
-              {REQUIRED_PROJECT_ASSETS.map((req) => (
+              {PROJECT_ASSET_TYPES.map((req) => (
                 <option key={req.type} value={req.type}>
                   {req.label}
                 </option>
@@ -353,8 +404,8 @@ export function ProjectDashboardPage() {
 
           {needsOnboarding ? (
             <p className="mt-3 text-xs text-amber-300">
-              Setup progress {completedCount}/{REQUIRED_PROJECT_ASSETS.length} -
-              upload all required assets to fully onboard.
+              Required setup {completedCoreCount}/{coreRequired.length} — upload requirement docs and branding to
+              continue. Other file types are optional.
             </p>
           ) : null}
         </article>
@@ -375,33 +426,45 @@ export function ProjectDashboardPage() {
             <p className="mt-2 text-sm text-zinc-400">
               {allRequirementsDone
                 ? "All required uploads are complete. Continue to subscription to activate this project."
-                : "Upload all required materials so our team can get started."}
+                : "Upload the required items below. Additional materials help us deliver faster but are optional."}
             </p>
             <div className="mt-4 flex items-center justify-between text-sm">
-              <span className="font-semibold text-white">Setup Progress</span>
+              <span className="font-semibold text-white">Required progress</span>
               <span className="text-zinc-300">
-                {completedCount}/{REQUIRED_PROJECT_ASSETS.length}
+                {completedCoreCount}/{coreRequired.length}
               </span>
             </div>
             <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-[#2A3037]">
               <div
                 className="h-full bg-white"
                 style={{
-                  width: `${(completedCount / REQUIRED_PROJECT_ASSETS.length) * 100}%`,
+                  width: `${(completedCoreCount / Math.max(1, coreRequired.length)) * 100}%`,
                 }}
               />
             </div>
             <ul className="mt-4 space-y-2">
-              {REQUIRED_PROJECT_ASSETS.map((req) => {
+              {PROJECT_ASSET_TYPES.map((req) => {
                 const done = serverAssets.some(
                   (asset) => asset.type === req.type,
                 );
+                const isCore = coreRequired.some((c) => c.type === req.type);
                 return (
                   <li
                     key={req.type}
                     className="flex items-center justify-between rounded-xl border border-[#2A3037] bg-[#0F1318] px-3 py-2"
                   >
-                    <span className="text-sm text-white">{req.label}</span>
+                    <span className="text-sm text-white">
+                      {req.label}
+                      {!isCore ? (
+                        <span className="ml-2 text-[10px] font-normal uppercase tracking-wide text-zinc-500">
+                          Optional
+                        </span>
+                      ) : (
+                        <span className="ml-2 text-[10px] font-normal uppercase tracking-wide text-amber-200/90">
+                          Required
+                        </span>
+                      )}
+                    </span>
                     <div className="flex items-center gap-2">
                       {done ? (
                         <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-200">
@@ -436,7 +499,7 @@ export function ProjectDashboardPage() {
                     quickUploadType,
                     file,
                   );
-                  await refreshAssets();
+                  await refreshAssets({ silent: true });
                 } catch (err) {
                   setNotice(
                     err instanceof Error
@@ -516,7 +579,7 @@ export function ProjectDashboardPage() {
                       onClick={async () => {
                         try {
                           await deleteProjectAssetFile(project.id, asset.type);
-                          await refreshAssets();
+                          await refreshAssets({ silent: true });
                         } catch (err) {
                           setNotice(
                             err instanceof Error
@@ -580,59 +643,104 @@ export function ProjectDashboardPage() {
       </section>
 
       <section className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
-        <h2 className="text-3xl font-bold tracking-tight text-white">
-          Available Add-ons
-        </h2>
+        <h2 className="text-3xl font-bold tracking-tight text-white">Add-ons</h2>
         <p className="mt-1 text-sm text-zinc-400">
-          Extend your service capabilities.
+          Purchased add-ons stay on your subscription. Buy new extras individually through secure checkout.
         </p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          {addonCatalog.map((addon) => {
-            const enabled = project.addons.includes(addon.code);
-            return (
-              <button
-                key={addon.code}
-                type="button"
-                onClick={async () => {
-                  await toggleProjectAddon(project.id, addon.code);
-                  await refreshProject();
-                  setTick((v) => v + 1);
-                }}
-                className={`rounded-2xl border p-4 text-left transition ${
-                  enabled
-                    ? "border-white bg-white text-canvas"
-                    : "border-[#2A3037] bg-[#1C2126] text-white hover:border-zinc-400"
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-lg font-semibold">{addon.label}</p>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${enabled ? "bg-zinc-900/10 text-canvas" : "bg-zinc-700 text-zinc-100"}`}
+
+        {addonCatalog.some((a) => project.addons.includes(a.code)) ? (
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-zinc-500">
+              Existing add-ons
+            </h3>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              {addonCatalog
+                .filter((addon) => project.addons.includes(addon.code))
+                .map((addon) => (
+                  <div
+                    key={addon.code}
+                    aria-disabled
+                    className="cursor-not-allowed select-none rounded-2xl border border-[#2A3037] bg-[#101317] p-4 text-left opacity-70"
                   >
-                    {money(addon.priceCents, addon.currency || "USD")}
-                  </span>
-                </div>
-                <p
-                  className={`mt-2 text-xs ${enabled ? "text-zinc-700" : "text-zinc-400"}`}
-                >
-                  {addon.desc}
-                </p>
-                <span
-                  className={`mt-4 inline-flex w-full items-center justify-center rounded-xl px-3 py-2 text-sm font-semibold ${
-                    enabled ? "bg-canvas text-white" : "bg-white text-canvas"
-                  }`}
-                >
-                  {enabled ? "Added to Plan" : "Add to Plan"}
-                </span>
-              </button>
-            );
-          })}
-          {addonCatalog.length === 0 ? (
-            <p className="sm:col-span-3 rounded-xl border border-[#2A3037] bg-[#1C2126] px-4 py-3 text-sm text-zinc-400">
-              No add-ons are available right now.
-            </p>
-          ) : null}
-        </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-lg font-semibold text-white">{addon.label}</p>
+                      <span className="rounded-full bg-zinc-700 px-2 py-0.5 text-xs font-semibold text-zinc-100">
+                        {money(addon.priceCents, addon.currency || "USD")}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-zinc-500">{addon.desc}</p>
+                    <span className="mt-4 inline-flex w-full cursor-not-allowed items-center justify-center rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm font-semibold text-zinc-500">
+                      On your plan
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        ) : null}
+
+        {addonCatalog.some((a) => !project.addons.includes(a.code)) ? (
+          <div className="mt-8">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-zinc-500">
+              Available add-ons
+            </h3>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              {addonCatalog
+                .filter((addon) => !project.addons.includes(addon.code))
+                .map((addon) => (
+                  <button
+                    key={addon.code}
+                    type="button"
+                    disabled={!hasValidPlan || addonCheckoutBusy}
+                    onClick={async () => {
+                      if (!hasValidPlan) return;
+                      setAddonCheckoutBusy(true);
+                      setNotice(null);
+                      try {
+                        const base = `${window.location.origin}/projects/${project.id}`;
+                        const { url } = await createAddonCheckoutSession(project.id, [addon.code], {
+                          successUrl: base,
+                          cancelUrl: base,
+                        });
+                        if (!url) {
+                          setNotice("Could not start checkout for this add-on.");
+                          return;
+                        }
+                        window.location.assign(url);
+                      } catch (err) {
+                        setNotice(
+                          err instanceof Error ? err.message : "Could not start add-on checkout.",
+                        );
+                      } finally {
+                        setAddonCheckoutBusy(false);
+                      }
+                    }}
+                    className={`rounded-2xl border p-4 text-left transition ${
+                      !hasValidPlan || addonCheckoutBusy
+                        ? "cursor-not-allowed border-[#2A3037] bg-[#1C2126] text-zinc-500 opacity-50"
+                        : "border-[#2A3037] bg-[#1C2126] text-white hover:border-zinc-400 active:scale-[0.99]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-lg font-semibold">{addon.label}</p>
+                      <span className="rounded-full bg-zinc-700 px-2 py-0.5 text-xs font-semibold text-zinc-100">
+                        {money(addon.priceCents, addon.currency || "USD")}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-zinc-400">{addon.desc}</p>
+                    <span className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-white px-3 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40">
+                      {hasValidPlan ? "Purchase add-on" : "Subscribe to enable"}
+                    </span>
+                  </button>
+                ))}
+            </div>
+          </div>
+        ) : null}
+
+        {addonCatalog.length === 0 ? (
+          <p className="mt-4 rounded-xl border border-[#2A3037] bg-[#1C2126] px-4 py-3 text-sm text-zinc-400">
+            No add-ons are available right now.
+          </p>
+        ) : null}
       </section>
     </div>
   );

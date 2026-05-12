@@ -32,6 +32,7 @@ export function createTicket(input: CreateTicketInput) {
     form.set("description", input.description);
     if (input.departmentId) form.set("departmentId", input.departmentId);
     if (input.priority) form.set("priority", input.priority);
+    if (input.projectId?.trim()) form.set("projectId", input.projectId.trim());
     for (const file of input.attachments ?? []) {
       form.append("attachments", file);
     }
@@ -47,6 +48,7 @@ export function createTicket(input: CreateTicketInput) {
       description: input.description,
       departmentId: input.departmentId,
       priority: input.priority,
+      ...(input.projectId?.trim() ? { projectId: input.projectId.trim() } : {}),
     }),
   });
 }

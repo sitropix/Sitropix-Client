@@ -1,9 +1,15 @@
 import { env } from "../config/env.mjs";
 
-const SERVICE = "zohoportal-api";
+const SERVICE = "sitropix-portal-api";
 
 function line(level, msg, fields) {
-  const out = { ts: new Date().toISOString(), level, service: SERVICE, msg, ...fields };
+  const out = {
+    ts: new Date().toISOString(),
+    level,
+    service: SERVICE,
+    msg,
+    ...fields,
+  };
   const s = JSON.stringify(out);
   if (level === "error" || level === "fatal") {
     // eslint-disable-next-line no-console

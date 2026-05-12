@@ -663,6 +663,35 @@ export function deleteProjectAssetFile(projectId: string, type: ProjectRequireme
   );
 }
 
+export function createAddonCheckoutSession(
+  projectId: string,
+  addonCodes: string[],
+  opts?: { successUrl?: string; cancelUrl?: string },
+) {
+  logSubscriptionDebug("frontend.addon_checkout_session.start", {
+    projectId,
+    addonCount: addonCodes.length,
+    hasSuccessUrlOverride: Boolean(opts?.successUrl),
+  });
+  return api<{ url: string }>("/api/subscriptions/addon-checkout-session", {
+    method: "POST",
+    body: JSON.stringify({
+      projectId,
+      addonCodes,
+      ...(opts?.successUrl ? { successUrl: opts.successUrl } : {}),
+      ...(opts?.cancelUrl ? { cancelUrl: opts.cancelUrl } : {}),
+    }),
+  });
+}
+
+export function confirmAddonCheckoutSession(projectId: string, sessionId: string) {
+  logSubscriptionDebug("frontend.addon_checkout_confirm.start", { projectId, sessionId });
+  return api<{ ok: boolean; alreadyProcessed?: boolean }>("/api/subscriptions/confirm-addon-checkout", {
+    method: "POST",
+    body: JSON.stringify({ projectId, sessionId }),
+  });
+}
+
 export function createCheckoutSession(
   planId: string,
   billingCycle: BillingCycle,

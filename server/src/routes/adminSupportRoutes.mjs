@@ -30,6 +30,7 @@ router.get("/tickets", async (req, res) => {
       skip,
       include: {
         user: { select: { id: true, name: true, email: true } },
+        project: { select: { id: true, name: true } },
         _count: { select: { messages: true } },
       },
     }),
@@ -44,6 +45,8 @@ router.get("/tickets", async (req, res) => {
       priority: t.priority,
       department: t.department,
       userPlan: t.userPlan,
+      projectId: t.projectId ?? null,
+      projectName: t.project?.name ?? null,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       threadCount: t._count.messages,
@@ -60,6 +63,7 @@ router.get("/tickets/:id", async (req, res) => {
     where: { id: req.params.id },
     include: {
       user: { select: { id: true, name: true, email: true } },
+      project: { select: { id: true, name: true } },
       messages: {
         orderBy: { createdAt: "asc" },
         include: { user: { select: { id: true, name: true, email: true } } },
@@ -76,6 +80,8 @@ router.get("/tickets/:id", async (req, res) => {
     priority: ticket.priority,
     department: ticket.department,
     userPlan: ticket.userPlan,
+    projectId: ticket.projectId ?? null,
+    projectName: ticket.project?.name ?? null,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
     user: ticket.user,
