@@ -69,6 +69,13 @@ export function ProjectDashboardPage() {
   const [rawProject, setRawProject] = useState<ProjectRecord | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
   const [addonCheckoutBusy, setAddonCheckoutBusy] = useState(false);
+  const [assetFormUploadBusy, setAssetFormUploadBusy] = useState(false);
+  const [quickAssetUploadBusy, setQuickAssetUploadBusy] = useState(false);
+  const assetUploadBusy = assetFormUploadBusy || quickAssetUploadBusy;
+  const [assetDownloadBusyType, setAssetDownloadBusyType] =
+    useState<ProjectRequirementType | null>(null);
+  const [assetDeleteBusyType, setAssetDeleteBusyType] =
+    useState<ProjectRequirementType | null>(null);
   const addonReturnHandledRef = useRef<string | null>(null);
   const ownedProject =
     rawProject && rawProject.ownerUserId === userId ? rawProject : null;
@@ -274,10 +281,17 @@ export function ProjectDashboardPage() {
                 Files required for this project.
               </p>
             </div>
-            <label className="cursor-pointer rounded-xl bg-white px-4 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200">
+            <label
+              className={`cursor-pointer rounded-xl bg-white px-4 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200 ${
+                assetUploadBusy || assetDeleteBusyType
+                  ? "pointer-events-none cursor-not-allowed opacity-50"
+                  : ""
+              }`}
+            >
               Upload File
               <input
                 type="file"
+                disabled={assetUploadBusy || assetDeleteBusyType !== null}
                 className="hidden"
                 onChange={(e) => {
                   setAssetFile(e.target.files?.[0] ?? null);
@@ -314,7 +328,14 @@ export function ProjectDashboardPage() {
                   <div className="flex shrink-0 items-center gap-1">
                     <button
                       type="button"
+                      disabled={
+                        assetUploadBusy ||
+                        assetDeleteBusyType !== null ||
+                        assetDownloadBusyType === asset.type
+                      }
                       onClick={async () => {
+                        setAssetDownloadBusyType(asset.type);
+                        setNotice(null);
                         try {
                           await downloadProjectAssetFromServer(
                             project.id,
@@ -322,15 +343,22 @@ export function ProjectDashboardPage() {
                           );
                         } catch {
                           setNotice("Could not download asset.");
+                        } finally {
+                          setAssetDownloadBusyType(null);
                         }
                       }}
-                      className="rounded-lg border border-zinc-500 bg-[#2A3037] px-2 py-1 text-[11px] font-medium text-white"
+                      className="rounded-lg border border-zinc-500 bg-[#2A3037] px-2 py-1 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      ↓
+                      {assetDownloadBusyType === asset.type ? "…" : "↓"}
                     </button>
                     <button
                       type="button"
+                      disabled={
+                        assetUploadBusy || assetDeleteBusyType !== null
+                      }
                       onClick={async () => {
+                        setAssetDeleteBusyType(asset.type);
+                        setNotice(null);
                         try {
                           await deleteProjectAssetFile(project.id, asset.type);
                           await refreshAssets({ silent: true });
@@ -340,12 +368,14 @@ export function ProjectDashboardPage() {
                               ? err.message
                               : "Could not remove asset.",
                           );
+                        } finally {
+                          setAssetDeleteBusyType(null);
                         }
                         setTick((v) => v + 1);
                       }}
-                      className="rounded-lg border border-zinc-500 bg-[#2A3037] px-2 py-1 text-[11px] font-medium text-white"
+                      className="rounded-lg border border-zinc-500 bg-[#2A3037] px-2 py-1 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      ✕
+                      {assetDeleteBusyType === asset.type ? "…" : "✕"}
                     </button>
                   </div>
                 </div>
@@ -357,7 +387,9 @@ export function ProjectDashboardPage() {
             className="mt-4 grid gap-2 border-t border-[#2A3037] pt-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
             onSubmit={async (e) => {
               e.preventDefault();
-              if (!assetFile) return;
+              if (!assetFile || assetUploadBusy) return;
+              setAssetFormUploadBusy(true);
+              setNotice(null);
               try {
                 await uploadProjectAssetFile(project.id, assetType, assetFile);
                 await refreshAssets({ silent: true });
@@ -368,6 +400,8 @@ export function ProjectDashboardPage() {
                     : "Could not upload asset.",
                 );
                 return;
+              } finally {
+                setAssetFormUploadBusy(false);
               }
               setAssetFile(null);
               setNotice(null);
@@ -379,7 +413,8 @@ export function ProjectDashboardPage() {
               onChange={(e) =>
                 setAssetType(e.target.value as ProjectRequirementType)
               }
-              className="rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm text-white"
+              disabled={assetUploadBusy}
+              className="rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {PROJECT_ASSET_TYPES.map((req) => (
                 <option key={req.type} value={req.type}>
@@ -392,10 +427,11 @@ export function ProjectDashboardPage() {
             </div>
             <button
               type="submit"
-              disabled={!assetFile}
+              disabled={!assetFile || assetUploadBusy}
+              aria-busy={assetFormUploadBusy}
               className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Save
+              {assetFormUploadBusy ? "Saving…" : "Save"}
             </button>
           </form>
           {notice ? (
@@ -473,13 +509,23 @@ export function ProjectDashboardPage() {
                       ) : null}
                       <button
                         type="button"
+                        disabled={
+                          assetUploadBusy || assetDeleteBusyType !== null
+                        }
                         onClick={() => {
+                          if (assetUploadBusy || assetDeleteBusyType) return;
                           setQuickUploadType(req.type);
                           quickUploadRef.current?.click();
                         }}
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${done ? "bg-zinc-700 text-zinc-100" : "bg-white text-canvas"}`}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${
+                          done ? "bg-zinc-700 text-zinc-100" : "bg-white text-canvas"
+                        }`}
                       >
-                        {done ? "Replace" : "Upload"}
+                        {quickAssetUploadBusy && quickUploadType === req.type
+                          ? "Uploading…"
+                          : done
+                            ? "Replace"
+                            : "Upload"}
                       </button>
                     </div>
                   </li>
@@ -490,9 +536,12 @@ export function ProjectDashboardPage() {
               ref={quickUploadRef}
               type="file"
               className="hidden"
+              disabled={assetUploadBusy}
               onChange={async (e) => {
                 const file = e.target.files?.[0];
-                if (!file) return;
+                if (!file || assetUploadBusy) return;
+                setQuickAssetUploadBusy(true);
+                setNotice(null);
                 try {
                   await uploadProjectAssetFile(
                     project.id,
@@ -508,6 +557,8 @@ export function ProjectDashboardPage() {
                   );
                   e.currentTarget.value = "";
                   return;
+                } finally {
+                  setQuickAssetUploadBusy(false);
                 }
                 setTick((v) => v + 1);
                 e.currentTarget.value = "";
@@ -516,15 +567,15 @@ export function ProjectDashboardPage() {
             <Link
               to={`/projects/${project.id}/subscription`}
               className={`mt-5 inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold ${
-                needsOnboarding
-                  ? "cursor-not-allowed bg-zinc-700 text-zinc-400"
+                needsOnboarding || assetUploadBusy
+                  ? "pointer-events-none cursor-not-allowed bg-zinc-700 text-zinc-400"
                   : "bg-white text-canvas"
               }`}
               onClick={(e) => {
-                if (needsOnboarding) e.preventDefault();
+                if (needsOnboarding || assetUploadBusy) e.preventDefault();
               }}
             >
-              Continue to Subscription
+              {assetUploadBusy ? "Uploading…" : "Continue to Subscription"}
             </Link>
             <p className="mt-3 text-center text-[11px] text-zinc-500">
               A valid subscription is required to activate the project.
@@ -560,7 +611,14 @@ export function ProjectDashboardPage() {
                   <div className="flex gap-1">
                     <button
                       type="button"
+                      disabled={
+                        assetUploadBusy ||
+                        assetDeleteBusyType !== null ||
+                        assetDownloadBusyType === asset.type
+                      }
                       onClick={async () => {
+                        setAssetDownloadBusyType(asset.type);
+                        setNotice(null);
                         try {
                           await downloadProjectAssetFromServer(
                             project.id,
@@ -568,15 +626,24 @@ export function ProjectDashboardPage() {
                           );
                         } catch {
                           setNotice("Could not download asset.");
+                        } finally {
+                          setAssetDownloadBusyType(null);
                         }
                       }}
-                      className="rounded-md border border-zinc-500 bg-[#2A3037] px-2 py-1 text-[10px] font-semibold text-white"
+                      className="rounded-md border border-zinc-500 bg-[#2A3037] px-2 py-1 text-[10px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      Download
+                      {assetDownloadBusyType === asset.type
+                        ? "…"
+                        : "Download"}
                     </button>
                     <button
                       type="button"
+                      disabled={
+                        assetUploadBusy || assetDeleteBusyType !== null
+                      }
                       onClick={async () => {
+                        setAssetDeleteBusyType(asset.type);
+                        setNotice(null);
                         try {
                           await deleteProjectAssetFile(project.id, asset.type);
                           await refreshAssets({ silent: true });
@@ -586,12 +653,14 @@ export function ProjectDashboardPage() {
                               ? err.message
                               : "Could not remove asset.",
                           );
+                        } finally {
+                          setAssetDeleteBusyType(null);
                         }
                         setTick((v) => v + 1);
                       }}
-                      className="rounded-md border border-zinc-500 bg-[#2A3037] px-2 py-1 text-[10px] font-semibold text-white"
+                      className="rounded-md border border-zinc-500 bg-[#2A3037] px-2 py-1 text-[10px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      Remove
+                      {assetDeleteBusyType === asset.type ? "…" : "Remove"}
                     </button>
                   </div>
                 </li>

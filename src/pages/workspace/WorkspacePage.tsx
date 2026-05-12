@@ -21,6 +21,7 @@ export function WorkspacePage() {
   const [docs, setDocs] = useState<ClientDocumentRow[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(true);
   const [docsError, setDocsError] = useState<string | null>(null);
+  const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,10 +117,17 @@ export function WorkspacePage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => void downloadClientDocumentFile(d.id)}
-                    className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-800 transition hover:border-zinc-500"
+                    disabled={downloadingDocId !== null}
+                    onClick={() => {
+                      if (downloadingDocId) return;
+                      setDownloadingDocId(d.id);
+                      void downloadClientDocumentFile(d.id).finally(() => {
+                        setDownloadingDocId(null);
+                      });
+                    }}
+                    className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-800 transition hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Download
+                    {downloadingDocId === d.id ? "Downloading…" : "Download"}
                   </button>
                 </li>
               ))}

@@ -221,6 +221,7 @@ export function SubmitTicketPage() {
                 id="ticket-attachments"
                 type="file"
                 multiple
+                disabled={submitting}
                 onChange={(e) => {
                   const picked = Array.from(e.target.files ?? []);
                   setAttachments((prev) => [...prev, ...picked].slice(0, 5));
@@ -238,8 +239,9 @@ export function SubmitTicketPage() {
                       </div>
                       <button
                         type="button"
+                        disabled={submitting}
                         onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
-                        className="shrink-0 rounded border border-white/15 px-2 py-1 text-[11px] text-ink-muted transition hover:text-white"
+                        className="shrink-0 rounded border border-white/15 px-2 py-1 text-[11px] text-ink-muted transition hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         Remove
                       </button>

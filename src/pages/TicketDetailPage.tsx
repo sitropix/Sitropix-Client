@@ -23,6 +23,7 @@ export function TicketDetailPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
+  const [retryBusy, setRetryBusy] = useState(false);
 
   useEffect(() => {
     if (id === undefined) return;
@@ -87,11 +88,14 @@ export function TicketDetailPage() {
         <p className="mt-2 text-sm text-ink-muted">Check your connection and try again.</p>
         <button
           type="button"
+          disabled={retryBusy}
+          aria-busy={retryBusy}
           onClick={() => {
+            if (retryBusy || !id) return;
+            setRetryBusy(true);
             setLoadError(null);
             setLoading(true);
             void (async () => {
-              if (!id) return;
               try {
                 const d = await fetchTicketById(id);
                 setLoadError(null);
@@ -102,12 +106,13 @@ export function TicketDetailPage() {
                 else setLoadError("Unable to load this ticket.");
               } finally {
                 setLoading(false);
+                setRetryBusy(false);
               }
             })();
           }}
-          className="mt-6 inline-block rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:border-brand-lime/40"
+          className="mt-6 inline-block rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:border-brand-lime/40 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Retry
+          {retryBusy ? "Retrying…" : "Retry"}
         </button>
         <div className="mt-4">
           <Link to="/requests" className="text-sm font-semibold text-brand-lime underline">

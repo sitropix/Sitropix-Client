@@ -40,6 +40,7 @@ export function MyRequestsPage() {
   const { tickets, loading, error, reload } = useTickets();
   const [status, setStatus] = useState<"all" | TicketStatus>("all");
   const [search, setSearch] = useState("");
+  const [reloadBusy, setReloadBusy] = useState(false);
 
   const filtered = useMemo(() => {
     return tickets.filter((t) => {
@@ -121,10 +122,16 @@ export function MyRequestsPage() {
           <p className="text-sm text-rose-800">{error}</p>
           <button
             type="button"
-            className="shrink-0 rounded-lg border border-rose-300 bg-rose-200 px-4 py-2 text-sm font-semibold text-rose-800 transition hover:bg-rose-300"
-            onClick={() => void reload()}
+            disabled={reloadBusy}
+            aria-busy={reloadBusy}
+            className="shrink-0 rounded-lg border border-rose-300 bg-rose-200 px-4 py-2 text-sm font-semibold text-rose-800 transition hover:bg-rose-300 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => {
+              if (reloadBusy) return;
+              setReloadBusy(true);
+              void reload().finally(() => setReloadBusy(false));
+            }}
           >
-            Retry loading tickets
+            {reloadBusy ? "Retrying…" : "Retry loading tickets"}
           </button>
         </div>
       )}

@@ -43,6 +43,7 @@ export function MyProjectsPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Awaited<ReturnType<typeof listProjectsByUser>>>([]);
   const [readinessByProjectId, setReadinessByProjectId] = useState<Record<string, boolean>>({});
+  const [creatingProject, setCreatingProject] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +95,7 @@ export function MyProjectsPage() {
     let cancelled = false;
     void (async () => {
       setSelectedProjectId(null);
+      let subscriptionFinalizeOk = false;
       try {
         if (paymentSource === "subscription") {
           const raw = window.localStorage.getItem(PROJECT_CHECKOUT_INTENT_KEY);
@@ -107,6 +109,7 @@ export function MyProjectsPage() {
             if (intent && Date.now() - intent.startedAt <= 2 * 60 * 60 * 1000) {
               try {
                 await finalizeProjectCheckoutOnce(intent);
+                subscriptionFinalizeOk = true;
               } catch (err) {
                 if (!cancelled) {
                   showError(
@@ -125,7 +128,9 @@ export function MyProjectsPage() {
         await forceRefresh();
         dispatchProjectsListInvalidate();
         await refreshUser();
-        if (!cancelled) showSuccess("Payment completed successfully.");
+        if (!cancelled && (paymentSource === "addon" || subscriptionFinalizeOk)) {
+          showSuccess("Payment completed successfully.");
+        }
       } finally {
         if (!cancelled) setSearchParams({}, { replace: true });
       }
@@ -146,13 +151,20 @@ export function MyProjectsPage() {
 
   async function onCreateProject(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return;
-    const created = await createProject(userId, name, description);
-    setName("");
-    setDescription("");
-    setSelectedProjectId(created.id);
-    void forceRefresh();
-    navigate(`/projects/${created.id}`);
+    if (!name.trim() || creatingProject) return;
+    setCreatingProject(true);
+    try {
+      const created = await createProject(userId, name, description);
+      setName("");
+      setDescription("");
+      setSelectedProjectId(created.id);
+      void forceRefresh();
+      navigate(`/projects/${created.id}`);
+    } catch (err) {
+      showError(err instanceof Error ? err.message : "Could not create project.");
+    } finally {
+      setCreatingProject(false);
+    }
   }
 
   return (
@@ -175,19 +187,23 @@ export function MyProjectsPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Project name"
-              className="rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-zinc-500"
+              disabled={creatingProject}
+              className="rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
             />
             <input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Short summary"
-              className="rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-zinc-500"
+              disabled={creatingProject}
+              className="rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
             />
             <button
               type="submit"
-              className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200"
+              disabled={creatingProject}
+              aria-busy={creatingProject}
+              className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              + New Project
+              {creatingProject ? "Creating…" : "+ New Project"}
             </button>
           </form>
 

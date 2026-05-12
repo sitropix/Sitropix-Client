@@ -7,7 +7,12 @@ import {
   listProjectsByUser,
   hasValidProjectPlan,
 } from "@/services/projectsStore";
-import { PROJECT_CHECKOUT_INTENT_KEY, type ProjectCheckoutIntent } from "@/services/projectCheckoutFinalize";
+import {
+  finalizeProjectCheckoutOnce,
+  PROJECT_CHECKOUT_INTENT_KEY,
+  type ProjectCheckoutIntent,
+} from "@/services/projectCheckoutFinalize";
+import { dispatchProjectsListInvalidate } from "@/services/projectsInvalidate";
 import {
   changePlan,
   createAddonCheckoutSession,
@@ -27,10 +32,17 @@ function money(cents: number, currency = "USD") {
   }).format(cents / 100);
 }
 
+/** Inline checkout feedback in one place (same slot as confirming). */
+type ProjectCheckoutReturnBanner =
+  | null
+  | { phase: "confirming" }
+  | { phase: "success" }
+  | { phase: "error"; message: string };
+
 export function ProjectSubscriptionPage() {
   const { projectId = "" } = useParams();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const { portal, refresh: refreshUser } = useUser();
   const userId = user?.id ?? portal?.user?.id ?? "guest-user";
@@ -45,6 +57,10 @@ export function ProjectSubscriptionPage() {
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
   const checkoutReturnHandledRef = useRef<string | null>(null);
+  /** Cleared on effect cleanup so Strict Mode remount can re-enter; `finalizeProjectCheckoutOnce` dedupes by `startedAt`. */
+  const checkoutFinalizeInProgressRef = useRef<string | null>(null);
+  const [checkoutReturnBanner, setCheckoutReturnBanner] =
+    useState<ProjectCheckoutReturnBanner>(null);
   const ownedProject = project && project.ownerUserId === userId ? project : null;
   const selectedPlan = useMemo(
     () => plans.find((p) => p.id === selectedPlanId) ?? null,
@@ -238,13 +254,14 @@ export function ProjectSubscriptionPage() {
     if (!ownedProject || intent.projectId !== ownedProject.id) return;
     const runKey = `${intent.projectId}:${intent.startedAt}`;
     if (checkoutReturnHandledRef.current === runKey) return;
+    if (checkoutFinalizeInProgressRef.current === runKey) return;
     if (Date.now() - intent.startedAt > 2 * 60 * 60 * 1000) {
       window.localStorage.removeItem(PROJECT_CHECKOUT_INTENT_KEY);
       checkoutReturnHandledRef.current = runKey;
       setNotice("Checkout intent expired. Please try payment again.");
       return;
     }
-    checkoutReturnHandledRef.current = runKey;
+    checkoutFinalizeInProgressRef.current = runKey;
     setSelectedPlanId((prev) => (prev === intent.planId ? prev : intent.planId));
     setBillingCycle((prev) => (prev === intent.billingCycle ? prev : intent.billingCycle));
     setAddons((prev) => {
@@ -252,13 +269,52 @@ export function ProjectSubscriptionPage() {
       if (prev.length === next.length && prev.every((v, i) => v === next[i])) return prev;
       return next;
     });
-    // Hand off to My Projects immediately so the user is not blocked on this page
-    // while Stripe sync + activation run (see MyProjectsPage payment_success handler).
-    navigate(
-      { pathname: "/projects", search: "?payment_success=1&payment_source=subscription" },
-      { replace: true },
-    );
-  }, [funnelState, ownedProject?.id, navigate]);
+    let cancelled = false;
+    setCheckoutReturnBanner({ phase: "confirming" });
+    void (async () => {
+      try {
+        await finalizeProjectCheckoutOnce(intent);
+        if (cancelled) return;
+        setCheckoutReturnBanner({ phase: "success" });
+        dispatchProjectsListInvalidate();
+        await listProjectsByUser(userId, { force: true });
+        await refreshUser();
+        if (!cancelled) {
+          navigate({ pathname: "/projects" }, { replace: true });
+        }
+      } catch (err) {
+        checkoutFinalizeInProgressRef.current = null;
+        if (!cancelled) {
+          setCheckoutReturnBanner({
+            phase: "error",
+            message:
+              err instanceof Error
+                ? err.message
+                : "Could not confirm payment with Stripe. Please retry.",
+          });
+          setSearchParams(
+            (prev) => {
+              const next = new URLSearchParams(prev);
+              next.delete("subscriptionFunnel");
+              return next;
+            },
+            { replace: true },
+          );
+        }
+      } finally {
+        checkoutFinalizeInProgressRef.current = null;
+      }
+    })();
+    return () => {
+      cancelled = true;
+      checkoutFinalizeInProgressRef.current = null;
+      setCheckoutReturnBanner((b) => (b?.phase === "confirming" ? null : b));
+    };
+  }, [funnelState, ownedProject?.id, navigate, refreshUser, setSearchParams, userId]);
+
+  const checkoutReturnLocksUI =
+    checkoutReturnBanner?.phase === "confirming" ||
+    checkoutReturnBanner?.phase === "success";
 
   if (!project && !projectLoading) return <Navigate to="/projects" replace />;
   if (!project) return <div className="p-6 text-sm text-zinc-300">Loading project...</div>;
@@ -285,6 +341,57 @@ export function ProjectSubscriptionPage() {
           Unlock all features and activate your workspace by selecting a subscription. Cancel or upgrade anytime.
         </p>
       </header>
+      {checkoutReturnBanner?.phase === "confirming" ? (
+        <p
+          className="rounded-xl border border-sky-400/40 bg-sky-500/10 px-4 py-3 text-sm text-sky-100"
+          aria-live="polite"
+        >
+          Confirming your payment with Stripe…
+        </p>
+      ) : checkoutReturnBanner?.phase === "success" ? (
+        <div
+          className="flex items-start gap-3 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm font-medium text-green-100 shadow-lg backdrop-blur-sm"
+          role="status"
+          aria-live="polite"
+        >
+          <svg
+            className="h-5 w-5 shrink-0 text-green-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <p className="min-w-0 flex-1 leading-snug">Payment completed successfully.</p>
+        </div>
+      ) : checkoutReturnBanner?.phase === "error" ? (
+        <div
+          className="flex items-start gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-medium text-rose-100 shadow-lg backdrop-blur-sm"
+          role="alert"
+        >
+          <svg
+            className="h-5 w-5 shrink-0 text-rose-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <p className="min-w-0 flex-1 leading-snug">{checkoutReturnBanner.message}</p>
+        </div>
+      ) : null}
       {notice ? (
         <p className="rounded-xl border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
           {notice}
@@ -306,14 +413,15 @@ export function ProjectSubscriptionPage() {
           loads.
         </section>
       ) : (
-        <>
+        <div aria-busy={checkoutReturnLocksUI ? true : undefined}>
           <div className="mx-auto inline-flex rounded-full border border-[#2A3037] bg-[#1C2126] p-1">
             {(["monthly", "yearly"] as const).map((cycle) => (
               <button
                 key={cycle}
                 type="button"
+                disabled={checkoutReturnLocksUI}
                 onClick={() => setBillingCycle(cycle)}
-                className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                className={`rounded-full px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
                   billingCycle === cycle
                     ? "bg-white text-canvas"
                     : "text-zinc-300 hover:text-white"
@@ -363,11 +471,11 @@ export function ProjectSubscriptionPage() {
                   </ul>
                   <button
                     type="button"
-                    disabled={locked}
+                    disabled={locked || checkoutReturnLocksUI}
                     onClick={() => {
-                      if (!locked) setSelectedPlanId(plan.id);
+                      if (!locked && !checkoutReturnLocksUI) setSelectedPlanId(plan.id);
                     }}
-                    className={`mt-4 w-full rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                    className={`mt-4 w-full rounded-lg px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                       locked
                         ? "cursor-not-allowed bg-[#1C2126] text-zinc-500"
                         : active
@@ -416,12 +524,13 @@ export function ProjectSubscriptionPage() {
                     <button
                       key={addon.code}
                       type="button"
+                      disabled={checkoutReturnLocksUI}
                       onClick={() =>
                         setAddons((prev) =>
                           prev.includes(addon.code) ? prev.filter((code) => code !== addon.code) : [...prev, addon.code],
                         )
                       }
-                      className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+                      className={`w-full rounded-xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
                         selected ? "border-white bg-[#1C2126]" : "border-[#2A3037] bg-[#101317] hover:border-zinc-400"
                       }`}
                     >
@@ -473,23 +582,31 @@ export function ProjectSubscriptionPage() {
               <button
                 type="button"
                 disabled={
-                  !selectedPlan || busy || (hasLiveProjectPlan && (isDowngradeSelection || nothingToApplyLive))
+                  !selectedPlan ||
+                  busy ||
+                  checkoutReturnLocksUI ||
+                  (hasLiveProjectPlan && (isDowngradeSelection || nothingToApplyLive))
                 }
-                onClick={() =>
-                  void (hasLiveProjectPlan ? onApplySubscriptionChanges() : onSecureCheckout())
-                }
+                onClick={() => {
+                  if (checkoutReturnLocksUI) return;
+                  void (hasLiveProjectPlan ? onApplySubscriptionChanges() : onSecureCheckout());
+                }}
                 className="mt-6 w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-canvas transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 {busy
                   ? "Processing..."
-                  : hasLiveProjectPlan
-                    ? "Apply changes"
-                    : "Proceed to Pay"}
+                  : checkoutReturnBanner?.phase === "confirming"
+                    ? "Confirming payment…"
+                    : checkoutReturnBanner?.phase === "success"
+                      ? "Redirecting…"
+                      : hasLiveProjectPlan
+                        ? "Apply changes"
+                        : "Proceed to Pay"}
               </button>
               <p className="mt-2 text-center text-xs text-zinc-500">Secure checkout powered by Stripe</p>
             </div>
           </section>
-        </>
+        </div>
       )}
     </div>
   );
