@@ -185,9 +185,17 @@ export function EmailSettingsPage() {
     setTesting(true);
     try {
       const r = await postAdminEmailTest(testTo.trim() || undefined);
-      setNotice(`Test sent to ${r.to}.`);
-    } catch {
-      setNotice("Test send failed. Check provider settings and server logs.");
+      if (r.deduped) {
+        setNotice(`Duplicate test suppressed (idempotency). Try again in a moment or use a different recipient.`);
+      } else {
+        setNotice(`Test email delivered to ${r.to}.`);
+      }
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.message) {
+        setNotice(err.message);
+      } else {
+        setNotice("Test send failed. Check provider settings and server logs.");
+      }
     } finally {
       setTesting(false);
     }

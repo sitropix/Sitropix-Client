@@ -18,18 +18,18 @@ describe("billing Zod schemas", () => {
     expect(() =>
       checkoutSessionSchema.parse({
         planId: "x",
-        projectId: "proj1",
+        projectId: "proj_1",
         successUrl: "not-a-url",
       }),
     ).toThrow();
     expect(
       checkoutSessionSchema.parse({
         planId: "p1",
-        projectId: "proj1",
+        projectId: "proj_1",
         successUrl: "https://example.com/ok",
         cancelUrl: "https://example.com/cancel",
       }),
-    ).toMatchObject({ planId: "p1", projectId: "proj1" });
+    ).toMatchObject({ planId: "p1", projectId: "proj_1" });
   });
 
   it("funnelEventSchema allowlists event names", () => {

@@ -10,6 +10,12 @@ describe("billingProration", () => {
     expect(planPriceForCycle(p, "yearly")).toBe(10000);
   });
 
+  it("planPriceForCycle uses monthly list price for one-time-only plan", () => {
+    const p = { priceMonthlyCents: 5000, priceYearlyCents: 999, billingMonthlyEnabled: false, billingYearlyEnabled: false };
+    expect(planPriceForCycle(p, "yearly")).toBe(5000);
+    expect(planPriceForCycle(p, "monthly")).toBe(5000);
+  });
+
   it("clampToRange bounds value", () => {
     expect(clampToRange(5, 0, 10)).toBe(5);
     expect(clampToRange(-1, 0, 10)).toBe(0);

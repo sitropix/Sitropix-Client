@@ -32,6 +32,10 @@ export function PlanManagementPage() {
   const [eFeatures, setEFeatures] = useState("");
   const [eTrial, setETrial] = useState("14");
   const [eActive, setEActive] = useState(true);
+  const [eBillMonthly, setEBillMonthly] = useState(true);
+  const [eBillYearly, setEBillYearly] = useState(true);
+  const [createBillMonthly, setCreateBillMonthly] = useState(true);
+  const [createBillYearly, setCreateBillYearly] = useState(true);
   const [noModuleAccess, setNoModuleAccess] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null);
@@ -44,6 +48,10 @@ export function PlanManagementPage() {
   const [eAddonLabel, setEAddonLabel] = useState("");
   const [eAddonDesc, setEAddonDesc] = useState("");
   const [eAddonPrice, setEAddonPrice] = useState("");
+  const [eAddonBillMonthly, setEAddonBillMonthly] = useState(true);
+  const [eAddonBillYearly, setEAddonBillYearly] = useState(true);
+  const [addonCreateBillMonthly, setAddonCreateBillMonthly] = useState(true);
+  const [addonCreateBillYearly, setAddonCreateBillYearly] = useState(true);
 
   async function load() {
     setNoModuleAccess(false);
@@ -61,7 +69,7 @@ export function PlanManagementPage() {
         setNoModuleAccess(true);
         return;
       }
-      showError("Could not load plans.");
+      showError("Could not load plans or add-ons. Please try again.");
     });
   }, []);
 
@@ -78,6 +86,8 @@ export function PlanManagementPage() {
     setEFeatures(plan.features.join("\n"));
     setETrial(String(plan.trialDays));
     setEActive(plan.isActive);
+    setEBillMonthly(plan.billingMonthlyEnabled !== false);
+    setEBillYearly(plan.billingYearlyEnabled !== false);
   }
 
   async function saveEdit(e: FormEvent) {
@@ -97,6 +107,8 @@ export function PlanManagementPage() {
         features,
         trialDays: Math.max(0, parseInt(eTrial, 10) || 0),
         isActive: eActive,
+        billingMonthlyEnabled: eBillMonthly,
+        billingYearlyEnabled: eBillYearly,
       });
       showSuccess("Plan updated successfully.");
       setEditingId(null);
@@ -137,6 +149,8 @@ export function PlanManagementPage() {
         features: ["Admin-created feature set"],
         isActive: true,
         trialDays: 14,
+        billingMonthlyEnabled: createBillMonthly,
+        billingYearlyEnabled: createBillYearly,
       });
       showSuccess("Plan created successfully.");
       setName("");
@@ -160,6 +174,8 @@ export function PlanManagementPage() {
         priceCents: Math.round(Number(addonPrice) * 100),
         currency: "USD",
         isActive: true,
+        billingMonthlyEnabled: addonCreateBillMonthly,
+        billingYearlyEnabled: addonCreateBillYearly,
       });
       showSuccess("Add-on created successfully.");
       setAddonCode("");
@@ -186,6 +202,8 @@ export function PlanManagementPage() {
     setEAddonLabel(addon.label);
     setEAddonDesc(addon.desc);
     setEAddonPrice((addon.priceCents / 100).toFixed(2));
+    setEAddonBillMonthly(addon.billingMonthlyEnabled !== false);
+    setEAddonBillYearly(addon.billingYearlyEnabled !== false);
   }
 
   async function saveAddonEdit(addonId: string) {
@@ -194,6 +212,8 @@ export function PlanManagementPage() {
         label: eAddonLabel.trim(),
         desc: eAddonDesc.trim(),
         priceCents: Math.round(Number(eAddonPrice) * 100),
+        billingMonthlyEnabled: eAddonBillMonthly,
+        billingYearlyEnabled: eAddonBillYearly,
       });
       setEditingAddonId(null);
       showSuccess("Add-on updated successfully.");
@@ -232,6 +252,17 @@ export function PlanManagementPage() {
             placeholder="Monthly price (USD)"
             className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
           />
+          <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-400 md:col-span-2">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={createBillMonthly} onChange={(e) => setCreateBillMonthly(e.target.checked)} className="accent-brand-lime" />
+              Monthly billing
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={createBillYearly} onChange={(e) => setCreateBillYearly(e.target.checked)} className="accent-brand-lime" />
+              Yearly billing
+            </label>
+            <span className="text-zinc-500">Uncheck both for a one-time plan (uses monthly price as purchase amount).</span>
+          </div>
           <button
             type="button"
             disabled={creating}
@@ -280,6 +311,16 @@ export function PlanManagementPage() {
                   rows={4}
                   className="w-full rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-xs text-white outline-none focus:border-brand-lime/35"
                 />
+                <div className="flex flex-wrap gap-4 text-xs text-ink-muted">
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={eBillMonthly} onChange={(e) => setEBillMonthly(e.target.checked)} className="accent-brand-lime" />
+                    Monthly available
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={eBillYearly} onChange={(e) => setEBillYearly(e.target.checked)} className="accent-brand-lime" />
+                    Yearly available
+                  </label>
+                </div>
                 <div className="flex flex-wrap items-center gap-3">
                   <label className="flex items-center gap-2 text-xs text-ink-muted">
                     <input type="checkbox" checked={eActive} onChange={(e) => setEActive(e.target.checked)} className="accent-brand-lime" />
@@ -321,6 +362,16 @@ export function PlanManagementPage() {
                     <p className="text-sm text-ink-muted">
                       ${(plan.priceMonthlyCents / 100).toFixed(2)} mo · ${(plan.priceYearlyCents / 100).toFixed(2)} yr
                     </p>
+                    <p className="mt-0.5 text-[10px] text-zinc-500">
+                      {plan.billingMonthlyEnabled === false && plan.billingYearlyEnabled === false
+                        ? "One-time plan (customer sees monthly field as purchase price)"
+                        : [
+                            plan.billingMonthlyEnabled !== false ? "Monthly" : null,
+                            plan.billingYearlyEnabled !== false ? "Yearly" : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || "No billing intervals"}
+                    </p>
                     <p className="mt-1 text-xs text-ink-subtle">{plan.isActive ? "Active" : "Inactive"}</p>
                   </div>
                   <div className="flex gap-2">
@@ -358,6 +409,17 @@ export function PlanManagementPage() {
           <input value={addonLabel} onChange={(e) => setAddonLabel(e.target.value)} placeholder="Label" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35" />
           <input value={addonPrice} onChange={(e) => setAddonPrice(e.target.value)} placeholder="Price USD" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35" />
           <input value={addonDesc} onChange={(e) => setAddonDesc(e.target.value)} placeholder="Description" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35 md:col-span-2" />
+          <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-400 md:col-span-3">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={addonCreateBillMonthly} onChange={(e) => setAddonCreateBillMonthly(e.target.checked)} className="accent-brand-lime" />
+              With monthly plan
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={addonCreateBillYearly} onChange={(e) => setAddonCreateBillYearly(e.target.checked)} className="accent-brand-lime" />
+              With yearly plan
+            </label>
+            <span className="text-zinc-500">Uncheck both for one-time-style add-ons (allowed on one-time plans only).</span>
+          </div>
           <button type="button" onClick={() => void addAddon()} className="rounded-lg bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim">
             Add Add-on
           </button>
@@ -366,18 +428,46 @@ export function PlanManagementPage() {
           {addons.map((addon) => (
             <div key={addon.id ?? addon.code} className="flex items-center justify-between rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm">
               {editingAddonId === String(addon.id) ? (
-                <div className="grid w-full gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_120px_auto_auto]">
-                  <input value={eAddonLabel} onChange={(e) => setEAddonLabel(e.target.value)} className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
-                  <input value={eAddonDesc} onChange={(e) => setEAddonDesc(e.target.value)} className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
-                  <input value={eAddonPrice} onChange={(e) => setEAddonPrice(e.target.value)} className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
-                  <button type="button" onClick={() => void saveAddonEdit(String(addon.id))} className="rounded-md bg-brand-lime px-3 py-1 text-xs font-semibold text-canvas">Save</button>
-                  <button type="button" onClick={() => setEditingAddonId(null)} className="rounded-md border border-white/15 px-3 py-1 text-xs text-white">Cancel</button>
+                <div className="flex w-full flex-col gap-2">
+                  <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_120px]">
+                    <input value={eAddonLabel} onChange={(e) => setEAddonLabel(e.target.value)} className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
+                    <input value={eAddonDesc} onChange={(e) => setEAddonDesc(e.target.value)} className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
+                    <input value={eAddonPrice} onChange={(e) => setEAddonPrice(e.target.value)} className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-4 text-[10px] text-zinc-400">
+                    <label className="flex items-center gap-1">
+                      <input type="checkbox" checked={eAddonBillMonthly} onChange={(e) => setEAddonBillMonthly(e.target.checked)} className="accent-brand-lime" />
+                      With monthly plan
+                    </label>
+                    <label className="flex items-center gap-1">
+                      <input type="checkbox" checked={eAddonBillYearly} onChange={(e) => setEAddonBillYearly(e.target.checked)} className="accent-brand-lime" />
+                      With yearly plan
+                    </label>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => void saveAddonEdit(String(addon.id))} className="rounded-md bg-brand-lime px-3 py-1 text-xs font-semibold text-canvas">Save</button>
+                    <button type="button" onClick={() => setEditingAddonId(null)} className="rounded-md border border-white/15 px-3 py-1 text-xs text-white">Cancel</button>
+                  </div>
                 </div>
               ) : (
                 <>
                   <div>
                     <p className="font-semibold text-white">{addon.label} <span className="text-xs text-zinc-500">({addon.code})</span></p>
-                    <p className="text-xs text-zinc-400">${(addon.priceCents / 100).toFixed(2)} · {addon.desc}</p>
+                    <p className="text-xs text-zinc-400">
+                      ${(addon.priceCents / 100).toFixed(2)} · {addon.desc}
+                      <span className="ml-1 text-zinc-500">
+                        (
+                        {addon.billingMonthlyEnabled === false && addon.billingYearlyEnabled === false
+                          ? "one-time style"
+                          : [
+                              addon.billingMonthlyEnabled !== false ? "monthly" : null,
+                              addon.billingYearlyEnabled !== false ? "yearly" : null,
+                            ]
+                              .filter(Boolean)
+                              .join(", ") || "—"}
+                        )
+                      </span>
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button

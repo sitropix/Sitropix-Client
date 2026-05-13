@@ -35,6 +35,25 @@ function fmtDate(iso: string | null | undefined) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
 }
 
+function fmtDateMedium(iso: string | null | undefined) {
+  if (!iso) return "—";
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(iso));
+}
+
+/** Invoice row: calendar month + full date for scanability. */
+function fmtInvoicePeriod(iso: string) {
+  const d = new Date(iso);
+  return {
+    monthYear: new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(d),
+    calendarDate: new Intl.DateTimeFormat(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(d),
+  };
+}
+
 export function CustomerManagementPage() {
   const { cache, updateCache } = useAdminPrefetch();
   const { showSuccess, showError } = useToast();
@@ -427,21 +446,41 @@ export function CustomerManagementPage() {
               {tab === "overview" && (
                 <div className="grid gap-4 md:grid-cols-2">
                   <article className="rounded-lg border border-[#24292E] bg-[#1C2126] p-4">
-                    <p className="text-xs uppercase tracking-widest text-neutral-500">Subscription</p>
-                    {profile.overview.subscription ? (
-                      <div className="mt-2 space-y-1 text-sm text-neutral-300">
-                        <p>Plan: {profile.overview.subscription.plan?.name ?? "—"}</p>
-                        <p>Status: {profile.overview.subscription.status}</p>
-                        <p>
-                          Next billing: {fmtDate(profile.overview.subscription.nextBillingDate)} (
-                          {profile.overview.subscription.nextBillingAmountCents == null
-                            ? "—"
-                            : money(profile.overview.subscription.nextBillingAmountCents)}
-                          )
-                        </p>
-                      </div>
+                    <p className="text-xs uppercase tracking-widest text-neutral-500">Projects</p>
+                    {profile.overview.projects.length === 0 ? (
+                      <p className="mt-2 text-sm text-neutral-400">No projects yet.</p>
                     ) : (
-                      <p className="mt-2 text-sm text-neutral-400">No active subscription.</p>
+                      <ul className="mt-3 divide-y divide-white/10">
+                        {profile.overview.projects.map((row) => (
+                          <li key={row.projectId} className="py-4 first:pt-0 last:pb-0">
+                            <p className="font-semibold text-white">{row.projectName}</p>
+                            {row.subscription ? (
+                              <dl className="mt-2 space-y-1.5 text-sm text-neutral-300">
+                                <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                                  <dt className="text-neutral-500">Plan name</dt>
+                                  <dd className="text-right font-medium text-white">
+                                    {row.subscription.plan?.name ?? "—"}
+                                  </dd>
+                                </div>
+                                <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                                  <dt className="text-neutral-500">Plan start date</dt>
+                                  <dd className="text-right">{fmtDateMedium(row.subscription.currentPeriodStart)}</dd>
+                                </div>
+                                <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                                  <dt className="text-neutral-500">Plan end date</dt>
+                                  <dd className="text-right">{fmtDateMedium(row.subscription.currentPeriodEnd)}</dd>
+                                </div>
+                                <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                                  <dt className="text-neutral-500">Subscription status</dt>
+                                  <dd className="text-right capitalize">{row.subscription.status.replace("_", " ")}</dd>
+                                </div>
+                              </dl>
+                            ) : (
+                              <p className="mt-2 text-sm text-neutral-500">No subscription on this project.</p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </article>
                   <article className="rounded-lg border border-[#24292E] bg-[#1C2126] p-4">
@@ -710,24 +749,35 @@ export function CustomerManagementPage() {
                   </div>
                   <div className="overflow-hidden rounded-lg border border-[#24292E]">
                     <div className="grid grid-cols-12 bg-[#1C2126] px-3 py-2 text-[11px] uppercase tracking-wide text-neutral-500">
-                      <div className="col-span-3">Invoice ID</div>
+                      <div className="col-span-2">Invoice ID</div>
+                      <div className="col-span-3">Invoice month / date</div>
                       <div className="col-span-2">Mode</div>
                       <div className="col-span-2">Amount</div>
-                      <div className="col-span-3">Next billing</div>
-                      <div className="col-span-2">Status</div>
+                      <div className="col-span-2">Next billing</div>
+                      <div className="col-span-1">Status</div>
                     </div>
                     {profile.transactions.length === 0 && <p className="px-3 py-3 text-sm text-neutral-400">No transactions. Click "Sync from Stripe" to fetch invoices.</p>}
-                    {profile.transactions.slice((txPage - 1) * PAGE_SIZE, txPage * PAGE_SIZE).map((tx) => (
+                    {profile.transactions.slice((txPage - 1) * PAGE_SIZE, txPage * PAGE_SIZE).map((tx) => {
+                      const inv = fmtInvoicePeriod(tx.createdAt);
+                      return (
                       <div key={tx.id} className="grid grid-cols-12 border-t border-[#24292E] px-3 py-2 text-xs text-neutral-300">
-                        <div className="col-span-3 font-mono text-white/80">{tx.invoiceNumber}</div>
+                        <div className="col-span-2 font-mono text-white/80">{tx.invoiceNumber}</div>
+                        <div className="col-span-3">
+                          <p className="font-medium text-white">{inv.monthYear}</p>
+                          <p className="text-[11px] text-neutral-500">{inv.calendarDate}</p>
+                          {tx.paidAt ? (
+                            <p className="mt-0.5 text-[10px] text-neutral-600">Paid {fmtDateMedium(tx.paidAt)}</p>
+                          ) : null}
+                        </div>
                         <div className="col-span-2">{tx.paymentMode}</div>
                         <div className="col-span-2">{money(tx.amountCents, tx.currency)}</div>
-                        <div className="col-span-3">
+                        <div className="col-span-2">
                           {tx.nextBillingAmountCents == null ? "—" : money(tx.nextBillingAmountCents, tx.currency)}
                         </div>
-                        <div className="col-span-2 capitalize">{tx.status.replace("_", " ")}</div>
+                        <div className="col-span-1 capitalize">{tx.status.replace("_", " ")}</div>
                       </div>
-                    ))}
+                    );
+                    })}
                   </div>
                   {profile.transactions.length > PAGE_SIZE && (
                     <div className="flex items-center justify-between">

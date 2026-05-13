@@ -147,6 +147,8 @@ model Plan {
   isActive             Boolean   @default(true) @map("is_active")
   archivedAt           DateTime? @map("archived_at")
   trialDays            Int       @default(14) @map("trial_days")
+  billingMonthlyEnabled Boolean  @default(true) @map("billing_monthly_enabled")
+  billingYearlyEnabled  Boolean  @default(true) @map("billing_yearly_enabled")
   stripeProductId      String?   @map("stripe_product_id")
   stripePriceMonthlyId String?   @map("stripe_price_monthly_id")
   stripePriceYearlyId  String?   @map("stripe_price_yearly_id")
@@ -170,6 +172,8 @@ model SubscriptionAddon {
   priceCents Int      @map("price_cents")
   currency   String   @default("USD")
   isActive   Boolean  @default(true) @map("is_active")
+  billingMonthlyEnabled Boolean @default(true) @map("billing_monthly_enabled")
+  billingYearlyEnabled  Boolean @default(true) @map("billing_yearly_enabled")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 

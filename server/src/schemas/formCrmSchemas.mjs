@@ -24,7 +24,18 @@ export const formFieldInputSchema = looseObject({
   type: fieldTypeSchema,
   required: z.boolean().optional().default(false),
   fieldOrder: z.number().int().min(0).optional(),
-  optionsJson: z.array(z.string().min(1)).optional().default([]),
+  optionsJson: z
+    .preprocess(
+      (val) => {
+        if (!Array.isArray(val)) return [];
+        return val
+          .map((x) => (x == null ? "" : String(x).trim()))
+          .filter((s) => s.length > 0);
+      },
+      z.array(z.string().min(1)),
+    )
+    .optional()
+    .default([]),
   validationJson: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
@@ -40,7 +51,7 @@ export const createFormSchema = looseObject({
   fields: z.array(formFieldInputSchema).min(1),
 });
 
-export const patchFormSchema = z.object({
+export const patchFormSchema = looseObject({
   name: z.string().min(1).max(200).optional(),
   slug: z
     .string()

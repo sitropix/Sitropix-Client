@@ -12,6 +12,9 @@ export interface Plan {
   isActive: boolean;
   trialDays: number;
   archivedAt?: string | null;
+  /** When both are false, the plan is one-time only (uses `priceMonthlyCents` as the purchase price). */
+  billingMonthlyEnabled?: boolean;
+  billingYearlyEnabled?: boolean;
 }
 
 export interface SubscriptionAddon {
@@ -22,6 +25,9 @@ export interface SubscriptionAddon {
   priceCents: number;
   currency?: string;
   isActive?: boolean;
+  /** When both are false, the add-on is treated as one-time / flat (still follows the subscription interval in Stripe when paired with a recurring plan). */
+  billingMonthlyEnabled?: boolean;
+  billingYearlyEnabled?: boolean;
 }
 
 export type SubscriptionStatus = "trialing" | "active" | "paused" | "canceled" | "past_due";
@@ -158,14 +164,19 @@ export interface AdminCustomerProfilePayload {
       deactivatedAt: string | null;
       createdAt: string;
     };
-    subscription: {
-      id: string;
-      status: SubscriptionStatus;
-      billingCycle: BillingCycle;
-      nextBillingDate: string;
-      nextBillingAmountCents: number | null;
-      plan: { id: string; code: string; name: string } | null;
-    } | null;
+    /** Per-project subscription (plan period = current billing period). */
+    projects: Array<{
+      projectId: string;
+      projectName: string;
+      subscription: {
+        id: string;
+        status: SubscriptionStatus;
+        billingCycle: BillingCycle;
+        plan: { id: string; code: string; name: string } | null;
+        currentPeriodStart: string;
+        currentPeriodEnd: string;
+      } | null;
+    }>;
     totalGeneratedRevenueCents: number;
   };
   tickets: Array<{
@@ -184,6 +195,8 @@ export interface AdminCustomerProfilePayload {
     amountCents: number;
     currency: string;
     status: "succeeded" | "failed" | "pending" | "refunded";
+    /** When the invoice/payment record was created (invoice date). */
+    createdAt: string;
     paidAt: string | null;
     paymentMode: string;
     nextBillingAmountCents: number | null;

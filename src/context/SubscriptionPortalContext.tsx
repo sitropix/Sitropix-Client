@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { fetchCustomerPortal } from "@/services/subscriptionsApi";
+import { userFacingApiError } from "@/services/http";
 import type { CustomerPortalPayload } from "@/types/subscription";
 
 interface SubscriptionPortalState {
@@ -30,7 +31,9 @@ export function SubscriptionPortalProvider({ children }: { children: ReactNode }
     try {
       setData(await fetchCustomerPortal());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load subscription portal");
+      setError(
+        userFacingApiError(err, "We could not load subscription and billing details. Please try again."),
+      );
     } finally {
       setLoading(false);
     }

@@ -7,6 +7,7 @@ import { replyTicketSchema, updateTicketStatusSchema } from "../schemas/supportS
 import { sendTransactionalEmail } from "../services/emailService.mjs";
 import { env } from "../config/env.mjs";
 import { absoluteTicketAttachmentPath } from "../services/ticketAttachmentPaths.mjs";
+import { projectNameByIdForTickets } from "../services/supportTicketProjectNames.mjs";
 
 const router = express.Router();
 router.use(requireAuth, requireRole("admin", "master_admin"), requireModuleAccess("tickets"));
@@ -30,13 +31,13 @@ router.get("/tickets", async (req, res) => {
       skip,
       include: {
         user: { select: { id: true, name: true, email: true } },
-        project: { select: { id: true, name: true } },
         _count: { select: { messages: true } },
       },
     }),
     prisma.supportTicket.count({ where }),
   ]);
 
+  const projectNames = await projectNameByIdForTickets(rows);
   return res.json({
     items: rows.map((t) => ({
       id: t.id,
@@ -46,7 +47,7 @@ router.get("/tickets", async (req, res) => {
       department: t.department,
       userPlan: t.userPlan,
       projectId: t.projectId ?? null,
-      projectName: t.project?.name ?? null,
+      projectName: (t.projectId && projectNames.get(t.projectId)) || null,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       threadCount: t._count.messages,
@@ -63,7 +64,6 @@ router.get("/tickets/:id", async (req, res) => {
     where: { id: req.params.id },
     include: {
       user: { select: { id: true, name: true, email: true } },
-      project: { select: { id: true, name: true } },
       messages: {
         orderBy: { createdAt: "asc" },
         include: { user: { select: { id: true, name: true, email: true } } },
@@ -72,6 +72,7 @@ router.get("/tickets/:id", async (req, res) => {
     },
   });
   if (!ticket) return res.status(404).json({ error: "not_found" });
+  const projectNames = await projectNameByIdForTickets([ticket]);
   return res.json({
     id: ticket.id,
     subject: ticket.subject,
@@ -81,7 +82,7 @@ router.get("/tickets/:id", async (req, res) => {
     department: ticket.department,
     userPlan: ticket.userPlan,
     projectId: ticket.projectId ?? null,
-    projectName: ticket.project?.name ?? null,
+    projectName: (ticket.projectId && projectNames.get(ticket.projectId)) || null,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
     user: ticket.user,

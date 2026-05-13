@@ -34,7 +34,13 @@ import { getAdminEmailSettingsPayload, saveAdminEmailSettings } from "../service
 import { getSystemConfigPayload, saveSystemConfig } from "../services/systemConfigStore.mjs";
 import { sendTransactionalEmail } from "../services/emailService.mjs";
 import { assertStripeConfigured, reloadStripeFromSystemConfig, stripe } from "../services/stripeService.mjs";
-import { buildProrationBreakdown, planPriceForCycle } from "../services/billingProration.mjs";
+import {
+  buildProrationBreakdown,
+  isPlanOneTimeOnly,
+  planAllowsBillingCycle,
+  planPriceForCycle,
+  resolveBillingCycleForPlan,
+} from "../services/billingProration.mjs";
 import {
   syncPaidInvoicesFromStripe,
   syncSubscriptionFromStripeForUserId,
@@ -149,7 +155,20 @@ function mapPlan(p) {
     features: p.features,
     isActive: p.isActive,
     trialDays: p.trialDays,
+    billingMonthlyEnabled: p.billingMonthlyEnabled ?? true,
+    billingYearlyEnabled: p.billingYearlyEnabled ?? true,
   };
+}
+
+/** Add-on is sold as a flat / one-time style SKU (still billed on the subscription interval in Stripe when paired with a recurring plan). */
+function isAddonOneTimeStyle(row) {
+  return row.billingMonthlyEnabled === false && row.billingYearlyEnabled === false;
+}
+
+function addonAllowedOnSubscriptionCycle(row, billingCycle) {
+  if (isAddonOneTimeStyle(row)) return true;
+  if (billingCycle === "yearly") return row.billingYearlyEnabled !== false;
+  return row.billingMonthlyEnabled !== false;
 }
 
 function isAllowedRedirect(urlLike) {
@@ -289,16 +308,23 @@ router.get("/portal", async (req, res) => {
     subscription.status !== "canceled" &&
     !subscription.stripeSubscriptionId
   ) {
-    try {
-      subscriptionDebug(req, "portal.subscription_reconcile.start", { userId: req.auth.userId });
-      const out = await syncSubscriptionFromStripeForUserId(req.auth.userId);
-      if (out?.ok) {
-        subscription = await findPrimaryUserSubscription(req.auth.userId, { include: { plan: true } });
-        await reloadPayments();
-        subscriptionDebug(req, "portal.subscription_reconcile.success", { userId: req.auth.userId, ...out });
+    const planForSub = subscription.plan;
+    const isOneTimePlanRow =
+      planForSub &&
+      planForSub.billingMonthlyEnabled === false &&
+      planForSub.billingYearlyEnabled === false;
+    if (!isOneTimePlanRow) {
+      try {
+        subscriptionDebug(req, "portal.subscription_reconcile.start", { userId: req.auth.userId });
+        const out = await syncSubscriptionFromStripeForUserId(req.auth.userId);
+        if (out?.ok) {
+          subscription = await findPrimaryUserSubscription(req.auth.userId, { include: { plan: true } });
+          await reloadPayments();
+          subscriptionDebug(req, "portal.subscription_reconcile.success", { userId: req.auth.userId, ...out });
+        }
+      } catch (e) {
+        log.warn("portal.subscription_stripe_sync_failed", { userId: req.auth.userId, error: e?.message });
       }
-    } catch (e) {
-      log.warn("portal.subscription_stripe_sync_failed", { userId: req.auth.userId, error: e?.message });
     }
   }
 
@@ -378,10 +404,21 @@ router.post("/bootstrap", validate(bootstrapSubscriptionSchema), async (req, res
   if (process.env.ALLOW_DEV_TRIAL !== "true") {
     return res.status(400).json({ error: "use_stripe_checkout", message: "Complete subscription via Stripe Checkout." });
   }
-  const { planId, billingCycle = "monthly", projectId } = req.validatedBody;
-  subscriptionDebug(req, "bootstrap.start", { userId: req.auth.userId, planId, billingCycle, projectId });
+  const { planId, billingCycle: billingCycleRaw = "monthly", projectId } = req.validatedBody;
+  subscriptionDebug(req, "bootstrap.start", { userId: req.auth.userId, planId, billingCycle: billingCycleRaw, projectId });
   const plan = await prisma.plan.findUnique({ where: { id: planId } });
   if (!plan) return res.status(404).json({ error: "plan_not_found" });
+  if (isPlanOneTimeOnly(plan)) {
+    return res.status(400).json({
+      error: "plan_requires_stripe_checkout",
+      message: "This plan is purchased via Stripe checkout only.",
+    });
+  }
+  const preferred = billingCycleRaw === "yearly" ? "yearly" : "monthly";
+  const billingCycle = resolveBillingCycleForPlan(plan, preferred);
+  if (!planAllowsBillingCycle(plan, billingCycle)) {
+    return res.status(400).json({ error: "billing_cycle_not_available_for_plan" });
+  }
   const project = await prisma.project.findFirst({ where: { id: projectId, ownerUserId: req.auth.userId } });
   if (!project) return res.status(404).json({ error: "project_not_found" });
   const existing = await findUserProjectSubscription(req.auth.userId, projectId);
@@ -418,7 +455,18 @@ router.post("/change-plan", validate(changePlanSchema), async (req, res) => {
   const nextPlan = await prisma.plan.findUnique({ where: { id: planId } });
   if (!sub || !nextPlan) return res.status(404).json({ error: "subscription_or_plan_not_found" });
 
-  const cycle = billingCycle ?? sub.billingCycle;
+  if (isPlanOneTimeOnly(nextPlan)) {
+    return res.status(400).json({
+      error: "plan_requires_one_time_checkout",
+      message: "This plan is only available as a one-time purchase via checkout.",
+    });
+  }
+
+  const preferred = billingCycle ?? sub.billingCycle;
+  const cycle = resolveBillingCycleForPlan(nextPlan, preferred === "yearly" ? "yearly" : "monthly");
+  if (!planAllowsBillingCycle(nextPlan, cycle)) {
+    return res.status(400).json({ error: "billing_cycle_not_available_for_plan" });
+  }
   const currentCost = planPriceForCycle(sub.plan, cycle);
   const nextCost = planPriceForCycle(nextPlan, cycle);
   const isDowngrade = nextCost < currentCost;
@@ -439,18 +487,20 @@ router.post("/change-plan", validate(changePlanSchema), async (req, res) => {
     });
   }
 
-  if (stripe && sub.stripeSubscriptionId && nextPlan.stripePriceMonthlyId && nextPlan.stripePriceYearlyId) {
+  if (stripe && sub.stripeSubscriptionId) {
     const newPriceId = cycle === "yearly" ? nextPlan.stripePriceYearlyId : nextPlan.stripePriceMonthlyId;
-    const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
-    await stripe.subscriptions.update(sub.stripeSubscriptionId, {
-      items: [{ id: stripeSub.items.data[0].id, price: newPriceId }],
-      proration_behavior: "create_prorations",
-    });
-    subscriptionDebug(req, "change_plan.stripe_updated", {
-      userId: req.auth.userId,
-      stripeSubscriptionId: sub.stripeSubscriptionId,
-      newPriceId,
-    });
+    if (newPriceId) {
+      const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+      await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+        items: [{ id: stripeSub.items.data[0].id, price: newPriceId }],
+        proration_behavior: "create_prorations",
+      });
+      subscriptionDebug(req, "change_plan.stripe_updated", {
+        userId: req.auth.userId,
+        stripeSubscriptionId: sub.stripeSubscriptionId,
+        newPriceId,
+      });
+    }
   }
 
   let updated = await prisma.subscription.update({
@@ -649,18 +699,19 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
   assertStripeConfigured();
   const {
     planId,
-    billingCycle = "monthly",
-    addons = [],
+    billingCycle: billingCycleRaw = "monthly",
+    addons: addonsRaw = [],
     projectId,
     successUrl: successUrlOverride,
     cancelUrl: cancelUrlOverride,
   } = req.validatedBody;
+  const requestedCycle = billingCycleRaw === "yearly" ? "yearly" : "monthly";
   subscriptionDebug(req, "checkout_session.start", {
     userId: req.auth.userId,
     planId,
-    billingCycle,
+    billingCycle: requestedCycle,
     projectId: projectId ?? null,
-    requestedAddonCount: addons.length,
+    requestedAddonCount: addonsRaw.length,
     hasSuccessUrlOverride: Boolean(successUrlOverride),
     hasCancelUrlOverride: Boolean(cancelUrlOverride),
   });
@@ -668,69 +719,6 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
   if (!project) return res.status(404).json({ error: "project_not_found" });
   const plan = await prisma.plan.findUnique({ where: { id: planId } });
   if (!plan) return res.status(404).json({ error: "plan_not_found" });
-  const stripePriceId = billingCycle === "yearly" ? plan.stripePriceYearlyId : plan.stripePriceMonthlyId;
-  const planAmountCents =
-    billingCycle === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
-  let planLineItem = null;
-  if (stripePriceId) {
-    try {
-      const priceObj = await stripe.prices.retrieve(stripePriceId, { expand: ["product"] });
-      const product = priceObj.product;
-      const productInactive =
-        typeof product === "object" &&
-        product !== null &&
-        "active" in product &&
-        product.active === false;
-      const priceInactive = priceObj.active === false;
-      if (priceInactive || productInactive) {
-        log.warn("checkout_session.inactive_stripe_price_or_product_fallback", {
-          userId: req.auth.userId,
-          planId: plan.id,
-          billingCycle,
-          stripePriceId,
-          priceInactive,
-          productInactive,
-          ...(typeof product === "object" && product !== null && "id" in product
-            ? { stripeProductId: product.id }
-            : {}),
-        });
-      } else {
-        planLineItem = { price: stripePriceId, quantity: 1 };
-      }
-    } catch (e) {
-      const msg = String(e?.message ?? "");
-      if (!msg.includes("No such price")) throw e;
-      log.warn("checkout_session.price_mapping_stale_fallback", {
-        userId: req.auth.userId,
-        planId: plan.id,
-        billingCycle,
-        stripePriceId,
-      });
-    }
-  }
-  if (!planLineItem) {
-    // Fallback for stale/missing price mapping so checkout is still possible.
-    planLineItem = {
-      price_data: {
-        currency: plan.currency.toLowerCase(),
-        product_data: { name: `${plan.name} (${billingCycle})` },
-        recurring: { interval: billingCycle === "yearly" ? "year" : "month" },
-        unit_amount: planAmountCents,
-      },
-      quantity: 1,
-    };
-  }
-  const addonCatalogRows = await fetchSubscriptionAddonCatalog();
-  const addonCatalog = new Map(
-    addonCatalogRows.map((row) => [
-      row.code,
-      {
-        label: row.label,
-        amountCents: row.priceCents,
-      },
-    ]),
-  );
-  const normalizedAddons = Array.from(new Set(addons.filter((code) => addonCatalog.has(code))));
   const successUrl = successUrlOverride ?? env.stripeSuccessUrl;
   const cancelUrl = cancelUrlOverride ?? env.stripeCancelUrl;
   if (!isAllowedRedirect(successUrl) || !isAllowedRedirect(cancelUrl)) {
@@ -747,23 +735,135 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
   } catch {
     checkoutSuccessUrl = successUrl;
   }
-  /** One-time add-on charges on the first invoice only — not recurring subscription items. */
-  const addonLineItems = normalizedAddons.map((code) => {
-    const item = addonCatalog.get(code);
-    if (!item) return null;
-    return {
+
+  const requestedAddonCodes = Array.from(
+    new Set((addonsRaw ?? []).map((c) => String(c ?? "").trim()).filter(Boolean)),
+  );
+  const addonRows =
+    requestedAddonCodes.length === 0
+      ? []
+      : await prisma.subscriptionAddon.findMany({
+          where: { code: { in: requestedAddonCodes }, isActive: true },
+        });
+  if (addonRows.length !== requestedAddonCodes.length) {
+    return res.status(400).json({ error: "unknown_or_inactive_addon" });
+  }
+  const normalizedAddons = requestedAddonCodes.filter((c) => addonRows.some((r) => r.code === c));
+
+  if (isPlanOneTimeOnly(plan)) {
+    const badAddon = addonRows.some((r) => !isAddonOneTimeStyle(r));
+    if (badAddon) {
+      return res.status(400).json({
+        error: "recurring_addons_not_allowed_with_one_time_plan",
+        message: "One-time plans only support add-ons marked as one-time (both monthly and yearly disabled).",
+      });
+    }
+    const lineItems = [
+      {
+        price_data: {
+          currency: plan.currency.toLowerCase(),
+          product_data: { name: `${plan.name} (one-time)` },
+          unit_amount: plan.priceMonthlyCents,
+        },
+        quantity: 1,
+      },
+      ...addonRows.map((r) => ({
+        price_data: {
+          currency: plan.currency.toLowerCase(),
+          product_data: { name: r.label },
+          unit_amount: r.priceCents,
+        },
+        quantity: 1,
+      })),
+    ];
+    const checkoutMetadata = {
+      userId: req.auth.userId,
+      planId: plan.id,
+      billingCycle: "monthly",
+      addons: normalizedAddons.join(","),
+      checkoutKind: "plan_one_time",
+      ...(projectId ? { projectId } : {}),
+    };
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      client_reference_id: req.auth.userId,
+      customer_email: req.auth.email,
+      line_items: lineItems,
+      success_url: checkoutSuccessUrl,
+      cancel_url: cancelUrl,
+      metadata: checkoutMetadata,
+    });
+    metricsBilling.checkoutSessionCreated();
+    subscriptionDebug(req, "checkout_session.success", {
+      userId: req.auth.userId,
+      planId,
+      billingCycle: "one_time",
+      projectId: projectId ?? null,
+      normalizedAddonCount: normalizedAddons.length,
+      sessionId: session.id,
+    });
+    return res.json({ url: session.url });
+  }
+
+  const effectiveCycle = resolveBillingCycleForPlan(plan, requestedCycle);
+  if (!planAllowsBillingCycle(plan, effectiveCycle)) {
+    return res.status(400).json({ error: "billing_cycle_not_available_for_plan" });
+  }
+  for (const row of addonRows) {
+    if (!addonAllowedOnSubscriptionCycle(row, effectiveCycle)) {
+      return res.status(400).json({ error: "addon_not_available_for_billing_cycle", code: row.code });
+    }
+  }
+
+  const stripePriceId = effectiveCycle === "yearly" ? plan.stripePriceYearlyId : plan.stripePriceMonthlyId;
+  const planAmountCents = effectiveCycle === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
+  let planLineItem = null;
+  if (stripePriceId) {
+    try {
+      await stripe.prices.retrieve(stripePriceId);
+      planLineItem = { price: stripePriceId, quantity: 1 };
+    } catch (e) {
+      const msg = String(e?.message ?? "");
+      if (!msg.includes("No such price")) throw e;
+      log.warn("checkout_session.price_mapping_stale_fallback", {
+        userId: req.auth.userId,
+        planId: plan.id,
+        billingCycle: effectiveCycle,
+        stripePriceId,
+      });
+    }
+  }
+  if (!planLineItem) {
+    planLineItem = {
       price_data: {
         currency: plan.currency.toLowerCase(),
-        product_data: { name: `${item.label} (add-on, one-time)` },
-        unit_amount: item.amountCents,
+        product_data: { name: `${plan.name} (${effectiveCycle})` },
+        recurring: { interval: effectiveCycle === "yearly" ? "year" : "month" },
+        unit_amount: planAmountCents,
       },
       quantity: 1,
     };
-  }).filter(Boolean);
+  }
+  const addonCatalog = new Map(addonRows.map((row) => [row.code, { label: row.label, amountCents: row.priceCents }]));
+  const addonLineItems = normalizedAddons
+    .map((code) => {
+      const item = addonCatalog.get(code);
+      if (!item) return null;
+      return {
+        price_data: {
+          currency: plan.currency.toLowerCase(),
+          product_data: { name: item.label },
+          recurring: { interval: effectiveCycle === "yearly" ? "year" : "month" },
+          unit_amount: item.amountCents,
+        },
+        quantity: 1,
+      };
+    })
+    .filter(Boolean);
   const checkoutMetadata = {
     userId: req.auth.userId,
     planId: plan.id,
-    billingCycle,
+    billingCycle: effectiveCycle,
     addons: normalizedAddons.join(","),
     ...(projectId ? { projectId } : {}),
   };
@@ -783,7 +883,7 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
   subscriptionDebug(req, "checkout_session.success", {
     userId: req.auth.userId,
     planId,
-    billingCycle,
+    billingCycle: effectiveCycle,
     projectId: projectId ?? null,
     normalizedAddonCount: normalizedAddons.length,
     sessionId: session.id,
@@ -1068,6 +1168,8 @@ adminRouter.post("/plans", validate(planSchema), async (req, res) => {
       features: p.features ?? [],
       isActive: p.isActive ?? true,
       trialDays: p.trialDays ?? 14,
+      billingMonthlyEnabled: p.billingMonthlyEnabled ?? true,
+      billingYearlyEnabled: p.billingYearlyEnabled ?? true,
       stripeProductId,
       stripePriceMonthlyId,
       stripePriceYearlyId,
@@ -1141,6 +1243,8 @@ adminRouter.post("/addons", validate(addonSchema), async (req, res) => {
       priceCents: body.priceCents,
       currency: (body.currency ?? "USD").toUpperCase(),
       isActive: body.isActive ?? true,
+      billingMonthlyEnabled: body.billingMonthlyEnabled ?? true,
+      billingYearlyEnabled: body.billingYearlyEnabled ?? true,
     },
   });
   await logAuditEvent({
@@ -1310,7 +1414,7 @@ adminRouter.get("/customers", async (_req, res) => {
 
 adminRouter.get("/customers/:id/profile", async (req, res) => {
   const userId = String(req.params.id);
-  const [user, subscription, tickets, documents, transactions, revenue] = await Promise.all([
+  const [user, projects, tickets, documents, transactions, revenue] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -1325,10 +1429,16 @@ adminRouter.get("/customers/:id/profile", async (req, res) => {
         createdAt: true,
       },
     }),
-    prisma.subscription.findFirst({
-      where: { userId },
-      orderBy: { updatedAt: "desc" },
-      include: { plan: true },
+    prisma.project.findMany({
+      where: { ownerUserId: userId },
+      orderBy: { createdAt: "desc" },
+      include: {
+        subscriptions: {
+          take: 1,
+          orderBy: { updatedAt: "desc" },
+          include: { plan: true },
+        },
+      },
     }),
     prisma.supportTicket.findMany({
       where: { userId },
@@ -1354,28 +1464,30 @@ adminRouter.get("/customers/:id/profile", async (req, res) => {
   ]);
   if (!user) return res.status(404).json({ error: "user_not_found" });
 
-  const nextBillingAmountCents =
-    subscription?.plan == null
-      ? null
-      : subscription.billingCycle === "yearly"
-        ? subscription.plan.priceYearlyCents
-        : subscription.plan.priceMonthlyCents;
+  const projectRows = projects.map((p) => {
+    const sub = p.subscriptions[0] ?? null;
+    return {
+      projectId: p.id,
+      projectName: p.name,
+      subscription: sub
+        ? {
+            id: sub.id,
+            status: sub.status,
+            billingCycle: sub.billingCycle,
+            plan: sub.plan
+              ? { id: sub.plan.id, code: sub.plan.code, name: sub.plan.name }
+              : null,
+            currentPeriodStart: sub.currentPeriodStart.toISOString(),
+            currentPeriodEnd: sub.currentPeriodEnd.toISOString(),
+          }
+        : null,
+    };
+  });
 
   return res.json({
     overview: {
       user,
-      subscription: subscription
-        ? {
-            id: subscription.id,
-            status: subscription.status,
-            billingCycle: subscription.billingCycle,
-            nextBillingDate: subscription.currentPeriodEnd,
-            nextBillingAmountCents,
-            plan: subscription.plan
-              ? { id: subscription.plan.id, code: subscription.plan.code, name: subscription.plan.name }
-              : null,
-          }
-        : null,
+      projects: projectRows,
       totalGeneratedRevenueCents: revenue._sum.amountCents ?? 0,
     },
     tickets: tickets.map((t) => ({
@@ -1394,6 +1506,7 @@ adminRouter.get("/customers/:id/profile", async (req, res) => {
       amountCents: p.amountCents,
       currency: p.currency,
       status: p.status,
+      createdAt: p.createdAt.toISOString(),
       paidAt: p.paidAt,
       paymentMode: p.stripeInvoiceId ? "Stripe" : "Manual",
       nextBillingAmountCents:
@@ -1711,15 +1824,21 @@ adminRouter.post("/email-settings/test", validate(emailTestSchema), async (req, 
     template: "admin_email_test",
     idempotencyKey: `admin_email_test_${req.auth.userId}_${Date.now()}`,
   });
-  if (!out?.sent) {
+  if (!out?.sent && !out?.deduped) {
+    const isConsole = out?.used === "console" || String(out?.used ?? "").includes("console");
     return res.status(502).json({
       error: "email_delivery_failed",
-      message: "Test email could not be delivered. Check provider credentials, sender verification, and server logs.",
+      message: isConsole
+        ? "No outbound email transport is configured (console-only). Set RESEND_API_KEY with EMAIL_PROVIDER=resend, SENDGRID_API_KEY with EMAIL_PROVIDER=sendgrid, SMTP_* with EMAIL_PROVIDER=smtp, or save a provider in Admin → Email."
+        : "Test email could not be delivered. Check provider credentials, sender/domain verification, and server logs.",
       to,
       used: out?.used ?? "unknown",
     });
   }
-  return res.json({ ok: true, to, used: out.used });
+  if (out?.deduped) {
+    return res.json({ ok: true, to, used: out.used, deduped: true });
+  }
+  return res.json({ ok: true, to, used: out.used, delivered: true });
 });
 
 adminRouter.get("/system-config", async (req, res) => {
