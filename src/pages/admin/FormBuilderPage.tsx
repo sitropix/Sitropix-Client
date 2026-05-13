@@ -1,3 +1,4 @@
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { ApiRequestError, isModuleForbiddenError } from "@/services/http";
 import {
@@ -285,11 +286,17 @@ function toApiField(f: LocalField, order: number): Omit<FormFieldRow, "id"> {
     else if (val === "" || val === null) delete cleaned[k];
     else if (k === "strictE164" && val === false) delete cleaned[k];
   }
+  const rawOpts = rest.optionsJson;
+  const optionsJson = Array.isArray(rawOpts)
+    ? rawOpts
+        .map((x) => (x == null ? "" : String(x).trim()))
+        .filter((s) => s.length > 0)
+    : [];
   return {
     ...rest,
     fieldOrder: order,
     validationJson: cleaned,
-    optionsJson: rest.optionsJson ?? [],
+    optionsJson,
   };
 }
 
@@ -685,7 +692,7 @@ export function FormBuilderPage() {
     [
       "{",
       '  "allowedOrigins": [],',
-      `  "calEmbedUrl": "${process.env.VITE_CAL_EMBED_URL}",`,
+      `  "calEmbedUrl": "${String(import.meta.env.VITE_CAL_EMBED_URL ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"')}",`,
       '  "calIntegration": true,',
       '  "calDiscoveryFieldKey": "discovery_call",',
       '  "calDiscoveryYesValues": ["Yes", "yes"],',
@@ -695,6 +702,8 @@ export function FormBuilderPage() {
     ].join("\n"),
   );
   const [fieldDraft, setFieldDraft] = useState<LocalField[]>(defaultFields());
+  const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
+  const [saveSubmitting, setSaveSubmitting] = useState(false);
   const [embedOpen, setEmbedOpen] = useState<string | null>(null);
   const [embedPayload, setEmbedPayload] = useState<{
     htmlSnippet: string;
@@ -805,17 +814,17 @@ export function FormBuilderPage() {
     }
   }
 
-  async function saveDetail() {
-    if (!detail) return;
+  async function saveDetail(): Promise<boolean> {
+    if (!detail) return false;
     setNotice(null);
+    let settings: Record<string, unknown> = {};
     try {
-      let settings: Record<string, unknown> = {};
-      try {
-        settings = JSON.parse(settingsJson || "{}") as Record<string, unknown>;
-      } catch {
-        setNotice("Settings JSON is invalid.");
-        return;
-      }
+      settings = JSON.parse(settingsJson || "{}") as Record<string, unknown>;
+    } catch {
+      setNotice("Settings JSON is invalid.");
+      return false;
+    }
+    try {
       await patchAdminForm(detail.id, { settingsJson: settings });
       await replaceAdminFormFields(
         detail.id,
@@ -824,8 +833,20 @@ export function FormBuilderPage() {
       await loadList();
       await openDetail(detail.id);
       setNotice("Saved.");
-    } catch {
-      setNotice("Save failed.");
+      return true;
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        const issueText =
+          err.status === 400 ? formatFlattenedIssues(err.issues) : null;
+        setNotice(
+          issueText
+            ? `Save failed: ${issueText}`
+            : err.message || err.code || "Save failed.",
+        );
+      } else {
+        setNotice("Save failed.");
+      }
+      return false;
     }
   }
 
@@ -1053,7 +1074,7 @@ export function FormBuilderPage() {
             <button
               type="button"
               className="rounded-lg bg-brand-lime px-4 py-2 text-sm font-bold text-canvas hover:brightness-110"
-              onClick={() => void saveDetail()}
+              onClick={() => setSaveConfirmOpen(true)}
             >
               Save changes
             </button>
@@ -1131,6 +1152,38 @@ export function FormBuilderPage() {
           </div>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={saveConfirmOpen}
+        title="Save form changes?"
+        description={
+          detail ? (
+            <>
+              This will update <span className="font-semibold text-white">{detail.name}</span>{" "}
+              (settings and all fields) on the server. Continue?
+            </>
+          ) : (
+            "Save settings and fields to the server?"
+          )
+        }
+        confirmLabel="Save changes"
+        cancelLabel="Cancel"
+        loading={saveSubmitting}
+        onConfirm={() => {
+          void (async () => {
+            setSaveSubmitting(true);
+            try {
+              const ok = await saveDetail();
+              if (ok) setSaveConfirmOpen(false);
+            } finally {
+              setSaveSubmitting(false);
+            }
+          })();
+        }}
+        onCancel={() => {
+          if (!saveSubmitting) setSaveConfirmOpen(false);
+        }}
+      />
     </div>
   );
 }

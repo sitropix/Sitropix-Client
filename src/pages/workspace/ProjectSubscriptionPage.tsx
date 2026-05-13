@@ -20,7 +20,7 @@ import {
   fetchCustomerPortal,
   fetchProjectAssets,
 } from "@/services/subscriptionsApi";
-import type { BillingCycle } from "@/types/subscription";
+import type { BillingCycle, Plan, SubscriptionAddon } from "@/types/subscription";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ProjectRecord } from "@/types/project";
@@ -38,6 +38,37 @@ type ProjectCheckoutReturnBanner =
   | { phase: "confirming" }
   | { phase: "success" }
   | { phase: "error"; message: string };
+
+function planIsOneTimeOnly(plan: { billingMonthlyEnabled?: boolean; billingYearlyEnabled?: boolean }) {
+  return plan.billingMonthlyEnabled === false && plan.billingYearlyEnabled === false;
+}
+
+function planDisplayAmount(plan: Plan, cycle: BillingCycle) {
+  if (planIsOneTimeOnly(plan)) return plan.priceMonthlyCents;
+  if (plan.billingYearlyEnabled === false) return plan.priceMonthlyCents;
+  if (plan.billingMonthlyEnabled === false) return plan.priceYearlyCents;
+  return cycle === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
+}
+
+function resolveBillingCycleForPlan(plan: Plan, preferred: BillingCycle): BillingCycle {
+  const m = plan.billingMonthlyEnabled !== false;
+  const y = plan.billingYearlyEnabled !== false;
+  if (m && y) return preferred;
+  if (m) return "monthly";
+  if (y) return "yearly";
+  return "monthly";
+}
+
+function addonEligibleForCheckout(addon: SubscriptionAddon, cycle: BillingCycle, plan: Plan | null) {
+  if (!plan) return false;
+  if (planIsOneTimeOnly(plan)) {
+    return addon.billingMonthlyEnabled === false && addon.billingYearlyEnabled === false;
+  }
+  const am = addon.billingMonthlyEnabled !== false;
+  const ay = addon.billingYearlyEnabled !== false;
+  if (!am && !ay) return true;
+  return cycle === "yearly" ? ay : am;
+}
 
 export function ProjectSubscriptionPage() {
   const { projectId = "" } = useParams();
@@ -86,6 +117,29 @@ export function ProjectSubscriptionPage() {
     selectedTier >= 0 &&
     selectedTier < currentTier;
   const ownedAddonCodes = useMemo(() => new Set(ownedProject?.addons ?? []), [ownedProject?.addons]);
+
+  const anyMonthly = useMemo(() => plans.some((p) => p.billingMonthlyEnabled !== false), [plans]);
+  const anyYearly = useMemo(() => plans.some((p) => p.billingYearlyEnabled !== false), [plans]);
+  const showBillingCycleToggle = anyMonthly || anyYearly;
+
+  const eligibleAddons = useMemo(
+    () => addonCatalog.filter((a) => addonEligibleForCheckout(a, billingCycle, selectedPlan)),
+    [addonCatalog, billingCycle, selectedPlan],
+  );
+
+  useEffect(() => {
+    if (!selectedPlan) return;
+    setBillingCycle((prev) => resolveBillingCycleForPlan(selectedPlan, prev));
+  }, [selectedPlan]);
+
+  useEffect(() => {
+    setAddons((prev) => prev.filter((code) => eligibleAddons.some((a) => a.code === code)));
+  }, [eligibleAddons]);
+
+  useEffect(() => {
+    if (!anyMonthly && anyYearly) setBillingCycle("yearly");
+    else if (anyMonthly && !anyYearly) setBillingCycle("monthly");
+  }, [anyMonthly, anyYearly]);
 
   useEffect(() => {
     if (portal?.plans && portal.plans.length > 0) {
@@ -205,6 +259,7 @@ export function ProjectSubscriptionPage() {
         billingCycle,
         addons,
         startedAt: Date.now(),
+        oneTimePlan: planIsOneTimeOnly(selectedPlan),
       };
       window.localStorage.setItem(PROJECT_CHECKOUT_INTENT_KEY, JSON.stringify(intent));
       const { url } = await createCheckoutSession(selectedPlan.id, billingCycle, {
@@ -225,7 +280,7 @@ export function ProjectSubscriptionPage() {
     }
   }
 
-  const selectedPlanAmount = selectedPlan ? (billingCycle === "monthly" ? selectedPlan.priceMonthlyCents : selectedPlan.priceYearlyCents) : 0;
+  const selectedPlanAmount = selectedPlan ? planDisplayAmount(selectedPlan, billingCycle) : 0;
   const effectiveOwnedBilling: BillingCycle = ownedProject?.billingCycle ?? "monthly";
   const planOrCycleDirty =
     hasLiveProjectPlan &&
@@ -415,30 +470,42 @@ export function ProjectSubscriptionPage() {
       ) : (
         <div aria-busy={checkoutReturnLocksUI ? true : undefined}>
           <div className="mx-auto inline-flex rounded-full border border-[#2A3037] bg-[#1C2126] p-1">
-            {(["monthly", "yearly"] as const).map((cycle) => (
-              <button
-                key={cycle}
-                type="button"
-                disabled={checkoutReturnLocksUI}
-                onClick={() => setBillingCycle(cycle)}
-                className={`rounded-full px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                  billingCycle === cycle
-                    ? "bg-white text-canvas"
-                    : "text-zinc-300 hover:text-white"
-                }`}
-              >
-                {cycle === "monthly" ? "Monthly" : "Yearly"}
-              </button>
-            ))}
+            {showBillingCycleToggle ? (
+              <>
+                {anyMonthly ? (
+                  <button
+                    type="button"
+                    disabled={checkoutReturnLocksUI}
+                    onClick={() => setBillingCycle("monthly")}
+                    className={`rounded-full px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                      billingCycle === "monthly" ? "bg-white text-canvas" : "text-zinc-300 hover:text-white"
+                    }`}
+                  >
+                    Monthly
+                  </button>
+                ) : null}
+                {anyYearly ? (
+                  <button
+                    type="button"
+                    disabled={checkoutReturnLocksUI}
+                    onClick={() => setBillingCycle("yearly")}
+                    className={`rounded-full px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                      billingCycle === "yearly" ? "bg-white text-canvas" : "text-zinc-300 hover:text-white"
+                    }`}
+                  >
+                    Yearly
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <p className="px-4 py-2 text-center text-xs text-zinc-400">Plans shown are one-time purchases only.</p>
+            )}
           </div>
 
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {plans.map((plan) => {
               const active = selectedPlanId === plan.id;
-              const amount =
-                billingCycle === "monthly"
-                  ? plan.priceMonthlyCents
-                  : plan.priceYearlyCents;
+              const amount = planDisplayAmount(plan, billingCycle);
               const tier = sortedPlans.findIndex((p) => p.id === plan.id);
               const locked =
                 hasLiveProjectPlan &&
@@ -499,10 +566,23 @@ export function ProjectSubscriptionPage() {
                   : "Add powerful extras to accelerate your project."}
               </p>
               <div className="mt-4 space-y-3">
-                {addonCatalog.map((addon) => {
-                  const owned = ownedAddonCodes.has(addon.code);
-                  const selected = addons.includes(addon.code);
-                  if (owned) {
+                {addonCatalog.filter(
+                  (a) =>
+                    ownedAddonCodes.has(a.code) ||
+                    addonEligibleForCheckout(a, billingCycle, selectedPlan),
+                ).length === 0 ? (
+                  <p className="text-sm text-zinc-500">No add-ons are available for this plan and billing choice.</p>
+                ) : null}
+                {addonCatalog
+                  .filter(
+                    (a) =>
+                      ownedAddonCodes.has(a.code) ||
+                      addonEligibleForCheckout(a, billingCycle, selectedPlan),
+                  )
+                  .map((addon) => {
+                    const owned = ownedAddonCodes.has(addon.code);
+                    const selected = addons.includes(addon.code);
+                    if (owned) {
                     return (
                       <div
                         key={addon.code}
@@ -541,7 +621,7 @@ export function ProjectSubscriptionPage() {
                       <p className="mt-1 text-xs text-zinc-400">{addon.desc}</p>
                     </button>
                   );
-                })}
+                  })}
               </div>
             </div>
             <div className="rounded-2xl border border-[#2A3037] bg-[#15191C] p-5">
@@ -550,7 +630,10 @@ export function ProjectSubscriptionPage() {
                 {selectedPlan ? (
                   <div className="flex items-center justify-between text-zinc-200">
                     <span className="font-medium">
-                      {selectedPlan.name} <span className="text-zinc-400">({billingCycle})</span>
+                      {selectedPlan.name}{" "}
+                      <span className="text-zinc-400">
+                        ({planIsOneTimeOnly(selectedPlan) ? "one-time" : billingCycle})
+                      </span>
                     </span>
                     <span className="font-medium">{money(selectedPlanAmount, selectedPlan.currency)}</span>
                   </div>

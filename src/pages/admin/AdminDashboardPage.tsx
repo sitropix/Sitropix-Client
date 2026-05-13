@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { Skeleton } from "@/components/Skeleton";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
-import { isModuleForbiddenError } from "@/services/http";
+import { isModuleForbiddenError, userFacingApiError } from "@/services/http";
 import { fetchAnalytics, fetchTransactions, retryFailedPayment } from "@/services/subscriptionsApi";
 import type { AnalyticsSummary } from "@/types/subscription";
 
@@ -17,8 +16,10 @@ export function AdminDashboardPage() {
   const [transactions, setTransactions] = useState<Array<{ id: string; amountCents: number; status: string; invoiceNumber: string; failureReason?: string | null }>>([]);
   const [loading, setLoading] = useState(true);
   const [noModuleAccess, setNoModuleAccess] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   async function load() {
+    setLoadError(null);
     setLoading(!(analytics || transactions.length));
     setNoModuleAccess(false);
     try {
@@ -29,6 +30,8 @@ export function AdminDashboardPage() {
     } catch (err) {
       if (isModuleForbiddenError(err)) {
         setNoModuleAccess(true);
+      } else {
+        setLoadError(userFacingApiError(err, "Could not load dashboard data. Please try again."));
       }
     } finally {
       setLoading(false);
@@ -55,6 +58,12 @@ export function AdminDashboardPage() {
         <h1 className="text-3xl font-black tracking-tight text-white">Admin Dashboard</h1>
         <p className="mt-2 text-sm text-neutral-400">Monitor revenue, subscriptions, platform signals, and payment health.</p>
       </header>
+
+      {loadError && (
+        <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100" role="alert">
+          {loadError}
+        </div>
+      )}
 
       {loading ? (
         <>
@@ -90,14 +99,6 @@ export function AdminDashboardPage() {
                 <div className="space-y-3">
                   <Skeleton className="h-1.5 w-full rounded-full" />
                   <Skeleton className="h-1.5 w-full rounded-full" />
-                </div>
-              </div>
-              <div className="rounded-xl border border-[#24292E] bg-[#15191C] p-5 space-y-3">
-                <Skeleton className="h-4 w-24" />
-                <div className="grid grid-cols-2 gap-2">
-                  {[0, 1, 2, 3].map((k) => (
-                    <Skeleton key={k} className="h-10 rounded-lg" />
-                  ))}
                 </div>
               </div>
             </div>
@@ -185,21 +186,6 @@ export function AdminDashboardPage() {
                       <div className="h-1.5 w-[99%] rounded-full bg-secondary" />
                     </div>
                   </div>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-[#24292E] bg-[#15191C] p-5">
-                <h3 className="text-sm font-semibold text-white">Quick Actions</h3>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <button className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-3 text-xs text-neutral-300">Broadcast</button>
-                  <button className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-3 text-xs text-neutral-300">Export CSV</button>
-                  <button className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-3 text-xs text-neutral-300">Reset Access</button>
-                  <Link
-                    to="/admin/projects"
-                    className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-3 text-center text-xs text-neutral-300 transition hover:border-brand-lime/35 hover:text-white"
-                  >
-                    Projects
-                  </Link>
                 </div>
               </div>
             </div>

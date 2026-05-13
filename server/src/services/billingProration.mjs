@@ -1,9 +1,41 @@
 /**
+ * @param {{ priceMonthlyCents: number; priceYearlyCents: number; billingMonthlyEnabled?: boolean; billingYearlyEnabled?: boolean }} plan
+ */
+export function isPlanOneTimeOnly(plan) {
+  return plan.billingMonthlyEnabled === false && plan.billingYearlyEnabled === false;
+}
+
+/**
+ * @param {{ billingMonthlyEnabled?: boolean; billingYearlyEnabled?: boolean }} plan
+ * @param {"monthly" | "yearly"} cycle
+ */
+export function planAllowsBillingCycle(plan, cycle) {
+  if (isPlanOneTimeOnly(plan)) return false;
+  if (cycle === "yearly") return plan.billingYearlyEnabled !== false;
+  return plan.billingMonthlyEnabled !== false;
+}
+
+/**
+ * Pick a valid cycle for `plan` honoring `preferred` when both intervals are enabled.
+ * @param {{ billingMonthlyEnabled?: boolean; billingYearlyEnabled?: boolean }} plan
+ * @param {"monthly" | "yearly"} preferred
+ */
+export function resolveBillingCycleForPlan(plan, preferred) {
+  const m = plan.billingMonthlyEnabled !== false;
+  const y = plan.billingYearlyEnabled !== false;
+  if (m && y) return preferred === "yearly" ? "yearly" : "monthly";
+  if (m) return "monthly";
+  if (y) return "yearly";
+  return "monthly";
+}
+
+/**
  * Time-weighted proration (seconds-based) for plan changes. Used by the subscription change-plan flow.
- * @param {{ priceMonthlyCents: number; priceYearlyCents: number }} plan
+ * @param {{ priceMonthlyCents: number; priceYearlyCents: number; billingMonthlyEnabled?: boolean; billingYearlyEnabled?: boolean }} plan
  * @param {string} cycle
  */
 export function planPriceForCycle(plan, cycle) {
+  if (isPlanOneTimeOnly(plan)) return plan.priceMonthlyCents;
   return cycle === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
 }
 

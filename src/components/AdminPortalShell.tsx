@@ -153,12 +153,12 @@ export function AdminPortalShell({ children }: { children: ReactNode }) {
         <AdminProfileMenu />
       </header>
 
-      <aside className="fixed bottom-0 left-0 top-16 w-64 border-r border-white/10 bg-[#15191C] p-4">
-        <div className="mb-6 px-2">
+      <aside className="fixed bottom-0 left-0 top-16 flex w-64 flex-col overflow-hidden border-r border-white/10 bg-[#15191C]">
+        <div className="shrink-0 border-b border-white/10 px-6 py-4">
           <p className="text-base font-bold text-white">Admin Portal</p>
           <p className="text-xs uppercase tracking-wide text-ink-subtle">Enterprise Tier</p>
         </div>
-        <nav className="space-y-1">
+        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-y-contain px-4 py-4 [-webkit-overflow-scrolling:touch]">
           {adminLinks.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end} className={sideNavClass}>
               {item.label}

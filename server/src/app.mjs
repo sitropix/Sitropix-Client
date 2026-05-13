@@ -25,17 +25,33 @@ import { reloadStripeFromSystemConfig } from "./services/stripeService.mjs";
 export const app = express();
 
 app.set("trust proxy", 1);
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "frame-ancestors": ["*"],
+      },
+    },
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  }),
+);
 const corsOrigins =
   env.nodeEnv === "development"
-    ? [env.appUrl, "http://127.0.0.1:5173", "http://127.0.0.1:5174", "http://127.0.0.1:4173"]
-    : [env.appUrl];
+    ? [
+        env.appUrl,
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:4173",
+        ...env.allowedRedirectOrigins,
+      ]
+    : [...new Set([env.appUrl, ...env.allowedRedirectOrigins])];
 
 app.use(
   cors({
     origin: corsOrigins,
     credentials: true,
-    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );

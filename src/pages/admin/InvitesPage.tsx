@@ -50,7 +50,7 @@ export function InvitesPage() {
         setNoModuleAccess(true);
         return;
       }
-      showError("Could not load invites.");
+      showError("Could not load invites or plans. Please try again.");
     });
   }, []);
 

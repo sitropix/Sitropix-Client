@@ -296,7 +296,7 @@ export function clearAdminEmailSettings() {
 }
 
 export function postAdminEmailTest(to?: string) {
-  return api<{ ok: boolean; to: string }>("/api/admin/email-settings/test", {
+  return api<{ ok: boolean; to: string; delivered?: boolean; deduped?: boolean }>("/api/admin/email-settings/test", {
     method: "POST",
     body: JSON.stringify(to ? { to } : {}),
   });

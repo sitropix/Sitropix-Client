@@ -23,6 +23,8 @@ export const planSchema = z.object({
   features: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),
   trialDays: z.number().int().nonnegative().optional(),
+  billingMonthlyEnabled: z.boolean().optional(),
+  billingYearlyEnabled: z.boolean().optional(),
 });
 
 export const planPatchSchema = z
@@ -35,6 +37,8 @@ export const planPatchSchema = z
     features: z.array(z.string()).optional(),
     isActive: z.boolean().optional(),
     trialDays: z.number().int().nonnegative().optional(),
+    billingMonthlyEnabled: z.boolean().optional(),
+    billingYearlyEnabled: z.boolean().optional(),
   })
   .strict();
 
@@ -45,6 +49,8 @@ export const addonSchema = z.object({
   priceCents: z.number().int().nonnegative(),
   currency: z.string().min(3).max(3).optional(),
   isActive: z.boolean().optional(),
+  billingMonthlyEnabled: z.boolean().optional(),
+  billingYearlyEnabled: z.boolean().optional(),
 });
 
 export const addonPatchSchema = z
@@ -54,6 +60,8 @@ export const addonPatchSchema = z
     priceCents: z.number().int().nonnegative().optional(),
     currency: z.string().min(3).max(3).optional(),
     isActive: z.boolean().optional(),
+    billingMonthlyEnabled: z.boolean().optional(),
+    billingYearlyEnabled: z.boolean().optional(),
   })
   .strict();
 

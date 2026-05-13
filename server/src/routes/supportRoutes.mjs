@@ -15,6 +15,7 @@ import {
   ensureTicketAttachmentsDir,
   safeTicketAttachmentRelativePath,
 } from "../services/ticketAttachmentPaths.mjs";
+import { projectNameByIdForTickets } from "../services/supportTicketProjectNames.mjs";
 
 const router = express.Router();
 router.use(requireAuth);
@@ -29,9 +30,9 @@ router.get("/tickets", async (req, res) => {
     orderBy: { updatedAt: "desc" },
     include: {
       _count: { select: { messages: true } },
-      project: { select: { id: true, name: true } },
     },
   });
+  const projectNames = await projectNameByIdForTickets(tickets);
   return res.json(
     tickets.map((t) => ({
       id: t.id,
@@ -42,7 +43,7 @@ router.get("/tickets", async (req, res) => {
       department: t.department,
       userPlan: t.userPlan,
       projectId: t.projectId ?? null,
-      projectName: t.project?.name ?? null,
+      projectName: (t.projectId && projectNames.get(t.projectId)) || null,
       threadCount: t._count.messages,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
@@ -54,12 +55,12 @@ router.get("/tickets/:id", async (req, res) => {
   const ticket = await prisma.supportTicket.findFirst({
     where: { id: req.params.id, userId: req.auth.userId },
     include: {
-      project: { select: { id: true, name: true } },
       messages: { orderBy: { createdAt: "asc" }, include: { user: { select: { id: true, name: true, email: true } } } },
       attachments: { orderBy: { createdAt: "asc" } },
     },
   });
   if (!ticket) return res.status(404).json({ error: "not_found" });
+  const projectNames = await projectNameByIdForTickets([ticket]);
   return res.json({
     id: ticket.id,
     subject: ticket.subject,
@@ -69,7 +70,7 @@ router.get("/tickets/:id", async (req, res) => {
     department: ticket.department,
     userPlan: ticket.userPlan,
     projectId: ticket.projectId ?? null,
-    projectName: ticket.project?.name ?? null,
+    projectName: (ticket.projectId && projectNames.get(ticket.projectId)) || null,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
     messages: ticket.messages.map((m) => ({
@@ -142,10 +143,10 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
     },
     include: {
       messages: { orderBy: { createdAt: "asc" } },
-      project: { select: { id: true, name: true } },
     },
   });
   const firstMessage = ticket.messages[0];
+  const projectNames = await projectNameByIdForTickets([ticket]);
 
   if (files.length > 0 && firstMessage) {
     await ensureTicketAttachmentsDir();
@@ -189,7 +190,7 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
     department: ticket.department,
     userPlan: ticket.userPlan,
     projectId: ticket.projectId ?? null,
-    projectName: ticket.project?.name ?? null,
+    projectName: (ticket.projectId && projectNames.get(ticket.projectId)) || null,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
     threadCount: 1,

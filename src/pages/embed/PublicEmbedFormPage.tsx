@@ -46,6 +46,12 @@ type SubmitErrorBody = {
   issues?: unknown;
 };
 
+/** Same base as authenticated API calls — required when the UI is on a different host than the API. */
+const API_ORIGIN = import.meta.env.VITE_API_BASE_URL ?? "";
+function publicFormApiUrl(path: string) {
+  return `${API_ORIGIN}${path}`;
+}
+
 /**
  * Build a Cal.com iframe URL from calEmbedUrl or calLink.
  * Adds ?embed=1 so the page renders in minimal frame mode.
@@ -421,7 +427,7 @@ export function PublicEmbedFormPage() {
   useEffect(() => {
     if (!embedKey) return;
     setLoading(true);
-    fetch(`/api/forms/${encodeURIComponent(embedKey)}/config`)
+    fetch(publicFormApiUrl(`/api/forms/${encodeURIComponent(embedKey)}/config`))
       .then(async (res) => {
         if (!res.ok) throw new Error("Form not found or inactive.");
         return res.json() as Promise<FormConfigResponse>;
@@ -515,7 +521,7 @@ export function PublicEmbedFormPage() {
     setIsSubmitting(true);
     try {
       const res = await fetch(
-        `/api/v1/forms/${encodeURIComponent(embedKey)}/submit`,
+        publicFormApiUrl(`/api/v1/forms/${encodeURIComponent(embedKey)}/submit`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

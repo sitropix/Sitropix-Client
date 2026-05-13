@@ -30,8 +30,20 @@ function normalizeOrigins(settings) {
   return raw.map((o) => String(o).trim().toLowerCase()).filter(Boolean);
 }
 
+/** Always allow the deployed app origin so embeds/iframes hosted on the same app URL keep working when marketers set a partial allowedOrigins list. */
+function appOriginLower() {
+  try {
+    const u = new URL(env.appUrl);
+    return `${u.protocol}//${u.host}`.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 function originAllowed(req, allowedList) {
   if (!allowedList || allowedList.length === 0) return true;
+  const appO = appOriginLower();
+  const merged = appO && !allowedList.includes(appO) ? [...allowedList, appO] : [...allowedList];
   const origin = req.get("origin")?.toLowerCase() || "";
   const referer = req.get("referer") || "";
   let refOrigin = "";
@@ -41,7 +53,8 @@ function originAllowed(req, allowedList) {
     /* ignore */
   }
   const candidates = [origin, refOrigin].filter(Boolean);
-  return candidates.some((c) => allowedList.includes(c));
+  if (candidates.length === 0) return true;
+  return candidates.some((c) => merged.includes(c));
 }
 
 function readCalIntegration(settings) {

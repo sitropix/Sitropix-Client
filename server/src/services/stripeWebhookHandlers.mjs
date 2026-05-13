@@ -9,6 +9,7 @@ import {
   stripePriceIdFromSubscriptionObject,
   subscriptionPeriodDates,
 } from "./stripeSyncHelpers.mjs";
+import { isPlanOneTimeOnly } from "./billingProration.mjs";
 
 function logCheckout(phase, fields = {}) {
   log.info("billing.stripe_checkout", { phase, ...fields });
@@ -96,7 +97,105 @@ async function ensureProjectIdForSubscription({ userId, projectId, stripeSubscri
   return created.id;
 }
 
+async function handleOneTimePlanCheckoutSession(session) {
+  let userId = session.metadata?.userId || session.client_reference_id || null;
+  const planId = session.metadata?.planId || null;
+  const rawProjectId = projectIdFromMetadata(session.metadata);
+  if (!userId || !planId || !rawProjectId) {
+    logCheckout("one_time_skip_missing_meta", { sessionId: session.id, userId: Boolean(userId), planId: Boolean(planId), projectId: Boolean(rawProjectId) });
+    return;
+  }
+  const projectId = await ensureProjectIdForSubscription({ userId, projectId: rawProjectId, stripeSubscriptionId: null });
+  const plan = await prisma.plan.findUnique({ where: { id: planId } });
+  if (!plan || !isPlanOneTimeOnly(plan)) {
+    logCheckout("one_time_skip_plan_mismatch", { sessionId: session.id, planId });
+    return;
+  }
+
+  const userRow = await prisma.user.findUnique({ where: { id: userId } });
+  if (!userRow) {
+    logCheckout("one_time_skip_user_missing", { sessionId: session.id, userId });
+    return;
+  }
+
+  const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
+  const invNum = `chk_${session.id}`;
+  const existingPay = await prisma.payment.findFirst({ where: { invoiceNumber: invNum } });
+  if (existingPay) {
+    logCheckout("one_time_payment_deduped", { sessionId: session.id });
+    return;
+  }
+
+  const periodStart = new Date();
+  const periodEnd = new Date(periodStart);
+  periodEnd.setUTCFullYear(periodEnd.getUTCFullYear() + 25);
+
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { stripeCustomerId: customerId ?? undefined },
+    });
+
+    const target = await findSubscriptionTargetRow({
+      stripeSubscriptionId: null,
+      userId,
+      projectId,
+    });
+    const upsertData = {
+      planId: plan.id,
+      status: "active",
+      billingCycle: "monthly",
+      currentPeriodStart: periodStart,
+      currentPeriodEnd: periodEnd,
+      cancelAtPeriodEnd: false,
+      stripeSubscriptionId: null,
+      stripeCustomerId: customerId,
+      projectId,
+    };
+    let savedSub;
+    if (target) {
+      savedSub = await prisma.subscription.update({ where: { id: target.id }, data: upsertData });
+    } else {
+      savedSub = await prisma.subscription.create({
+        data: { userId, projectId, ...upsertData },
+      });
+    }
+
+    await prisma.payment.create({
+      data: {
+        userId,
+        subscriptionId: savedSub.id,
+        invoiceNumber: invNum,
+        amountCents: session.amount_total ?? 0,
+        currency: (session.currency ?? plan.currency ?? "usd").toUpperCase(),
+        status: "succeeded",
+        paidAt: new Date(),
+        stripeInvoiceId: null,
+        invoicePdfUrl: null,
+      },
+    });
+  } catch (e) {
+    logCheckout("one_time_db_failed", { sessionId: session.id, userId, error: e?.message });
+    throw e;
+  }
+
+  logCheckout("one_time_synced", { sessionId: session.id, userId, projectId, planCode: plan.code });
+
+  await sendTransactionalEmail({
+    to: userRow.email,
+    template: "subscription_confirmed",
+    idempotencyKey: `sub_confirmed_onetime_${session.id}`,
+    subject: "Purchase confirmed",
+    html: `<p>Hi ${userRow.name},</p><p>Your purchase of <strong>${plan.name}</strong> is complete.</p><p><a href="${env.appUrl}/billing">Billing dashboard</a></p>`,
+  });
+}
+
 export async function handleCheckoutSessionCompleted(session) {
+  if (session.mode === "payment" && session.metadata?.checkoutKind === "plan_one_time") {
+    await handleOneTimePlanCheckoutSession(session);
+    return;
+  }
+
   if (session.mode && session.mode !== "subscription") {
     logCheckout("skip_wrong_mode", { sessionId: session.id, mode: session.mode });
     return;

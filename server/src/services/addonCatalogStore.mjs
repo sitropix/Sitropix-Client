@@ -9,6 +9,8 @@ function mapAddon(row) {
     priceCents: row.priceCents,
     currency: row.currency,
     isActive: row.isActive,
+    billingMonthlyEnabled: row.billingMonthlyEnabled ?? true,
+    billingYearlyEnabled: row.billingYearlyEnabled ?? true,
   };
 }
 

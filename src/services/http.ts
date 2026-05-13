@@ -125,3 +125,22 @@ export async function apiBlob(path: string, init?: RequestInit): Promise<Blob> {
 export function isModuleForbiddenError(err: unknown): err is ApiRequestError {
   return err instanceof ApiRequestError && err.status === 403 && err.code === "module_forbidden";
 }
+
+const GENERIC_API_MESSAGES = new Set(
+  ["request_failed", "internal_server_error", "Unexpected server error."].map((s) => s.toLowerCase()),
+);
+
+/** Prefer stable, readable copy over generic or internal API error text. */
+export function userFacingApiError(err: unknown, fallback: string): string {
+  if (err instanceof ApiRequestError) {
+    if (err.status >= 500) return fallback;
+    if (err.status === 401) return "Your session expired. Please sign in again.";
+    const raw = err.message.trim();
+    if (raw && !GENERIC_API_MESSAGES.has(raw.toLowerCase())) return raw;
+    return fallback;
+  }
+  if (err instanceof TypeError && /fetch|network|load failed/i.test(err.message)) {
+    return "Could not reach the server. Check your connection and try again.";
+  }
+  return fallback;
+}

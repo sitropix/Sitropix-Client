@@ -1,6 +1,11 @@
 import dotenv from "dotenv";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-dotenv.config();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+/** Repo root `.env` — same regardless of cwd (avoids loading stale `server/.env`). */
+const rootEnvPath = path.resolve(__dirname, "../../../.env");
+dotenv.config({ path: rootEnvPath });
 
 const DEV_ACCESS_SECRET = "dev_access_secret_change_me";
 const DEV_REFRESH_SECRET = "dev_refresh_secret_change_me";

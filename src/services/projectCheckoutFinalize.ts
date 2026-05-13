@@ -10,6 +10,8 @@ export type ProjectCheckoutIntent = {
   billingCycle: BillingCycle;
   addons: string[];
   startedAt: number;
+  /** True when checkout used Stripe payment mode (catalog one-time plan). */
+  oneTimePlan?: boolean;
 };
 
 const finalizeByStartedAt = new Map<number, Promise<void>>();
@@ -33,7 +35,9 @@ export async function finalizeProjectCheckoutFromIntent(
   projectId: string,
   intent: ProjectCheckoutIntent,
 ): Promise<void> {
-  await syncFromStripe({ projectId });
+  if (!intent.oneTimePlan) {
+    await syncFromStripe({ projectId });
+  }
   const portalPayload = await fetchCustomerPortal({ projectId });
   const stripeSub = portalPayload.subscription;
   const stripePeriodEnd = stripeSub?.currentPeriodEnd ?? null;
@@ -50,12 +54,17 @@ export async function finalizeProjectCheckoutFromIntent(
     (portalPayload.addons ?? ([] as SubscriptionAddon[])).map((addon) => [addon.code, addon]),
   );
   const planForAmount = portalPayload.plans.find((p) => p.id === intent.planId) ?? null;
+  const oneTimeOnly =
+    planForAmount &&
+    planForAmount.billingMonthlyEnabled === false &&
+    planForAmount.billingYearlyEnabled === false;
   const intentAddonsTotal = (intent.addons ?? []).reduce((sum, code) => {
     const item = addonByCode.get(code);
     return sum + (item?.priceCents ?? 0);
   }, 0);
-  const baseAmount =
-    intent.billingCycle === "monthly"
+  const baseAmount = oneTimeOnly
+    ? (planForAmount?.priceMonthlyCents ?? 0)
+    : intent.billingCycle === "monthly"
       ? (planForAmount?.priceMonthlyCents ?? 0)
       : (planForAmount?.priceYearlyCents ?? 0);
   await activateProjectSubscription(projectId, {

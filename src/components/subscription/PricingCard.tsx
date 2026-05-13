@@ -29,7 +29,16 @@ export function PricingCard({
   primaryActionLabel = "Choose plan",
   onSelect,
 }: PricingCardProps) {
-  const priceCents = cycle === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
+  const oneTimeOnly = plan.billingMonthlyEnabled === false && plan.billingYearlyEnabled === false;
+  const priceCents = oneTimeOnly
+    ? plan.priceMonthlyCents
+    : plan.billingYearlyEnabled === false
+      ? plan.priceMonthlyCents
+      : plan.billingMonthlyEnabled === false
+        ? plan.priceYearlyCents
+        : cycle === "yearly"
+          ? plan.priceYearlyCents
+          : plan.priceMonthlyCents;
   const isDowngrade = primaryActionLabel === "Downgrade";
 
   return (
@@ -64,9 +73,17 @@ export function PricingCard({
 
       <div className="mt-4 flex items-baseline gap-1.5">
         <span className="text-3xl font-bold tabular-nums tracking-tight text-zinc-900">${(priceCents / 100).toFixed(2)}</span>
-        <span className="text-sm font-medium text-zinc-600">/{cycle === "yearly" ? "yr" : "mo"}</span>
+        <span className="text-sm font-medium text-zinc-600">
+          {oneTimeOnly ? (
+            <span className="text-zinc-500">one-time</span>
+          ) : (
+            <>/{cycle === "yearly" ? "yr" : "mo"}</>
+          )}
+        </span>
       </div>
-      <p className="mt-1 text-xs text-zinc-500">Billed {cycle === "yearly" ? "annually" : "each month"}</p>
+      <p className="mt-1 text-xs text-zinc-500">
+        {oneTimeOnly ? "One-time purchase" : cycle === "yearly" ? "Billed annually" : "Billed each month"}
+      </p>
 
       {plan.description ? <p className="mt-3 text-sm leading-relaxed text-zinc-700">{plan.description}</p> : null}
 

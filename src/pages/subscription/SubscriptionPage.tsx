@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { EmptyState } from "@/components/EmptyState";
@@ -21,6 +21,21 @@ export function SubscriptionPage() {
 
   const visiblePlans = useMemo(() => data?.plans ?? [], [data?.plans]);
   const addons = useMemo(() => data?.addons ?? [], [data?.addons]);
+
+  const anyMonthly = useMemo(
+    () => visiblePlans.some((p) => p.billingMonthlyEnabled !== false),
+    [visiblePlans],
+  );
+  const anyYearly = useMemo(
+    () => visiblePlans.some((p) => p.billingYearlyEnabled !== false),
+    [visiblePlans],
+  );
+  const showBillingToggle = anyMonthly || anyYearly;
+
+  useEffect(() => {
+    if (!anyMonthly && anyYearly) setBillingCycle("yearly");
+    else if (anyMonthly && !anyYearly) setBillingCycle("monthly");
+  }, [anyMonthly, anyYearly]);
 
   return (
     <div className="space-y-6 text-zinc-900 opacity-0 animate-fade-up [animation-fill-mode:forwards] lg:space-y-7">
@@ -50,21 +65,39 @@ export function SubscriptionPage() {
           role="group"
           aria-label="Billing cycle"
         >
-          <p className="px-2 pb-2 pt-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Billing cycle</p>
-          <div className="inline-flex rounded-xl border border-zinc-200 bg-zinc-100/80 p-0.5">
-            {(["monthly", "yearly"] as const).map((cycle) => (
-              <button
-                key={cycle}
-                type="button"
-                onClick={() => setBillingCycle(cycle)}
-                className={`rounded-lg px-4 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 sm:min-w-[5.5rem] sm:text-sm ${
-                  billingCycle === cycle ? "bg-zinc-900 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
-                }`}
-              >
-                {cycle === "monthly" ? "Monthly" : "Yearly"}
-              </button>
-            ))}
-          </div>
+          {showBillingToggle ? (
+            <>
+              <p className="px-2 pb-2 pt-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Billing cycle</p>
+              <div className="inline-flex rounded-xl border border-zinc-200 bg-zinc-100/80 p-0.5">
+                {anyMonthly ? (
+                  <button
+                    type="button"
+                    onClick={() => setBillingCycle("monthly")}
+                    className={`rounded-lg px-4 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 sm:min-w-[5.5rem] sm:text-sm ${
+                      billingCycle === "monthly" ? "bg-zinc-900 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
+                    }`}
+                  >
+                    Monthly
+                  </button>
+                ) : null}
+                {anyYearly ? (
+                  <button
+                    type="button"
+                    onClick={() => setBillingCycle("yearly")}
+                    className={`rounded-lg px-4 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 sm:min-w-[5.5rem] sm:text-sm ${
+                      billingCycle === "yearly" ? "bg-zinc-900 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
+                    }`}
+                  >
+                    Yearly
+                  </button>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <p className="max-w-[14rem] px-2 py-2 text-[10px] font-medium leading-snug text-zinc-600">
+              All listed plans are one-time purchases; recurring cycle controls are hidden.
+            </p>
+          )}
         </div>
       </header>
 
@@ -88,7 +121,11 @@ export function SubscriptionPage() {
               <h2 className="text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Plans</h2>
               <p className="mt-1 text-sm font-medium text-zinc-800">Tiers and included capabilities</p>
             </div>
-            <p className="text-xs text-zinc-600">Prices shown for the billing cycle selected above.</p>
+            <p className="text-xs text-zinc-600">
+              {showBillingToggle
+                ? "Prices reflect your selected billing cycle above."
+                : "One-time plans show the purchase price from the monthly price field."}
+            </p>
           </div>
           <div className="grid auto-rows-fr gap-5 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6">
             {visiblePlans.map((plan) => (
