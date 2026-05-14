@@ -137,6 +137,24 @@ formsRouter.patch("/:id", validate(patchFormSchema), async (req, res) => {
   }
 });
 
+formsRouter.delete("/:id", async (req, res) => {
+  const auditCtx = requestAuditContext(req);
+  const id = req.params.id;
+  const existing = await prisma.formDefinition.findUnique({ where: { id } });
+  if (!existing) return res.status(404).json({ error: "not_found" });
+  await prisma.formDefinition.delete({ where: { id } });
+  await logAuditEvent({
+    actorUserId: req.auth.userId,
+    actorRole: req.auth.role,
+    action: "forms.definition_deleted",
+    targetType: "form_definition",
+    targetId: id,
+    ...auditCtx,
+    metadata: { slug: existing.slug, name: existing.name },
+  });
+  return res.json({ ok: true });
+});
+
 formsRouter.put("/:id/fields", validate(replaceFormFieldsSchema), async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const { fields } = req.validatedBody;

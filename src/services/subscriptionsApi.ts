@@ -784,6 +784,10 @@ export function replaceAdminFormFields(formId: string, fields: Omit<FormFieldRow
   });
 }
 
+export function deleteAdminForm(formId: string) {
+  return api<{ ok: boolean }>(`/api/admin/forms/${formId}`, { method: "DELETE", body: JSON.stringify({}) });
+}
+
 /** --- CRM (admin) --- */
 export function fetchCrmLeads(params?: { status?: CrmLeadStatus; formId?: string; search?: string; limit?: number; offset?: number }) {
   const sp = new URLSearchParams();

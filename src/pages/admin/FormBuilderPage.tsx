@@ -3,6 +3,7 @@ import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { ApiRequestError, isModuleForbiddenError } from "@/services/http";
 import {
   createAdminForm,
+  deleteAdminForm,
   fetchAdminFormDetail,
   fetchAdminFormEmbed,
   fetchAdminForms,
@@ -460,7 +461,7 @@ function SortableFieldCard({
             className="text-xs text-red-400 hover:underline"
             onClick={() => onRemove(index)}
           >
-            Remove
+            Delete
           </button>
         </div>
 
@@ -704,6 +705,8 @@ export function FormBuilderPage() {
   const [fieldDraft, setFieldDraft] = useState<LocalField[]>(defaultFields());
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
   const [saveSubmitting, setSaveSubmitting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [embedOpen, setEmbedOpen] = useState<string | null>(null);
   const [embedPayload, setEmbedPayload] = useState<{
     htmlSnippet: string;
@@ -850,6 +853,32 @@ export function FormBuilderPage() {
     }
   }
 
+  async function confirmDeleteForm() {
+    if (!deleteTarget) return;
+    const { id, name } = deleteTarget;
+    setDeleteSubmitting(true);
+    setNotice(null);
+    try {
+      await deleteAdminForm(id);
+      if (detail?.id === id) {
+        setDetail(null);
+        setFieldDraft(defaultFields());
+        setSettingsJson("{}");
+      }
+      setDeleteTarget(null);
+      await loadList();
+      setNotice(`Form "${name}" was deleted. Submissions and CRM leads for this form were removed.`);
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        setNotice(err.message || err.code || "Could not delete form.");
+      } else {
+        setNotice("Could not delete form.");
+      }
+    } finally {
+      setDeleteSubmitting(false);
+    }
+  }
+
   async function loadEmbed(formId: string) {
     setEmbedOpen(formId);
     const e = await fetchAdminFormEmbed(formId);
@@ -976,6 +1005,13 @@ export function FormBuilderPage() {
                     >
                       Embed
                     </button>
+                    <button
+                      type="button"
+                      className="text-red-400/90 hover:text-red-300"
+                      onClick={() => setDeleteTarget({ id: row.id, name: row.name })}
+                    >
+                      Delete
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -1085,6 +1121,13 @@ export function FormBuilderPage() {
             >
               Get embed code
             </button>
+            <button
+              type="button"
+              className="rounded-lg border border-red-500/35 px-4 py-2 text-sm text-red-200 hover:bg-red-500/10"
+              onClick={() => detail && setDeleteTarget({ id: detail.id, name: detail.name })}
+            >
+              Delete form
+            </button>
           </div>
         </section>
       ) : null}
@@ -1182,6 +1225,27 @@ export function FormBuilderPage() {
         }}
         onCancel={() => {
           if (!saveSubmitting) setSaveConfirmOpen(false);
+        }}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete form?"
+        variant="danger"
+        description={
+          deleteTarget ? (
+            <>
+              Permanently delete <span className="font-semibold text-white">{deleteTarget.name}</span>? This
+              removes the form definition, all submissions, and linked CRM leads.
+            </>
+          ) : null
+        }
+        confirmLabel="Delete form"
+        cancelLabel="Cancel"
+        loading={deleteSubmitting}
+        onConfirm={() => void confirmDeleteForm()}
+        onCancel={() => {
+          if (!deleteSubmitting) setDeleteTarget(null);
         }}
       />
     </div>

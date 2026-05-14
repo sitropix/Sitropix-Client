@@ -17,6 +17,15 @@ import { useAuth } from "@/context/AuthContext";
 
 const INVITES_PAGE_SIZE = 10;
 
+/** Calendar-style date (e.g. "7 May 2026") so M/D vs D/M is not ambiguous. */
+function formatInviteCalendarDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 export function InvitesPage() {
   const { cache, updateCache } = useAdminPrefetch();
   const { showSuccess, showError } = useToast();
@@ -43,7 +52,6 @@ export function InvitesPage() {
   }
 
   useEffect(() => {
-    if (cache.invites) setInvites(cache.invites);
     if (cache.plans) setPlans(cache.plans);
     void load().catch((err) => {
       if (isModuleForbiddenError(err)) {
@@ -192,17 +200,27 @@ export function InvitesPage() {
                         ? "text-green-400"
                         : inv.revokedAt
                           ? "text-neutral-500"
-                          : "text-amber-400"
+                          : new Date(inv.expiresAt).getTime() <= Date.now()
+                            ? "text-neutral-500"
+                            : "text-amber-400"
                     }
                   >
-                    {inv.acceptedAt ? "Accepted" : inv.revokedAt ? "Revoked" : "Pending"}
+                    {inv.acceptedAt
+                      ? "Accepted"
+                      : inv.revokedAt
+                        ? "Revoked"
+                        : new Date(inv.expiresAt).getTime() <= Date.now()
+                          ? "Expired"
+                          : "Pending"}
                   </span>{" "}
-                  · expires {new Date(inv.expiresAt).toLocaleDateString()}
+                  · expires {formatInviteCalendarDate(inv.expiresAt)}
                   {typeof inv.resendCount === "number" ? ` · resent ${inv.resendCount}x` : ""}
-                  {inv.lastSentAt ? ` · last sent ${new Date(inv.lastSentAt).toLocaleDateString()}` : ""}
+                  {inv.lastSentAt ? ` · last sent ${formatInviteCalendarDate(inv.lastSentAt)}` : ""}
                 </p>
               </div>
-              {!inv.acceptedAt && !inv.revokedAt && (
+              {!inv.acceptedAt &&
+                !inv.revokedAt &&
+                new Date(inv.expiresAt).getTime() > Date.now() && (
                 <div className="flex gap-2">
                   <button
                     type="button"
