@@ -35,6 +35,7 @@ import { systemConfigPutSchema } from "../schemas/systemConfigSchemas.mjs";
 import { getAdminEmailSettingsPayload, saveAdminEmailSettings } from "../services/emailSettingsStore.mjs";
 import { getSystemConfigPayload, saveSystemConfig } from "../services/systemConfigStore.mjs";
 import { sendTransactionalEmail } from "../services/emailService.mjs";
+import { deleteExpiredPendingInvites } from "../services/inviteCleanup.mjs";
 import { assertStripeConfigured, reloadStripeFromSystemConfig, stripe } from "../services/stripeService.mjs";
 import {
   buildProrationBreakdown,
@@ -1691,7 +1692,14 @@ adminRouter.post("/invites", requireMasterAdmin, validate(createInviteSchema), a
 });
 
 adminRouter.get("/invites", async (_req, res) => {
+  await deleteExpiredPendingInvites();
+  const now = new Date();
   const rows = await prisma.invite.findMany({
+    where: {
+      NOT: {
+        AND: [{ acceptedAt: null }, { expiresAt: { lt: now } }],
+      },
+    },
     orderBy: { createdAt: "desc" },
     take: 100,
     include: {

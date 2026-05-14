@@ -21,6 +21,7 @@ import {
   requestAuditContext,
 } from "../services/auditLogService.mjs";
 import { sendTransactionalEmail } from "../services/emailService.mjs";
+import { deleteInviteRowIfExpiredPending } from "../services/inviteCleanup.mjs";
 import { randomToken, sha256 } from "../utils/crypto.mjs";
 import {
   signAccessToken,
@@ -55,6 +56,9 @@ router.get("/invite-info", async (req, res) => {
     invite.acceptedAt ||
     invite.expiresAt.getTime() < Date.now()
   ) {
+    if (invite && !invite.acceptedAt && invite.expiresAt.getTime() < Date.now()) {
+      await deleteInviteRowIfExpiredPending(invite.id);
+    }
     return res.status(404).json({ error: "invite_invalid" });
   }
   return res.json({
@@ -118,6 +122,9 @@ router.post("/signup", validate(signupSchema), async (req, res) => {
       invite.acceptedAt ||
       invite.expiresAt.getTime() < Date.now()
     ) {
+      if (invite && !invite.acceptedAt && invite.expiresAt.getTime() < Date.now()) {
+        await deleteInviteRowIfExpiredPending(invite.id);
+      }
       return res.status(400).json({ error: "invite_invalid" });
     }
     if (invite.email.toLowerCase() !== emailLower) {
