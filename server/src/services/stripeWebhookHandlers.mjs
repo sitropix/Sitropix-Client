@@ -75,7 +75,7 @@ async function ensureProjectIdForSubscription({ userId, projectId, stripeSubscri
   const existingProjectSub =
     stripeSubscriptionId
       ? await prisma.subscription.findFirst({
-          where: { stripeSubscriptionId, userId, projectId: { not: null } },
+          where: { stripeSubscriptionId, userId },
           select: { projectId: true },
         })
       : null;
