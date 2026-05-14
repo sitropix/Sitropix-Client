@@ -26,6 +26,16 @@ export interface ProjectInvoice {
   paidAt: string | null;
 }
 
+/** Present on `GET /api/projects/:id` when a subscription exists for the project. */
+export interface ProjectUsageSnapshot {
+  includedCreditsPerPeriod: number;
+  includedCreditsUsedThisPeriod: number;
+  purchasedCreditsBalance: number;
+  pagesIncludedMax: number | null;
+  /** Reserved for future page-build tracking; omitted or null until populated. */
+  pagesUsed: number | null;
+}
+
 export interface ProjectRecord {
   id: string;
   ownerUserId: string;
@@ -40,5 +50,7 @@ export interface ProjectRecord {
   billingCycle: BillingCycle | null;
   addons: string[];
   invoices: ProjectInvoice[];
+  /** Subscription usage (edits, page cap); only on single-project fetch. */
+  usage?: ProjectUsageSnapshot | null;
 }
 

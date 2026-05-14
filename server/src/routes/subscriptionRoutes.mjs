@@ -1,6 +1,7 @@
 import express from "express";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import bcrypt from "bcryptjs";
+import { ZodError } from "zod";
 import { prisma } from "../db/client.mjs";
 import { env } from "../config/env.mjs";
 import { FEATURE_EXPERIMENT_PRICING_LAYOUT, PRICING_LAYOUT_VARIANTS } from "../constants/experimentKeys.mjs";
@@ -26,6 +27,7 @@ import {
   projectSubscriptionActionSchema,
   planPatchSchema,
   planSchema,
+  editTypePatchSchema,
 } from "../schemas/billingSchemas.mjs";
 import { createInviteSchema } from "../schemas/inviteSchemas.mjs";
 import { emailSettingsPutSchema, emailTestSchema } from "../schemas/emailSettingsSchemas.mjs";
@@ -41,6 +43,24 @@ import {
   planPriceForCycle,
   resolveBillingCycleForPlan,
 } from "../services/billingProration.mjs";
+import {
+  readAddonEffectKind,
+  creditSnapshotFromPlan,
+  totalCreditsAvailable,
+} from "../services/subscriptionCredits.mjs";
+import { mergePlanWebsiteCatalogJson } from "../services/planWebsiteCatalog.mjs";
+import {
+  addonEligibleForPlan,
+  assertCreditPurchaseUnderCap,
+  isPlanPricedExtraEditAddonCode,
+  resolveCreditPackGrantForAddon,
+  resolveExtraEditAddonPriceCents,
+  validateExtraEditAddonAgainstPlan,
+} from "../services/extraEditCredits.mjs";
+import {
+  addonStripeRecurringInterval,
+  buildSubscriptionCheckoutAddonLineItems,
+} from "../services/recurringAddonStripe.mjs";
 import {
   syncPaidInvoicesFromStripe,
   syncSubscriptionFromStripeForUserId,
@@ -69,6 +89,52 @@ router.use(requireAuth);
 
 function subscriptionDebug(req, step, fields = {}) {
   log.infoReq(req, `subscription.${step}`, fields);
+}
+
+/**
+ * After a paid add-on checkout, attach a recurring Stripe price (no proration) when metadata requests it.
+ * Used on first confirm and on idempotent retries if a prior run failed after the DB commit.
+ */
+async function attachRecurringAddonIfNeeded(meta, localSub, addonCatalogRows, session) {
+  const attachRaw = meta.attachRecurringAddonJson ? String(meta.attachRecurringAddonJson) : "";
+  if (!attachRaw) return { ok: true };
+  if (!localSub?.stripeSubscriptionId) {
+    return { ok: false, message: "missing_stripe_subscription" };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(attachRaw);
+  } catch {
+    return { ok: false, message: "invalid_attach_metadata" };
+  }
+  const attachCode = String(parsed.code ?? "").trim();
+  const arow = addonCatalogRows.find((r) => r.code === attachCode);
+  if (!arow || (arow.setupFeeCents ?? 0) <= 0) {
+    return { ok: false, message: "invalid_recurring_attach" };
+  }
+  try {
+    const subMs = String(localSub.stripeSubscriptionId).trim();
+    const existingItems = await stripe.subscriptionItems.list({ subscription: subMs, limit: 100 });
+    const already = existingItems.data?.some((si) => si?.metadata?.sitropixAddon === attachCode);
+    if (!already) {
+      const recur = Math.max(0, Number(parsed.recurringAmountCents) || arow.priceCents || 0);
+      const intv = parsed.interval === "year" ? "year" : "month";
+      await stripe.subscriptionItems.create({
+        subscription: subMs,
+        proration_behavior: "none",
+        metadata: { sitropixAddon: attachCode },
+        price_data: {
+          currency: String(session.currency ?? "usd").toLowerCase(),
+          unit_amount: recur,
+          recurring: { interval: intv },
+          product_data: { name: arow.label },
+        },
+      });
+    }
+  } catch (e) {
+    return { ok: false, message: e?.message ?? "stripe_subscription_item_failed" };
+  }
+  return { ok: true };
 }
 
 const DEFAULT_EMAIL_TEMPLATES = [
@@ -157,6 +223,8 @@ function mapPlan(p) {
     trialDays: p.trialDays,
     billingMonthlyEnabled: p.billingMonthlyEnabled ?? true,
     billingYearlyEnabled: p.billingYearlyEnabled ?? true,
+    includedEditCreditsPerPeriod: p.includedEditCreditsPerPeriod ?? 0,
+    catalogJson: p.catalogJson && typeof p.catalogJson === "object" ? p.catalogJson : {},
   };
 }
 
@@ -335,6 +403,11 @@ router.get("/portal", async (req, res) => {
 
   function mapSubscriptionRow(row) {
     if (!row) return null;
+    const subLike = {
+      includedCreditsPerPeriod: row.includedCreditsPerPeriod,
+      includedCreditsUsedThisPeriod: row.includedCreditsUsedThisPeriod,
+      purchasedCreditsBalance: row.purchasedCreditsBalance,
+    };
     return {
       id: row.id,
       userId: row.userId,
@@ -349,6 +422,11 @@ router.get("/portal", async (req, res) => {
       pausedAt: row.pausedAt,
       canceledAt: row.canceledAt,
       nextBillingDate: row.currentPeriodEnd,
+      includedCreditsPerPeriod: row.includedCreditsPerPeriod ?? 0,
+      includedCreditsUsedThisPeriod: row.includedCreditsUsedThisPeriod ?? 0,
+      purchasedCreditsBalance: row.purchasedCreditsBalance ?? 0,
+      websiteEditCreditsAvailable: totalCreditsAvailable(subLike),
+      supportPriorityBoostUntil: row.supportPriorityBoostUntil ?? null,
       plan: row.plan ? mapPlan(row.plan) : undefined,
     };
   }
@@ -435,6 +513,7 @@ router.post("/bootstrap", validate(bootstrapSubscriptionSchema), async (req, res
       billingCycle,
       currentPeriodStart: now,
       currentPeriodEnd: end,
+      ...creditSnapshotFromPlan(plan),
     },
   });
   subscriptionDebug(req, "bootstrap.success", { userId: req.auth.userId, subscriptionId: sub.id, planId, billingCycle });
@@ -505,7 +584,15 @@ router.post("/change-plan", validate(changePlanSchema), async (req, res) => {
 
   let updated = await prisma.subscription.update({
     where: { id: sub.id },
-    data: { planId: nextPlan.id, billingCycle: cycle },
+    data: {
+      planId: nextPlan.id,
+      billingCycle: cycle,
+      includedCreditsPerPeriod: Math.max(0, nextPlan.includedEditCreditsPerPeriod ?? 0),
+      includedCreditsUsedThisPeriod: Math.min(
+        sub.includedCreditsUsedThisPeriod ?? 0,
+        Math.max(0, nextPlan.includedEditCreditsPerPeriod ?? 0),
+      ),
+    },
     include: { plan: true },
   });
 
@@ -844,22 +931,12 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
       quantity: 1,
     };
   }
-  const addonCatalog = new Map(addonRows.map((row) => [row.code, { label: row.label, amountCents: row.priceCents }]));
-  const addonLineItems = normalizedAddons
-    .map((code) => {
-      const item = addonCatalog.get(code);
-      if (!item) return null;
-      return {
-        price_data: {
-          currency: plan.currency.toLowerCase(),
-          product_data: { name: item.label },
-          recurring: { interval: effectiveCycle === "yearly" ? "year" : "month" },
-          unit_amount: item.amountCents,
-        },
-        quantity: 1,
-      };
-    })
-    .filter(Boolean);
+  const addonCatalog = new Map(addonRows.map((row) => [row.code, row]));
+  const addonLineItems = normalizedAddons.flatMap((code) => {
+    const row = addonCatalog.get(code);
+    if (!row) return [];
+    return buildSubscriptionCheckoutAddonLineItems(plan.currency, effectiveCycle, row);
+  });
   const checkoutMetadata = {
     userId: req.auth.userId,
     planId: plan.id,
@@ -926,7 +1003,62 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
   if (requested.length === 0) {
     return res.status(400).json({ error: "no_new_addons_to_purchase" });
   }
-  const currency = (sub.plan?.currency ?? addonByCode.get(requested[0])?.currency ?? "USD").toLowerCase();
+  const plan = sub.plan;
+  if (!plan) {
+    return res.status(409).json({
+      error: "subscription_plan_missing",
+      message: "Cannot price add-ons without a plan on this subscription.",
+    });
+  }
+  for (const code of requested) {
+    const row = addonByCode.get(code);
+    if (!addonEligibleForPlan(row, plan)) {
+      return res.status(400).json({ error: "addon_not_eligible_for_plan", code });
+    }
+    if (isPlanPricedExtraEditAddonCode(code)) {
+      const v = validateExtraEditAddonAgainstPlan(plan, row);
+      if (!v.ok) return res.status(400).json({ error: v.error, message: v.message });
+    }
+    if (row.billingKind === "recurring" && (row.setupFeeCents ?? 0) <= 0) {
+      return res.status(400).json({
+        error: "recurring_addon_not_supported_here",
+        message: "This recurring add-on must be added when you start or change your subscription.",
+        code: row.code,
+      });
+    }
+  }
+
+  const recurringSetupCode = requested.find((c) => {
+    const r = addonByCode.get(c);
+    return r?.billingKind === "recurring" && (r.setupFeeCents ?? 0) > 0;
+  });
+  if (recurringSetupCode && requested.length > 1) {
+    return res.status(400).json({
+      error: "single_addon_checkout_only",
+      message: "Purchase the e-commerce bolt-on alone in this checkout (first-period billing is combined).",
+    });
+  }
+
+  let purchasedDelta = 0;
+  for (const code of requested) {
+    const row = addonByCode.get(code);
+    const effect = readAddonEffectKind(row.catalogJson);
+    if (effect === "credit_pack") {
+      purchasedDelta += resolveCreditPackGrantForAddon(plan, row);
+    }
+  }
+  if (purchasedDelta > 0) {
+    const capCheck = assertCreditPurchaseUnderCap({
+      plan,
+      subscriptionRow: sub,
+      purchasedDelta,
+    });
+    if (!capCheck.ok) {
+      return res.status(400).json({ error: capCheck.error, message: capCheck.message });
+    }
+  }
+
+  const currency = (plan.currency ?? addonByCode.get(requested[0])?.currency ?? "USD").toLowerCase();
   const successUrl = successUrlOverride ?? env.stripeSuccessUrl;
   const cancelUrl = cancelUrlOverride ?? env.stripeCancelUrl;
   if (!isAllowedRedirect(successUrl) || !isAllowedRedirect(cancelUrl)) {
@@ -940,22 +1072,62 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
   u.searchParams.set("projectId", projectId);
   const qs = u.searchParams.toString();
   const checkoutSuccessUrl = `${u.origin}${u.pathname}?${qs}&session_id={CHECKOUT_SESSION_ID}${u.hash || ""}`;
-  const lineItems = requested.map((code) => {
+
+  let attachRecurringAddonJson = "";
+  const lineItems = [];
+
+  if (recurringSetupCode) {
+    const item = addonByCode.get(recurringSetupCode);
+    const setup = item.setupFeeCents ?? 0;
+    const recurring = item.priceCents ?? 0;
+    lineItems.push({
+      price_data: {
+        currency,
+        product_data: { name: `${item.label} (setup + first billing cycle)` },
+        unit_amount: setup + recurring,
+      },
+      quantity: 1,
+    });
+    if (!sub.stripeSubscriptionId) {
+      return res.status(400).json({
+        error: "missing_stripe_subscription",
+        message: "Cannot attach a recurring add-on without a Stripe subscription id.",
+      });
+    }
+    const interval = addonStripeRecurringInterval(item, sub.billingCycle ?? "monthly");
+    attachRecurringAddonJson = JSON.stringify({
+      code: item.code,
+      recurringAmountCents: recurring,
+      interval,
+    });
+  }
+
+  for (const code of requested) {
+    if (recurringSetupCode && code === recurringSetupCode) continue;
     const item = addonByCode.get(code);
-    return {
+    const unit = isPlanPricedExtraEditAddonCode(code)
+      ? resolveExtraEditAddonPriceCents(plan, item)
+      : item.priceCents ?? 0;
+    if (isPlanPricedExtraEditAddonCode(code) && unit <= 0) {
+      return res.status(400).json({ error: "invalid_addon_price", code });
+    }
+    lineItems.push({
       price_data: {
         currency,
         product_data: { name: `${item.label} (add-on)` },
-        unit_amount: item.priceCents,
+        unit_amount: unit,
       },
       quantity: 1,
-    };
-  });
+    });
+  }
+
   const checkoutMetadata = {
     userId: req.auth.userId,
     projectId,
     kind: "project_addon_payment",
     addonCodes: requested.join(","),
+    planIdSnapshot: plan.id,
+    ...(attachRecurringAddonJson ? { attachRecurringAddonJson } : {}),
   };
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
@@ -1005,22 +1177,94 @@ router.post("/confirm-addon-checkout", validate(confirmAddonCheckoutSchema), asy
     .map((s) => s.trim())
     .filter(Boolean);
   if (codes.length === 0) return res.status(400).json({ error: "missing_addon_codes" });
-  const addonCatalogRows = await fetchSubscriptionAddonCatalog();
+  const addonCatalogRows = await prisma.subscriptionAddon.findMany({
+    where: { isActive: true, code: { in: codes } },
+  });
   const valid = new Set(addonCatalogRows.map((r) => r.code));
   const normalized = codes.filter((c) => valid.has(c));
   const dedupeId = `stripe_session_${sessionId}`;
   const invoices = Array.isArray(project.invoicesJson) ? project.invoicesJson : [];
   if (invoices.some((inv) => inv && inv.id === dedupeId)) {
     subscriptionDebug(req, "addon_checkout_confirm.idempotent", { userId: req.auth.userId, projectId, sessionId });
+    const ls = await prisma.subscription.findFirst({
+      where: { userId: req.auth.userId, projectId },
+      select: { id: true, stripeSubscriptionId: true },
+    });
+    const attachRes = await attachRecurringAddonIfNeeded(meta, ls, addonCatalogRows, session);
+    if (!attachRes.ok) {
+      subscriptionDebug(req, "addon_checkout_confirm.idempotent_attach_pending", {
+        projectId,
+        message: attachRes.message,
+      });
+    }
     return res.json({ ok: true, alreadyProcessed: true });
   }
   const existing = Array.isArray(project.addonsJson) ? project.addonsJson.filter((v) => typeof v === "string") : [];
   const merged = Array.from(new Set([...existing, ...normalized]));
-  const amountCents = normalized.reduce((sum, code) => {
+
+  const localSub = await prisma.subscription.findFirst({
+    where: { userId: req.auth.userId, projectId },
+    select: {
+      id: true,
+      currentPeriodEnd: true,
+      supportPriorityBoostUntil: true,
+      purchasedCreditsBalance: true,
+      stripeSubscriptionId: true,
+      billingCycle: true,
+      planId: true,
+      plan: true,
+    },
+  });
+
+  if (meta.planIdSnapshot && localSub?.planId && String(meta.planIdSnapshot) !== String(localSub.planId)) {
+    return res.status(409).json({
+      error: "plan_changed_since_checkout",
+      message: "Your subscription plan changed during checkout. Please start again.",
+    });
+  }
+
+  let purchasedDelta = 0;
+  for (const code of normalized) {
     const row = addonCatalogRows.find((r) => r.code === code);
-    return sum + (row?.priceCents ?? 0);
-  }, 0);
-  const currency = addonCatalogRows.find((r) => r.code === normalized[0])?.currency ?? "USD";
+    if (!row) continue;
+    const effect = readAddonEffectKind(row.catalogJson);
+    if (effect === "credit_pack") {
+      purchasedDelta += resolveCreditPackGrantForAddon(localSub?.plan, row);
+    }
+  }
+  if (purchasedDelta > 0 && !localSub) {
+    return res.status(409).json({
+      error: "subscription_required_for_credit_pack",
+      message: "Credit packs require an active project subscription row.",
+    });
+  }
+  if (purchasedDelta > 0 && localSub?.plan) {
+    const capCheck = assertCreditPurchaseUnderCap({
+      plan: localSub.plan,
+      subscriptionRow: localSub,
+      purchasedDelta,
+    });
+    if (!capCheck.ok) {
+      return res.status(400).json({ error: capCheck.error, message: capCheck.message });
+    }
+  }
+  if (meta.attachRecurringAddonJson && !localSub?.stripeSubscriptionId) {
+    return res.status(409).json({
+      error: "missing_stripe_subscription",
+      message: "Cannot finalize this add-on without a Stripe subscription on file.",
+    });
+  }
+
+  const amountCents =
+    typeof session.amount_total === "number" && session.amount_total >= 0
+      ? session.amount_total
+      : normalized.reduce((sum, code) => {
+          const row = addonCatalogRows.find((r) => r.code === code);
+          return sum + (row?.priceCents ?? 0);
+        }, 0);
+  const currency = String(
+    session.currency ?? addonCatalogRows.find((r) => r.code === normalized[0])?.currency ?? "USD",
+  ).toUpperCase();
   const invoiceNumber = `ADD-${String(invoices.length + 1).padStart(4, "0")}`;
   const nextInvoices = [
     {
@@ -1033,10 +1277,66 @@ router.post("/confirm-addon-checkout", validate(confirmAddonCheckoutSchema), asy
     },
     ...invoices,
   ];
-  await prisma.project.update({
-    where: { id: project.id },
-    data: { addonsJson: merged, invoicesJson: nextInvoices },
-  });
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      for (const code of normalized) {
+        const row = addonCatalogRows.find((r) => r.code === code);
+        if (!row) continue;
+        const effect = readAddonEffectKind(row.catalogJson);
+        if (row.billingKind === "one_time" && effect === "consumable_service") {
+          await tx.projectAddonEntitlement.create({
+            data: {
+              projectId,
+              subscriptionAddonId: row.id,
+              checkoutDedupeKey: `${dedupeId}:${code}`,
+            },
+          });
+        }
+      }
+      if (purchasedDelta > 0 && localSub) {
+        await tx.subscription.update({
+          where: { id: localSub.id },
+          data: { purchasedCreditsBalance: { increment: purchasedDelta } },
+        });
+      }
+      let mergedBoostUntil = null;
+      for (const code of normalized) {
+        const row = addonCatalogRows.find((r) => r.code === code);
+        if (!row) continue;
+        const effect = readAddonEffectKind(row.catalogJson);
+        if (effect === "priority_boost" && localSub) {
+          const candidate = localSub.currentPeriodEnd;
+          const prev = mergedBoostUntil ?? localSub.supportPriorityBoostUntil;
+          mergedBoostUntil =
+            !prev || new Date(candidate) > new Date(prev) ? candidate : prev;
+        }
+      }
+      if (mergedBoostUntil && localSub) {
+        await tx.subscription.update({
+          where: { id: localSub.id },
+          data: { supportPriorityBoostUntil: mergedBoostUntil },
+        });
+      }
+      await tx.project.update({
+        where: { id: project.id },
+        data: { addonsJson: merged, invoicesJson: nextInvoices },
+      });
+    });
+  } catch (e) {
+    if (e?.code === "P2002") {
+      subscriptionDebug(req, "addon_checkout_confirm.idempotent_unique", { userId: req.auth.userId, projectId, sessionId });
+      return res.json({ ok: true, alreadyProcessed: true });
+    }
+    throw e;
+  }
+  const attachRes = await attachRecurringAddonIfNeeded(meta, localSub, addonCatalogRows, session);
+  if (!attachRes.ok) {
+    return res.status(502).json({
+      error: "stripe_subscription_item_failed",
+      message: attachRes.message ?? "Could not attach recurring add-on to your subscription.",
+    });
+  }
   subscriptionDebug(req, "addon_checkout_confirm.success", { userId: req.auth.userId, projectId, addonCodes: normalized });
   return res.json({ ok: true });
 });
@@ -1099,6 +1399,7 @@ const adminRouter = express.Router();
 adminRouter.use(requireAuth, requireRole("admin", "master_admin"));
 adminRouter.use("/plans", requireModuleAccess("plans"));
 adminRouter.use("/addons", requireModuleAccess("plans"));
+adminRouter.use("/edit-types", requireModuleAccess("plans"));
 adminRouter.use("/invites", requireModuleAccess("invites"));
 adminRouter.use("/customers", requireModuleAccess("customers"));
 adminRouter.use("/audit-logs", requireModuleAccess("audit_logs"));
@@ -1170,6 +1471,8 @@ adminRouter.post("/plans", validate(planSchema), async (req, res) => {
       trialDays: p.trialDays ?? 14,
       billingMonthlyEnabled: p.billingMonthlyEnabled ?? true,
       billingYearlyEnabled: p.billingYearlyEnabled ?? true,
+      includedEditCreditsPerPeriod: p.includedEditCreditsPerPeriod ?? 0,
+      catalogJson: p.catalogJson && typeof p.catalogJson === "object" ? p.catalogJson : {},
       stripeProductId,
       stripePriceMonthlyId,
       stripePriceYearlyId,
@@ -1189,14 +1492,40 @@ adminRouter.post("/plans", validate(planSchema), async (req, res) => {
 
 adminRouter.patch("/plans/:id", validate(planPatchSchema), async (req, res) => {
   const auditCtx = requestAuditContext(req);
-  const updated = await prisma.plan.update({ where: { id: req.params.id }, data: req.validatedBody });
+  const body = { ...req.validatedBody };
+  let data = body;
+  if (body.catalogJson !== undefined) {
+    const existing = await prisma.plan.findUnique({
+      where: { id: req.params.id },
+      select: { catalogJson: true },
+    });
+    try {
+      data = {
+        ...body,
+        catalogJson: mergePlanWebsiteCatalogJson(existing?.catalogJson, body.catalogJson),
+      };
+    } catch (e) {
+      if (e instanceof ZodError) {
+        return res.status(400).json({ error: "invalid_plan_catalog", issues: e.flatten() });
+      }
+      if (String(e?.message) === "invalid_extra_edit_pricing") {
+        return res.status(400).json({
+          error: "invalid_extra_edit_pricing",
+          message:
+            'Extra edit pricing must look like "$12/edit" or "5 for $49" (dollar amounts can use decimals). Leave blank to keep current pricing.',
+        });
+      }
+      throw e;
+    }
+  }
+  const updated = await prisma.plan.update({ where: { id: req.params.id }, data });
   await logAuditEvent({
     action: "admin.plan_updated",
     actorUserId: req.auth.userId,
     actorRole: req.auth.role,
     targetType: "plan",
     targetId: updated.id,
-    metadata: { patchKeys: Object.keys(req.validatedBody ?? {}) },
+    metadata: { patchKeys: Object.keys(data ?? {}) },
     ...auditCtx,
   });
   return res.json(updated);
@@ -1245,6 +1574,13 @@ adminRouter.post("/addons", validate(addonSchema), async (req, res) => {
       isActive: body.isActive ?? true,
       billingMonthlyEnabled: body.billingMonthlyEnabled ?? true,
       billingYearlyEnabled: body.billingYearlyEnabled ?? true,
+      billingKind: body.billingKind ?? "recurring",
+      priceMinCents: body.priceMinCents ?? null,
+      priceMaxCents: body.priceMaxCents ?? null,
+      setupFeeCents: body.setupFeeCents ?? 0,
+      deliveryMode: body.deliveryMode?.trim() ?? "",
+      eligiblePlanCodes: Array.isArray(body.eligiblePlanCodes) ? body.eligiblePlanCodes : [],
+      catalogJson: body.catalogJson && typeof body.catalogJson === "object" ? body.catalogJson : {},
     },
   });
   await logAuditEvent({
@@ -1263,9 +1599,8 @@ adminRouter.patch("/addons/:id", validate(addonPatchSchema), async (req, res) =>
   const auditCtx = requestAuditContext(req);
   const body = req.validatedBody;
   const data = { ...body };
-  if (typeof data.label === "string") data.label = data.label.trim();
   if (typeof data.desc === "string") data.desc = data.desc.trim();
-  if (typeof data.currency === "string") data.currency = data.currency.toUpperCase();
+  if (typeof data.deliveryMode === "string") data.deliveryMode = data.deliveryMode.trim();
   const updated = await prisma.subscriptionAddon.update({
     where: { id: req.params.id },
     data,
@@ -1275,6 +1610,34 @@ adminRouter.patch("/addons/:id", validate(addonPatchSchema), async (req, res) =>
     actorUserId: req.auth.userId,
     actorRole: req.auth.role,
     targetType: "subscription_addon",
+    targetId: updated.id,
+    metadata: { patchKeys: Object.keys(body ?? {}) },
+    ...auditCtx,
+  });
+  return res.json(updated);
+});
+
+adminRouter.get("/edit-types", async (_req, res) => {
+  const rows = await prisma.editType.findMany({
+    orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+  });
+  return res.json(rows);
+});
+
+adminRouter.patch("/edit-types/:id", validate(editTypePatchSchema), async (req, res) => {
+  const auditCtx = requestAuditContext(req);
+  const body = req.validatedBody;
+  const data = { ...body };
+  if (typeof data.label === "string") data.label = data.label.trim();
+  const updated = await prisma.editType.update({
+    where: { id: req.params.id },
+    data,
+  });
+  await logAuditEvent({
+    action: "admin.edit_type_updated",
+    actorUserId: req.auth.userId,
+    actorRole: req.auth.role,
+    targetType: "edit_type",
     targetId: updated.id,
     metadata: { patchKeys: Object.keys(body ?? {}) },
     ...auditCtx,

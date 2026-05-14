@@ -603,7 +603,14 @@ export interface ProjectAssetUploadRow {
 
 const projectAssetsInFlight = new Map<string, Promise<ProjectAssetUploadRow[]>>();
 
-export function fetchProjectAssets(projectId: string) {
+export function invalidateProjectAssetsCache(projectId: string) {
+  projectAssetsInFlight.delete(projectId);
+}
+
+export function fetchProjectAssets(projectId: string, opts?: { force?: boolean }) {
+  if (opts?.force) {
+    projectAssetsInFlight.delete(projectId);
+  }
   const existing = projectAssetsInFlight.get(projectId);
   if (existing) return existing;
   const request = api<ProjectAssetUploadRow[]>(
@@ -624,13 +631,15 @@ export async function uploadProjectAssetFile(
 ) {
   const form = new FormData();
   form.append("file", file);
-  return api<ProjectAssetUploadRow>(
+  const row = await api<ProjectAssetUploadRow>(
     `/api/documents/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(type)}`,
     {
       method: "POST",
       body: form,
     },
   );
+  projectAssetsInFlight.delete(projectId);
+  return row;
 }
 
 export async function downloadProjectAssetFromServer(projectId: string, type: ProjectRequirementType) {
@@ -660,7 +669,10 @@ export function deleteProjectAssetFile(projectId: string, type: ProjectRequireme
   return api<{ ok: boolean; deleted: number }>(
     `/api/documents/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(type)}`,
     { method: "DELETE", body: JSON.stringify({}) },
-  );
+  ).then((r) => {
+    projectAssetsInFlight.delete(projectId);
+    return r;
+  });
 }
 
 export function createAddonCheckoutSession(

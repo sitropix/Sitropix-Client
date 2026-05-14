@@ -212,6 +212,29 @@ router.get("/:id", async (req, res) => {
   if (normalized.subscriptionStatus !== row.subscriptionStatus) {
     await persistNormalizedStatus(row.id, normalized);
   }
+  const sub = await findUserProjectSubscription(req.auth.userId, row.id, { include: { plan: true } });
+  if (sub?.plan) {
+    const j = sub.plan.catalogJson && typeof sub.plan.catalogJson === "object" ? sub.plan.catalogJson : {};
+    const pagesRaw = j.pagesIncludedMax ?? j.pagesIncluded;
+    const pagesMax =
+      typeof pagesRaw === "number"
+        ? pagesRaw
+        : typeof pagesRaw === "string"
+          ? parseInt(String(pagesRaw), 10)
+          : null;
+    const subCap = Math.max(0, sub.includedCreditsPerPeriod ?? 0);
+    const planCap = Math.max(0, sub.plan?.includedEditCreditsPerPeriod ?? 0);
+    const effectiveIncludedCap = subCap > 0 ? subCap : planCap;
+    normalized.usage = {
+      includedCreditsPerPeriod: effectiveIncludedCap,
+      includedCreditsUsedThisPeriod: Math.max(0, sub.includedCreditsUsedThisPeriod ?? 0),
+      purchasedCreditsBalance: Math.max(0, sub.purchasedCreditsBalance ?? 0),
+      pagesIncludedMax: Number.isFinite(pagesMax) && pagesMax != null ? Math.max(0, pagesMax) : null,
+      pagesUsed: null,
+    };
+  } else {
+    normalized.usage = null;
+  }
   return res.json(normalized);
 });
 

@@ -15,7 +15,17 @@ export interface Plan {
   /** When both are false, the plan is one-time only (uses `priceMonthlyCents` as the purchase price). */
   billingMonthlyEnabled?: boolean;
   billingYearlyEnabled?: boolean;
+  /** Website edit credits granted each billing period (admin-editable). */
+  includedEditCreditsPerPeriod?: number;
+  /** Admin-editable structured fields (ranges, booleans, setup fees, etc.). */
+  catalogJson?: Record<string, unknown>;
+  stripeProductId?: string | null;
+  stripePriceMonthlyId?: string | null;
+  stripePriceYearlyId?: string | null;
+  razorpayPlanId?: string | null;
 }
+
+export type AddonBillingKind = "recurring" | "one_time" | "per_use";
 
 export interface SubscriptionAddon {
   id?: string;
@@ -28,6 +38,13 @@ export interface SubscriptionAddon {
   /** When both are false, the add-on is treated as one-time / flat (still follows the subscription interval in Stripe when paired with a recurring plan). */
   billingMonthlyEnabled?: boolean;
   billingYearlyEnabled?: boolean;
+  billingKind?: AddonBillingKind;
+  priceMinCents?: number | null;
+  priceMaxCents?: number | null;
+  setupFeeCents?: number;
+  deliveryMode?: string;
+  eligiblePlanCodes?: string[];
+  catalogJson?: Record<string, unknown>;
 }
 
 export type SubscriptionStatus = "trialing" | "active" | "paused" | "canceled" | "past_due";
@@ -59,6 +76,13 @@ export interface Subscription {
   plan?: Plan;
   user?: UserLite;
   nextBillingDate?: string;
+  /** Website edit credits (project-scoped subscription). */
+  includedCreditsPerPeriod?: number;
+  includedCreditsUsedThisPeriod?: number;
+  purchasedCreditsBalance?: number;
+  websiteEditCreditsAvailable?: number;
+  /** When set and in the future, website-edit support tickets for this project use high queue priority until this instant (typically aligns with next billing). */
+  supportPriorityBoostUntil?: string | null;
 }
 
 export interface PaymentMethod {

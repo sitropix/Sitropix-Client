@@ -3,6 +3,7 @@ import type {
   CreateTicketInput,
   KBArticle,
   KBCategory,
+  SupportEditType,
   SupportTicket,
   SupportTicketDetail,
   TicketStatus,
@@ -15,6 +16,10 @@ export function fetchTickets() {
 
 export function fetchTicketById(id: string) {
   return api<SupportTicketDetail>(`/api/support/tickets/${id}`);
+}
+
+export function fetchSupportEditTypes() {
+  return api<SupportEditType[]>("/api/support/edit-types");
 }
 
 export function postTicketReply(id: string, body: string) {
@@ -33,6 +38,7 @@ export function createTicket(input: CreateTicketInput) {
     if (input.departmentId) form.set("departmentId", input.departmentId);
     if (input.priority) form.set("priority", input.priority);
     if (input.projectId?.trim()) form.set("projectId", input.projectId.trim());
+    if (input.editTypeId?.trim()) form.set("editTypeId", input.editTypeId.trim());
     for (const file of input.attachments ?? []) {
       form.append("attachments", file);
     }
@@ -49,6 +55,7 @@ export function createTicket(input: CreateTicketInput) {
       departmentId: input.departmentId,
       priority: input.priority,
       ...(input.projectId?.trim() ? { projectId: input.projectId.trim() } : {}),
+      ...(input.editTypeId?.trim() ? { editTypeId: input.editTypeId.trim() } : {}),
     }),
   });
 }
@@ -68,9 +75,15 @@ export function fetchKBArticleById(id: string) {
 
 /* Admin support */
 
-export function fetchAdminTickets(params?: { status?: string; offset?: number; limit?: number }) {
+export function fetchAdminTickets(params?: {
+  status?: string;
+  priority?: string;
+  offset?: number;
+  limit?: number;
+}) {
   const q = new URLSearchParams();
   if (params?.status) q.set("status", params.status);
+  if (params?.priority) q.set("priority", params.priority);
   if (params?.offset != null) q.set("offset", String(params.offset));
   if (params?.limit != null) q.set("limit", String(params.limit));
   const suffix = q.toString() ? `?${q.toString()}` : "";
@@ -90,11 +103,16 @@ export function postAdminTicketReply(id: string, body: string) {
   });
 }
 
-export function patchAdminTicketStatus(id: string, status: TicketStatus) {
-  return api<{ id: string; status: string; updatedAt: string }>(`/api/admin/tickets/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ status }),
-  });
+export function patchAdminTicketStatus(id: string, status: TicketStatus, workCompleted?: boolean) {
+  const body: { status: TicketStatus; workCompleted?: boolean } = { status };
+  if (workCompleted !== undefined) body.workCompleted = workCompleted;
+  return api<{ id: string; status: string; updatedAt: string; creditsRefunded?: boolean; workCompleted?: boolean | null }>(
+    `/api/admin/tickets/${id}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export async function downloadTicketAttachment(downloadUrl: string, fileName: string) {

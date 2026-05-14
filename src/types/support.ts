@@ -13,6 +13,8 @@ export interface SupportTicket {
   userPlan?: string;
   projectId?: string | null;
   projectName?: string | null;
+  editTypeId?: string | null;
+  creditsCharged?: number;
   threadCount?: number;
 }
 
@@ -35,6 +37,8 @@ export interface TicketMessageView {
 export interface SupportTicketDetail extends SupportTicket {
   messages: TicketMessageView[];
   projectName?: string | null;
+  creditsRefunded?: boolean;
+  workCompleted?: boolean | null;
 }
 
 export interface AdminSupportTicketListItem {
@@ -76,5 +80,19 @@ export interface CreateTicketInput {
   priority?: TicketPriority;
   /** Optional — must be a project you own. */
   projectId?: string | null;
+  /** Required when projectId is set — website edit type (credit cost). */
+  editTypeId?: string | null;
   attachments?: File[];
+}
+
+export type EditTypeCategory = "atomic" | "multi_credit";
+
+export interface SupportEditType {
+  id: string;
+  code: string;
+  label: string;
+  category: EditTypeCategory;
+  creditsMin: number;
+  creditsMax: number;
+  defaultChargeCredits: number;
 }
