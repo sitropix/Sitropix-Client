@@ -32,6 +32,7 @@ export function AdminTicketDetailPage() {
   const [sending, setSending] = useState(false);
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusChoice, setStatusChoice] = useState<TicketStatus | "">("");
+  const [workCompletedChoice, setWorkCompletedChoice] = useState(true);
   const [noModuleAccess, setNoModuleAccess] = useState(false);
 
   async function reload() {
@@ -39,6 +40,7 @@ export function AdminTicketDetailPage() {
     const d = await fetchAdminTicketById(id);
     setDetail(d);
     setStatusChoice(d.status);
+    setWorkCompletedChoice(d.workCompleted !== false);
   }
 
   useEffect(() => {
@@ -54,6 +56,7 @@ export function AdminTicketDetailPage() {
         if (!cancelled) {
           setDetail(d);
           setStatusChoice(d.status);
+          setWorkCompletedChoice(d.workCompleted !== false);
         }
       } catch (err) {
         if (!cancelled) {
@@ -97,7 +100,11 @@ export function AdminTicketDetailPage() {
     if (!id || !statusChoice || !detail || statusChoice === detail.status) return;
     setStatusSaving(true);
     try {
-      await patchAdminTicketStatus(id, statusChoice);
+      await patchAdminTicketStatus(
+        id,
+        statusChoice,
+        statusChoice === "resolved" ? workCompletedChoice : undefined,
+      );
       await reload();
       showSuccess(`Ticket status updated to "${statusChoice.replace("_", " ")}".`);
     } catch {
@@ -154,7 +161,14 @@ export function AdminTicketDetailPage() {
         <p className="text-xs text-ink-muted">
           Opened {formatWhen(detail.createdAt)} — last update {formatWhen(detail.updatedAt)}
         </p>
-        <div className="mt-4 flex flex-wrap items-end gap-2">
+        {(detail.creditsCharged ?? 0) > 0 && (
+          <p className="text-xs text-amber-200/90">
+            Website edit credits reserved: {detail.creditsCharged}
+            {detail.creditsRefunded ? " (refunded)" : ""}
+            {detail.workCompleted === false ? " — marked not completed" : ""}
+          </p>
+        )}
+        <div className="mt-4 flex flex-wrap items-end gap-4">
           <div>
             <label htmlFor="t-status" className="text-xs text-ink-subtle">
               Status
@@ -171,6 +185,23 @@ export function AdminTicketDetailPage() {
               <option value="resolved">Resolved</option>
             </select>
           </div>
+          {statusChoice === "resolved" && (detail.creditsCharged ?? 0) > 0 && !detail.creditsRefunded ? (
+            <label className="flex max-w-md items-start gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-ink-muted">
+              <input
+                type="checkbox"
+                checked={workCompletedChoice}
+                onChange={(e) => setWorkCompletedChoice(e.target.checked)}
+                className="mt-0.5 accent-brand-lime"
+              />
+              <span>
+                <span className="font-semibold text-white">Work completed</span>
+                <span className="block text-[11px] text-ink-muted">
+                  Uncheck if the request was closed without delivering the edit — reserved credits are returned to the
+                  project once.
+                </span>
+              </span>
+            </label>
+          ) : null}
           <button
             type="button"
             onClick={() => void onStatusSave()}

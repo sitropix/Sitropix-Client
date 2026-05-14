@@ -9,13 +9,19 @@ import { validate } from "../middleware/validate.mjs";
 import { createTicketSchema, replyTicketSchema } from "../schemas/supportSchemas.mjs";
 import { log } from "../observability/logger.mjs";
 import { sendTransactionalEmail } from "../services/emailService.mjs";
-import { findPrimaryUserSubscription } from "../services/subscriptionLookup.mjs";
+import { findPrimaryUserSubscription, findUserProjectSubscription } from "../services/subscriptionLookup.mjs";
+import {
+  allocateCreditCharge,
+  chargeSubscriptionCreditsTx,
+  totalCreditsAvailable,
+} from "../services/subscriptionCredits.mjs";
 import {
   absoluteTicketAttachmentPath,
   ensureTicketAttachmentsDir,
   safeTicketAttachmentRelativePath,
 } from "../services/ticketAttachmentPaths.mjs";
 import { projectNameByIdForTickets } from "../services/supportTicketProjectNames.mjs";
+import { resolveSupportTicketPriority } from "../services/supportTicketPriority.mjs";
 
 const router = express.Router();
 router.use(requireAuth);
@@ -24,10 +30,28 @@ const ticketUpload = multer({
   limits: { fileSize: 12 * 1024 * 1024, files: 5 },
 });
 
+router.get("/edit-types", async (_req, res) => {
+  const rows = await prisma.editType.findMany({
+    where: { isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+  });
+  return res.json(
+    rows.map((r) => ({
+      id: r.id,
+      code: r.code,
+      label: r.label,
+      category: r.category,
+      creditsMin: r.creditsMin,
+      creditsMax: r.creditsMax,
+      defaultChargeCredits: r.defaultChargeCredits,
+    })),
+  );
+});
+
 router.get("/tickets", async (req, res) => {
   const tickets = await prisma.supportTicket.findMany({
     where: { userId: req.auth.userId },
-    orderBy: { updatedAt: "desc" },
+    orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
     include: {
       _count: { select: { messages: true } },
     },
@@ -44,6 +68,8 @@ router.get("/tickets", async (req, res) => {
       userPlan: t.userPlan,
       projectId: t.projectId ?? null,
       projectName: (t.projectId && projectNames.get(t.projectId)) || null,
+      editTypeId: t.editTypeId ?? null,
+      creditsCharged: t.creditsCharged ?? 0,
       threadCount: t._count.messages,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
@@ -71,6 +97,8 @@ router.get("/tickets/:id", async (req, res) => {
     userPlan: ticket.userPlan,
     projectId: ticket.projectId ?? null,
     projectName: (ticket.projectId && projectNames.get(ticket.projectId)) || null,
+    editTypeId: ticket.editTypeId ?? null,
+    creditsCharged: ticket.creditsCharged ?? 0,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
     messages: ticket.messages.map((m) => ({
@@ -100,6 +128,7 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
     departmentId: req.body?.departmentId,
     priority: req.body?.priority,
     projectId: req.body?.projectId,
+    editTypeId: req.body?.editTypeId,
   });
   if (!payloadResult.success) {
     return res.status(400).json({ error: "validation_error", issues: payloadResult.error.issues });
@@ -119,32 +148,116 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
     linkedProjectId = owned.id;
   }
 
-  const subscription = await findPrimaryUserSubscription(req.auth.userId, {
-    include: { plan: { select: { name: true } } },
-  });
-  const userPlan = subscription?.plan?.name ?? "No Plan";
-  
-  const ticket = await prisma.supportTicket.create({
-    data: {
-      userId: req.auth.userId,
-      projectId: linkedProjectId,
-      subject: payload.subject,
-      description: payload.description,
-      department: payload.departmentId ?? "General",
-      priority: payload.priority ?? "medium",
-      userPlan,
-      messages: {
-        create: {
+  let projectSub = null;
+  if (linkedProjectId) {
+    projectSub = await findUserProjectSubscription(req.auth.userId, linkedProjectId, {
+      include: { plan: { select: { code: true, name: true } } },
+    });
+  }
+
+  let userPlan = "No Plan";
+  if (linkedProjectId && projectSub) {
+    userPlan = projectSub.plan?.name ?? "No Plan";
+  } else if (!linkedProjectId) {
+    const subscription = await findPrimaryUserSubscription(req.auth.userId, {
+      include: { plan: { select: { name: true } } },
+    });
+    userPlan = subscription?.plan?.name ?? "No Plan";
+  }
+
+  let ticketPriority = payload.priority ?? "medium";
+  if (linkedProjectId && projectSub && ["active", "trialing"].includes(projectSub.status)) {
+    ticketPriority = resolveSupportTicketPriority({
+      planCode: projectSub.plan?.code ?? "",
+      boostUntil: projectSub.supportPriorityBoostUntil,
+    });
+  }
+
+  let editTypeRow = null;
+  let creditCost = 0;
+  if (linkedProjectId && payload.editTypeId?.trim()) {
+    editTypeRow = await prisma.editType.findFirst({
+      where: { id: payload.editTypeId.trim(), isActive: true },
+    });
+    if (!editTypeRow) {
+      return res.status(400).json({ error: "invalid_edit_type", message: "Unknown or inactive edit type." });
+    }
+    if (!projectSub || !["active", "trialing"].includes(projectSub.status)) {
+      return res.status(400).json({
+        error: "subscription_required_for_edits",
+        message: "An active subscription is required to submit website edit requests for this project.",
+      });
+    }
+    creditCost = Math.max(0, editTypeRow.defaultChargeCredits ?? 0);
+    const splitPreview = allocateCreditCharge(projectSub, creditCost);
+    if (creditCost > 0 && !splitPreview) {
+      return res.status(400).json({
+        error: "insufficient_credits",
+        needed: creditCost,
+        available: totalCreditsAvailable(projectSub),
+      });
+    }
+  }
+
+  let ticket;
+  try {
+    ticket = await prisma.$transaction(async (tx) => {
+      let creditsCharged = 0;
+      let creditsFromIncluded = 0;
+      let creditsFromPurchased = 0;
+      let editTypeId = null;
+
+      if (linkedProjectId && editTypeRow && projectSub) {
+        editTypeId = editTypeRow.id;
+        creditsCharged = creditCost;
+        if (creditCost > 0) {
+          const charged = await chargeSubscriptionCreditsTx(tx, projectSub.id, creditCost);
+          if (!charged) {
+            const err = new Error("insufficient_credits");
+            err.code = "insufficient_credits";
+            throw err;
+          }
+          creditsFromIncluded = charged.fromIncluded;
+          creditsFromPurchased = charged.fromPurchased;
+        }
+      }
+
+      return tx.supportTicket.create({
+        data: {
           userId: req.auth.userId,
-          isStaff: false,
-          body: payload.description,
+          projectId: linkedProjectId,
+          subject: payload.subject,
+          description: payload.description,
+          department: payload.departmentId ?? "General",
+          priority: ticketPriority,
+          userPlan,
+          editTypeId,
+          creditsCharged,
+          creditsFromIncluded,
+          creditsFromPurchased,
+          messages: {
+            create: {
+              userId: req.auth.userId,
+              isStaff: false,
+              body: payload.description,
+            },
+          },
         },
-      },
-    },
-    include: {
-      messages: { orderBy: { createdAt: "asc" } },
-    },
-  });
+        include: {
+          messages: { orderBy: { createdAt: "asc" } },
+        },
+      });
+    });
+  } catch (e) {
+    if (e?.code === "insufficient_credits") {
+      return res.status(400).json({
+        error: "insufficient_credits",
+        message: "Not enough website edit credits for this project.",
+      });
+    }
+    log.error("ticket.create_failed", { error: e?.message });
+    return res.status(500).json({ error: "ticket_create_failed" });
+  }
   const firstMessage = ticket.messages[0];
   const projectNames = await projectNameByIdForTickets([ticket]);
 
@@ -191,6 +304,8 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
     userPlan: ticket.userPlan,
     projectId: ticket.projectId ?? null,
     projectName: (ticket.projectId && projectNames.get(ticket.projectId)) || null,
+    editTypeId: ticket.editTypeId ?? null,
+    creditsCharged: ticket.creditsCharged ?? 0,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
     threadCount: 1,

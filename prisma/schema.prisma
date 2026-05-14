@@ -59,6 +59,17 @@ enum TicketPriority {
   urgent
 }
 
+enum AddonBillingKind {
+  recurring
+  one_time
+  per_use
+}
+
+enum EditTypeCategory {
+  atomic
+  multi_credit
+}
+
 enum CrmLeadStatus {
   NEW
   MEETING_SCHEDULED
@@ -149,6 +160,10 @@ model Plan {
   trialDays            Int       @default(14) @map("trial_days")
   billingMonthlyEnabled Boolean  @default(true) @map("billing_monthly_enabled")
   billingYearlyEnabled  Boolean  @default(true) @map("billing_yearly_enabled")
+  /// Website edit credits granted each billing period for this plan (admin-editable).
+  includedEditCreditsPerPeriod Int @default(0) @map("included_edit_credits_per_period")
+  /// Admin-editable catalog: ranges, booleans, setup fees, page limits, marketing copy, etc.
+  catalogJson          Json      @default("{}") @map("catalog_json")
   stripeProductId      String?   @map("stripe_product_id")
   stripePriceMonthlyId String?   @map("stripe_price_monthly_id")
   stripePriceYearlyId  String?   @map("stripe_price_yearly_id")
@@ -174,8 +189,17 @@ model SubscriptionAddon {
   isActive   Boolean  @default(true) @map("is_active")
   billingMonthlyEnabled Boolean @default(true) @map("billing_monthly_enabled")
   billingYearlyEnabled  Boolean @default(true) @map("billing_yearly_enabled")
+  billingKind AddonBillingKind @default(recurring) @map("billing_kind")
+  priceMinCents Int?   @map("price_min_cents")
+  priceMaxCents Int?   @map("price_max_cents")
+  setupFeeCents Int   @default(0) @map("setup_fee_cents")
+  deliveryMode String  @default("") @map("delivery_mode")
+  eligiblePlanCodes Json @default("[]") @map("eligible_plan_codes")
+  catalogJson Json     @default("{}") @map("catalog_json")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
+
+  projectEntitlements ProjectAddonEntitlement[]
 
   @@index([isActive])
   @@map("subscription_addons")
@@ -196,6 +220,11 @@ model Subscription {
   stripeSubscriptionId   String?            @unique @map("stripe_subscription_id")
   stripeCustomerId       String?            @map("stripe_customer_id")
   razorpaySubscriptionId String?            @map("razorpay_subscription_id")
+  includedCreditsPerPeriod         Int @default(0) @map("included_credits_per_period")
+  includedCreditsUsedThisPeriod    Int @default(0) @map("included_credits_used_this_period")
+  purchasedCreditsBalance          Int @default(0) @map("purchased_credits_balance")
+  /// When set and in the future, project support tickets use high priority (priority-boost add-on).
+  supportPriorityBoostUntil        DateTime?        @map("support_priority_boost_until")
   createdAt              DateTime           @default(now()) @map("created_at")
   updatedAt              DateTime           @updatedAt @map("updated_at")
 
@@ -260,11 +289,19 @@ model SupportTicket {
   priority    TicketPriority @default(medium)
   department  String         @default("General")
   userPlan    String?        @map("user_plan")
+  editTypeId  String?        @map("edit_type_id")
+  creditsCharged Int         @default(0) @map("credits_charged")
+  creditsFromIncluded Int    @default(0) @map("credits_from_included")
+  creditsFromPurchased Int   @default(0) @map("credits_from_purchased")
+  /// When status is resolved: true = keep deduction, false = refund reserved credits once.
+  workCompleted Boolean?     @map("work_completed")
+  creditsRefunded Boolean    @default(false) @map("credits_refunded")
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
   user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   project     Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  editType    EditType?          @relation(fields: [editTypeId], references: [id], onDelete: SetNull)
   messages    TicketMessage[]
   attachments TicketAttachment[]
 
@@ -272,7 +309,42 @@ model SupportTicket {
   @@index([projectId])
   @@index([status])
   @@index([priority])
+  @@index([editTypeId])
   @@map("support_tickets")
+}
+
+model EditType {
+  id                   String           @id @default(cuid())
+  code                 String           @unique
+  label                String
+  category             EditTypeCategory
+  creditsMin           Int              @map("credits_min")
+  creditsMax           Int              @map("credits_max")
+  defaultChargeCredits Int              @map("default_charge_credits")
+  isActive             Boolean          @default(true) @map("is_active")
+  sortOrder            Int              @default(0) @map("sort_order")
+  createdAt            DateTime         @default(now()) @map("created_at")
+  updatedAt            DateTime         @updatedAt @map("updated_at")
+
+  supportTickets SupportTicket[]
+
+  @@index([isActive])
+  @@map("edit_types")
+}
+
+model ProjectAddonEntitlement {
+  id                    String            @id @default(cuid())
+  projectId             String            @map("project_id")
+  subscriptionAddonId String            @map("subscription_addon_id")
+  checkoutDedupeKey     String?           @unique @map("checkout_dedupe_key")
+  consumedAt            DateTime?         @map("consumed_at")
+  createdAt             DateTime          @default(now()) @map("created_at")
+
+  project Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  addon   SubscriptionAddon @relation(fields: [subscriptionAddonId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("project_addon_entitlements")
 }
 
 model TicketMessage {
@@ -449,6 +521,7 @@ model Project {
   owner         User            @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   subscriptions Subscription[]
   supportTickets SupportTicket[]
+  addonEntitlements ProjectAddonEntitlement[]
 
   @@index([ownerUserId, createdAt(sort: Desc)])
   @@index([subscriptionStatus])

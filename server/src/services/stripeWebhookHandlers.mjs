@@ -10,6 +10,9 @@ import {
   subscriptionPeriodDates,
 } from "./stripeSyncHelpers.mjs";
 import { isPlanOneTimeOnly } from "./billingProration.mjs";
+import {
+  didBillingPeriodAdvance,
+} from "./subscriptionCredits.mjs";
 
 function logCheckout(phase, fields = {}) {
   log.info("billing.stripe_checkout", { phase, ...fields });
@@ -160,6 +163,18 @@ async function handleOneTimePlanCheckoutSession(session) {
         data: { userId, projectId, ...upsertData },
       });
     }
+
+    const cap = plan.includedEditCreditsPerPeriod ?? 0;
+    const prevUsed = target?.includedCreditsUsedThisPeriod ?? 0;
+    const prevPurchased = target?.purchasedCreditsBalance ?? 0;
+    await prisma.subscription.update({
+      where: { id: savedSub.id },
+      data: {
+        includedCreditsPerPeriod: Math.max(0, cap),
+        includedCreditsUsedThisPeriod: target ? Math.min(prevUsed, Math.max(0, cap)) : 0,
+        purchasedCreditsBalance: target ? prevPurchased : 0,
+      },
+    });
 
     await prisma.payment.create({
       data: {
@@ -318,6 +333,23 @@ export async function handleCheckoutSessionCompleted(session) {
         },
       });
     }
+
+    const row = await prisma.subscription.findFirst({
+      where: { stripeSubscriptionId: stripeSub.id, userId, projectId },
+    });
+    if (row) {
+      const cap = plan.includedEditCreditsPerPeriod ?? 0;
+      const prevUsed = target?.includedCreditsUsedThisPeriod ?? 0;
+      const prevPurchased = target?.purchasedCreditsBalance ?? 0;
+      await prisma.subscription.update({
+        where: { id: row.id },
+        data: {
+          includedCreditsPerPeriod: Math.max(0, cap),
+          includedCreditsUsedThisPeriod: target ? Math.min(prevUsed, Math.max(0, cap)) : 0,
+          purchasedCreditsBalance: target ? prevPurchased : 0,
+        },
+      });
+    }
   } catch (e) {
     logCheckout("db_upsert_failed", { sessionId: session.id, userId, error: e?.message });
     throw e;
@@ -465,17 +497,25 @@ export async function handleSubscriptionUpdated(stripeSub) {
   if (existing) {
     const { start: periodStart, end: periodEnd } = subscriptionPeriodDates(stripeSub);
     const status = mapStripeStatus(stripeSub);
+    const plan = await prisma.plan.findUnique({ where: { id: existing.planId } });
+    const periodAdvanced = didBillingPeriodAdvance(existing.currentPeriodStart, periodStart);
+    const patch = {
+      status,
+      pausedAt: status === "paused" ? new Date() : null,
+      currentPeriodStart: periodStart,
+      currentPeriodEnd: periodEnd,
+      cancelAtPeriodEnd: Boolean(stripeSub.cancel_at_period_end),
+      stripeCustomerId:
+        typeof stripeSub.customer === "string" ? stripeSub.customer : stripeSub.customer?.id ?? existing.stripeCustomerId,
+    };
+    if (periodAdvanced && plan) {
+      patch.includedCreditsPerPeriod = Math.max(0, plan.includedEditCreditsPerPeriod ?? 0);
+      patch.includedCreditsUsedThisPeriod = 0;
+      patch.supportPriorityBoostUntil = null;
+    }
     await prisma.subscription.update({
       where: { id: existing.id },
-      data: {
-        status,
-        pausedAt: status === "paused" ? new Date() : null,
-        currentPeriodStart: periodStart,
-        currentPeriodEnd: periodEnd,
-        cancelAtPeriodEnd: Boolean(stripeSub.cancel_at_period_end),
-        stripeCustomerId:
-          typeof stripeSub.customer === "string" ? stripeSub.customer : stripeSub.customer?.id ?? existing.stripeCustomerId,
-      },
+      data: patch,
     });
     return;
   }
@@ -557,6 +597,23 @@ export async function handleSubscriptionUpdated(stripeSub) {
     } else {
       await prisma.subscription.create({
         data: { userId, projectId, ...data },
+      });
+    }
+
+    const row = await prisma.subscription.findFirst({
+      where: { stripeSubscriptionId: stripeSub.id, userId, projectId },
+    });
+    if (row) {
+      const cap = plan.includedEditCreditsPerPeriod ?? 0;
+      const prevUsed = target?.includedCreditsUsedThisPeriod ?? 0;
+      const prevPurchased = target?.purchasedCreditsBalance ?? 0;
+      await prisma.subscription.update({
+        where: { id: row.id },
+        data: {
+          includedCreditsPerPeriod: Math.max(0, cap),
+          includedCreditsUsedThisPeriod: target ? Math.min(prevUsed, Math.max(0, cap)) : 0,
+          purchasedCreditsBalance: target ? prevPurchased : 0,
+        },
       });
     }
   } catch (e) {

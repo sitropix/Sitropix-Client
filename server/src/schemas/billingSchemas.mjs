@@ -25,20 +25,26 @@ export const planSchema = z.object({
   trialDays: z.number().int().nonnegative().optional(),
   billingMonthlyEnabled: z.boolean().optional(),
   billingYearlyEnabled: z.boolean().optional(),
+  includedEditCreditsPerPeriod: z.number().int().nonnegative().optional(),
+  catalogJson: z.record(z.string(), z.any()).optional(),
 });
 
 export const planPatchSchema = z
   .object({
-    name: z.string().min(2).max(120).optional(),
     description: z.string().max(2000).optional(),
     priceMonthlyCents: z.number().nonnegative().optional(),
     priceYearlyCents: z.number().nonnegative().optional(),
-    currency: z.string().min(3).max(3).optional(),
     features: z.array(z.string()).optional(),
     isActive: z.boolean().optional(),
     trialDays: z.number().int().nonnegative().optional(),
     billingMonthlyEnabled: z.boolean().optional(),
     billingYearlyEnabled: z.boolean().optional(),
+    includedEditCreditsPerPeriod: z.number().int().nonnegative().optional(),
+    catalogJson: z.record(z.string(), z.any()).optional(),
+    stripeProductId: z.string().max(200).nullable().optional(),
+    stripePriceMonthlyId: z.string().max(200).nullable().optional(),
+    stripePriceYearlyId: z.string().max(200).nullable().optional(),
+    razorpayPlanId: z.string().max(200).nullable().optional(),
   })
   .strict();
 
@@ -51,17 +57,41 @@ export const addonSchema = z.object({
   isActive: z.boolean().optional(),
   billingMonthlyEnabled: z.boolean().optional(),
   billingYearlyEnabled: z.boolean().optional(),
+  billingKind: z.enum(["recurring", "one_time", "per_use"]).optional(),
+  priceMinCents: z.number().int().nonnegative().nullable().optional(),
+  priceMaxCents: z.number().int().nonnegative().nullable().optional(),
+  setupFeeCents: z.number().int().nonnegative().optional(),
+  deliveryMode: z.string().max(40).optional(),
+  eligiblePlanCodes: z.array(z.string()).optional(),
+  catalogJson: z.record(z.string(), z.any()).optional(),
 });
 
 export const addonPatchSchema = z
   .object({
-    label: z.string().min(2).max(120).optional(),
     desc: z.string().max(500).optional(),
     priceCents: z.number().int().nonnegative().optional(),
-    currency: z.string().min(3).max(3).optional(),
     isActive: z.boolean().optional(),
     billingMonthlyEnabled: z.boolean().optional(),
     billingYearlyEnabled: z.boolean().optional(),
+    billingKind: z.enum(["recurring", "one_time", "per_use"]).optional(),
+    priceMinCents: z.number().int().nonnegative().nullable().optional(),
+    priceMaxCents: z.number().int().nonnegative().nullable().optional(),
+    setupFeeCents: z.number().int().nonnegative().optional(),
+    deliveryMode: z.string().max(40).optional(),
+    eligiblePlanCodes: z.array(z.string()).optional(),
+    catalogJson: z.record(z.string(), z.any()).optional(),
+  })
+  .strict();
+
+export const editTypePatchSchema = z
+  .object({
+    label: z.string().min(2).max(200).optional(),
+    category: z.enum(["atomic", "multi_credit"]).optional(),
+    creditsMin: z.number().int().nonnegative().optional(),
+    creditsMax: z.number().int().nonnegative().optional(),
+    defaultChargeCredits: z.number().int().nonnegative().optional(),
+    isActive: z.boolean().optional(),
+    sortOrder: z.number().int().optional(),
   })
   .strict();
 

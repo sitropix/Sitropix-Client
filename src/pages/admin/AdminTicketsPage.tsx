@@ -7,7 +7,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/Skeleton";
 import { isModuleForbiddenError } from "@/services/http";
 import { fetchAdminTickets } from "@/services/supportApi";
-import type { AdminSupportTicketListItem, TicketStatus } from "@/types/support";
+import type { AdminSupportTicketListItem, TicketPriority, TicketStatus } from "@/types/support";
 
 function formatDate(iso: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
@@ -21,9 +21,18 @@ const filters: { label: string; value: "all" | TicketStatus }[] = [
   { label: "Resolved", value: "resolved" },
 ];
 
+const priorityFilters: { label: string; value: "all" | TicketPriority }[] = [
+  { label: "All priorities", value: "all" },
+  { label: "Low", value: "low" },
+  { label: "Medium", value: "medium" },
+  { label: "High", value: "high" },
+  { label: "Urgent", value: "urgent" },
+];
+
 export function AdminTicketsPage() {
   const { cache, updateCache } = useAdminPrefetch();
   const [status, setStatus] = useState<"all" | TicketStatus>("all");
+  const [priorityFilter, setPriorityFilter] = useState<"all" | TicketPriority>("all");
   const [rows, setRows] = useState<AdminSupportTicketListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -33,16 +42,20 @@ export function AdminTicketsPage() {
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      const hasPrefetchedAllRows = status === "all" && Boolean(cache.tickets?.length);
-      setLoading(!hasPrefetchedAllRows);
+      const usePrefetch = status === "all" && priorityFilter === "all" && Boolean(cache.tickets?.length);
+      setLoading(!usePrefetch);
       setNoModuleAccess(false);
       setError(null);
       try {
-        const r = await fetchAdminTickets({ status: status === "all" ? undefined : status, limit: 100 });
+        const r = await fetchAdminTickets({
+          status: status === "all" ? undefined : status,
+          priority: priorityFilter === "all" ? undefined : priorityFilter,
+          limit: 100,
+        });
         if (!cancelled) {
           setRows(r.items);
           setTotal(r.total);
-          if (status === "all") updateCache({ tickets: r.items });
+          if (status === "all" && priorityFilter === "all") updateCache({ tickets: r.items });
         }
       } catch (err) {
         if (!cancelled) {
@@ -54,7 +67,7 @@ export function AdminTicketsPage() {
       }
     }
     void run();
-    if (status === "all" && cache.tickets) {
+    if (status === "all" && priorityFilter === "all" && cache.tickets) {
       setRows(cache.tickets);
       setTotal(cache.tickets.length);
       setLoading(false);
@@ -62,7 +75,7 @@ export function AdminTicketsPage() {
     return () => {
       cancelled = true;
     };
-  }, [status]);
+  }, [status, priorityFilter]);
 
   if (noModuleAccess) {
     return <NoModuleAccess moduleLabel="Support Tickets" />;
@@ -74,7 +87,7 @@ export function AdminTicketsPage() {
       <header>
         <h1 className="text-2xl font-bold text-white sm:text-3xl">Support tickets</h1>
         <p className="mt-2 text-sm text-ink-muted">
-          {total} total — filter by status and open a thread to reply.
+          {total} total — filter by status, priority, and open a thread to reply.
         </p>
       </header>
 
@@ -91,6 +104,27 @@ export function AdminTicketsPage() {
               className={[
                 "rounded-full px-4 py-1.5 text-sm font-medium transition",
                 active ? "bg-white text-canvas" : "bg-white/[0.05] text-ink-muted hover:bg-white/10 hover:text-white",
+              ].join(" ")}
+            >
+              {f.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter by priority">
+        {priorityFilters.map((f) => {
+          const active = priorityFilter === f.value;
+          return (
+            <button
+              key={f.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setPriorityFilter(f.value)}
+              className={[
+                "rounded-full px-4 py-1.5 text-sm font-medium transition",
+                active ? "bg-brand-lime/20 text-brand-lime" : "bg-white/[0.05] text-ink-muted hover:bg-white/10 hover:text-white",
               ].join(" ")}
             >
               {f.label}
@@ -129,6 +163,11 @@ export function AdminTicketsPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs font-mono text-ink-subtle">#{t.id}</span>
                       <StatusBadge status={t.status} />
+                      {t.priority ? (
+                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+                          {t.priority}
+                        </span>
+                      ) : null}
                     </div>
                     <h2 className="mt-2 text-base font-semibold text-white">{t.subject}</h2>
                     <p className="mt-1 text-xs text-ink-muted">

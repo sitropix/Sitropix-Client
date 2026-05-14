@@ -20,6 +20,7 @@ import {
   type ProjectAssetUploadRow,
 } from "@/services/subscriptionsApi";
 import type { ProjectRecord, ProjectRequirementType } from "@/types/project";
+import type { SubscriptionAddon } from "@/types/subscription";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
@@ -41,11 +42,120 @@ function prettyAssetType(value: string) {
   return value.replace(/_/g, " ");
 }
 
+function resolveExtraEditAddonDisplayCents(
+  addon: { code: string; priceCents?: number },
+  plans: { id: string; catalogJson?: Record<string, unknown> }[],
+  projectPlanId: string | null | undefined,
+) {
+  if (addon.code !== "addon_extra_edit_single" && addon.code !== "addon_extra_edit_bundle") {
+    return addon.priceCents ?? 0;
+  }
+  const plan = plans.find((p) => p.id === projectPlanId);
+  const j = (plan?.catalogJson ?? {}) as Record<string, unknown>;
+  if (addon.code === "addon_extra_edit_single") {
+    const c = typeof j.extraEditSingleCents === "number" ? j.extraEditSingleCents : 0;
+    return Math.max(0, c);
+  }
+  const c = typeof j.extraEditPackCents === "number" ? j.extraEditPackCents : 0;
+  return Math.max(0, c);
+}
+
+function extraEditAddonCaption(
+  addon: { code: string },
+  plans: { id: string; catalogJson?: Record<string, unknown> }[],
+  projectPlanId: string | null | undefined,
+) {
+  if (addon.code === "addon_extra_edit_single") return "1 credit";
+  if (addon.code !== "addon_extra_edit_bundle") return "";
+  const plan = plans.find((p) => p.id === projectPlanId);
+  const j = (plan?.catalogJson ?? {}) as Record<string, unknown>;
+  const n = typeof j.extraEditPackCount === "number" ? j.extraEditPackCount : 0;
+  return n > 0 ? `${n} credits` : "";
+}
+
+function addonCardDisplayCents(
+  addon: SubscriptionAddon,
+  plans: { id: string; catalogJson?: Record<string, unknown> }[],
+  projectPlanId: string | null | undefined,
+) {
+  if (addon.billingKind === "recurring" && (addon.setupFeeCents ?? 0) > 0) {
+    return (addon.setupFeeCents ?? 0) + (addon.priceCents ?? 0);
+  }
+  return resolveExtraEditAddonDisplayCents(addon, plans, projectPlanId);
+}
+
+function recurringSetupPriceBreakdown(addon: SubscriptionAddon, ccy: string) {
+  const setup = addon.setupFeeCents ?? 0;
+  if (addon.billingKind !== "recurring" || setup <= 0) return null;
+  const rec = addon.priceCents ?? 0;
+  return (
+    <div className="mt-2 rounded-lg border border-white/10 bg-black/25 px-2.5 py-2 text-[11px] leading-snug text-zinc-300">
+      <div className="flex justify-between gap-2">
+        <span className="text-zinc-500">Setup (one-time)</span>
+        <span className="tabular-nums font-medium text-white">{money(setup, ccy)}</span>
+      </div>
+      <div className="mt-1 flex justify-between gap-2">
+        <span className="text-zinc-500">Recurring (per month)</span>
+        <span className="tabular-nums font-medium text-white">{money(rec, ccy)}</span>
+      </div>
+      <p className="mt-1.5 border-t border-white/5 pt-1.5 text-[10px] text-zinc-500">
+        First checkout charges setup + first billing cycle; renewals bill the recurring amount only.
+      </p>
+    </div>
+  );
+}
+
 function fakeSizeLabel(asset: ProjectAssetUploadRow) {
   if (asset.sizeBytes > 0)
     return `${(asset.sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
   const base = asset.fileName.length + asset.type.length;
   return `${(Math.max(8, base) / 10).toFixed(1)} MB`;
+}
+
+function IconPuzzle(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={props.className} aria-hidden>
+      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function IconPencil(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={props.className} aria-hidden>
+      <path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+    </svg>
+  );
+}
+
+function IconGrid(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={props.className} aria-hidden>
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  );
+}
+
+function IconInfo(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={props.className} aria-hidden>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4M12 8h.01" />
+    </svg>
+  );
+}
+
+function daysUntilReset(planValidUntil: string | null): number | null {
+  if (!planValidUntil) return null;
+  const end = new Date(planValidUntil).getTime();
+  if (!Number.isFinite(end)) return null;
+  const ms = end - Date.now();
+  if (ms <= 0) return 0;
+  return Math.ceil(ms / 86400000);
 }
 
 export function ProjectDashboardPage() {
@@ -55,6 +165,16 @@ export function ProjectDashboardPage() {
   const { portal } = useUser();
   const [searchParams, setSearchParams] = useSearchParams();
   const addonCatalog = useMemo(() => portal?.addons ?? [], [portal?.addons]);
+  const plans = useMemo(() => portal?.plans ?? [], [portal?.plans]);
+  const purchasableAddons = useMemo(
+    () =>
+      addonCatalog.filter(
+        (a) =>
+          a.billingKind !== "recurring" ||
+          (typeof a.setupFeeCents === "number" && a.setupFeeCents > 0),
+      ),
+    [addonCatalog],
+  );
   const userId = user?.id ?? portal?.user?.id ?? "guest-user";
   const [, setTick] = useState(0);
   const [serverAssets, setServerAssets] = useState<ProjectAssetUploadRow[]>([]);
@@ -134,7 +254,7 @@ export function ProjectDashboardPage() {
     const silent = opts?.silent === true;
     if (!silent) setAssetsLoading(true);
     try {
-      const rows = await fetchProjectAssets(ownedProject.id);
+      const rows = await fetchProjectAssets(ownedProject.id, { force: true });
       setServerAssets(rows);
     } catch {
       setServerAssets([]);
@@ -153,7 +273,6 @@ export function ProjectDashboardPage() {
   const assetsReady = !assetsLoading;
   const needsOnboarding = assetsReady && completedCoreCount < coreRequired.length;
   const hasValidPlan = ownedProject ? hasValidProjectPlan(ownedProject) : false;
-  const plans = portal?.plans ?? [];
   const hideUpgradeCard =
     hasValidPlan && isHighestPricedPlan(ownedProject?.planId ?? null, plans);
   const showSetupOverlay = assetsReady && (needsOnboarding || !hasValidPlan);
@@ -165,6 +284,41 @@ export function ProjectDashboardPage() {
     return <div className="p-6 text-sm text-zinc-600">Loading project...</div>;
   }
   const project = ownedProject;
+  const resetDays = daysUntilReset(project.planValidUntil);
+  const usage = project.usage;
+  const editCap = usage?.includedCreditsPerPeriod ?? 0;
+  const editUsed = usage?.includedCreditsUsedThisPeriod ?? 0;
+  const purchasedBal = usage?.purchasedCreditsBalance ?? 0;
+  const includedDepleted = editCap > 0 && editUsed >= editCap;
+  const pagesMax = usage?.pagesIncludedMax ?? null;
+  const pagesUsed = usage?.pagesUsed ?? 0;
+  const pagesProgress =
+    pagesMax != null && pagesMax > 0 ? Math.min(100, Math.round((pagesUsed / pagesMax) * 100)) : 0;
+  const extraEditBundleAddon = purchasableAddons.find((a) => a.code === "addon_extra_edit_bundle");
+
+  async function buyExtraEditsCheckout() {
+    const target = extraEditBundleAddon ?? purchasableAddons.find((a) => a.code === "addon_extra_edit_single");
+    if (!target || !hasValidPlan) return;
+    setAddonCheckoutBusy(true);
+    setNotice(null);
+    try {
+      const base = `${window.location.origin}/projects/${project.id}`;
+      const { url } = await createAddonCheckoutSession(project.id, [target.code], {
+        successUrl: base,
+        cancelUrl: base,
+      });
+      if (!url) {
+        setNotice("Could not start checkout for extra edits.");
+        return;
+      }
+      window.location.assign(url);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not start checkout.");
+    } finally {
+      setAddonCheckoutBusy(false);
+    }
+  }
+
   const statusLabel =
     project.subscriptionStatus === "active"
       ? "Active"
@@ -184,33 +338,39 @@ export function ProjectDashboardPage() {
 
       <header className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass sm:p-6">
         <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-3xl font-bold tracking-tight text-zinc-900">
-              {project.name}
-            </h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight text-white">{project.name}</h1>
             <span
               className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
                 project.subscriptionStatus === "active"
-                  ? "bg-emerald-500/15 text-emerald-700"
+                  ? "bg-emerald-500/20 text-emerald-400"
                   : project.subscriptionStatus === "on_hold"
-                    ? "bg-amber-500/15 text-amber-700"
-                    : "bg-zinc-400/15 text-zinc-600"
+                    ? "bg-amber-500/20 text-amber-300"
+                    : "bg-zinc-500/20 text-zinc-400"
               }`}
             >
               {statusLabel}
             </span>
           </div>
-          <p className="mt-1 text-sm text-zinc-400">
+          <p className="mt-2 font-mono text-xs text-zinc-500">
             Project ID: {project.id.toUpperCase()}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
-            onClick={() =>
-              setNotice("Project settings panel will be available soon.")
-            }
-            className="rounded-xl border border-zinc-500 bg-[#2A3037] px-4 py-2 text-sm font-semibold text-white transition hover:border-zinc-300"
+            onClick={() => {
+              document.getElementById("project-add-ons")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+            className="inline-flex items-center gap-2 rounded-xl border border-zinc-600 bg-[#1C2126] px-4 py-2 text-sm font-semibold text-white transition hover:border-zinc-400 hover:bg-[#232a32]"
+          >
+            <IconPuzzle className="h-4 w-4 shrink-0 text-zinc-300" />
+            Manage Add-ons
+          </button>
+          <button
+            type="button"
+            onClick={() => setNotice("Project settings panel will be available soon.")}
+            className="rounded-xl border border-zinc-600 bg-[#1C2126] px-4 py-2 text-sm font-semibold text-white transition hover:border-zinc-400 hover:bg-[#232a32]"
           >
             Project Settings
           </button>
@@ -223,79 +383,146 @@ export function ProjectDashboardPage() {
         </div>
       </header>
 
-      <section className="grid gap-4 xl:grid-cols-[290px_minmax(0,1fr)]">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+      <section className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="grid gap-4">
           <article className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-              Current plan
-            </p>
-            <div className="mt-2 flex items-center gap-2">
-              <h2 className="text-3xl font-bold text-white">
-                {project.planName ?? "No plan"}
-              </h2>
-              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-700">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Current plan</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <h2 className="text-2xl font-bold text-white sm:text-3xl">{project.planName ?? "No plan"}</h2>
+              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-400">
                 {project.subscriptionStatus === "active" ? "Active" : "Pending"}
               </span>
             </div>
             <p className="mt-3 text-sm text-zinc-400">
               Next billing date{" "}
-              <span className="client-ink-on-panel font-semibold">
-                {fmtDate(project.planValidUntil)}
-              </span>
+              <span className="font-semibold text-zinc-200">{fmtDate(project.planValidUntil)}</span>
             </p>
             <button
               type="button"
               onClick={() => navigate(`/projects/${project.id}/subscription`)}
-              className="mt-5 w-full rounded-xl border border-zinc-500 bg-[#2A3037] px-3 py-2 text-sm font-semibold text-white transition hover:border-zinc-300"
+              className="mt-5 w-full rounded-xl border border-zinc-600 bg-[#1C2126] px-3 py-2.5 text-sm font-semibold text-white transition hover:border-zinc-400 hover:bg-[#232a32]"
             >
               Manage
             </button>
           </article>
 
+          <article className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="text-lg font-bold text-white">Plan usage</h3>
+              {resetDays != null ? (
+                <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+                  Resets in {resetDays} {resetDays === 1 ? "day" : "days"}
+                </span>
+              ) : null}
+            </div>
+
+            <div className="mt-5 space-y-5">
+              <div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+                    <IconPencil className="h-4 w-4 text-emerald-400/90" />
+                    Website edits
+                  </div>
+                  {usage ? (
+                    <span
+                      className={`text-sm font-semibold tabular-nums ${
+                        includedDepleted ? "text-rose-400" : "text-zinc-300"
+                      }`}
+                    >
+                      {editUsed} / {editCap} used
+                    </span>
+                  ) : (
+                    <span className="text-xs text-zinc-500">—</span>
+                  )}
+                </div>
+                {usage && purchasedBal > 0 ? (
+                  <p className="mt-1.5 text-xs text-zinc-500">
+                    {purchasedBal} purchased credit{purchasedBal === 1 ? "" : "s"} also available this period.
+                  </p>
+                ) : null}
+                {includedDepleted &&
+                hasValidPlan &&
+                (extraEditBundleAddon ||
+                  purchasableAddons.some((a) => a.code === "addon_extra_edit_single")) ? (
+                  <div className="mt-3 rounded-xl border border-rose-500/25 bg-rose-950/30 px-3 py-3">
+                    <div className="flex gap-2">
+                      <IconInfo className="mt-0.5 h-4 w-4 shrink-0 text-rose-300/90" />
+                      <p className="text-xs leading-relaxed text-rose-100/90">
+                        You&apos;ve used all included edits for this billing cycle.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={addonCheckoutBusy}
+                      onClick={() => void buyExtraEditsCheckout()}
+                      className="mt-3 w-full rounded-lg border border-rose-400/30 bg-[#1a1416] py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-950/50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {addonCheckoutBusy ? "Starting checkout…" : "Buy extra edits"}
+                    </button>
+                  </div>
+                ) : null}
+                {!usage && hasValidPlan ? (
+                  <p className="mt-2 text-xs text-zinc-500">Usage will appear after the next sync.</p>
+                ) : null}
+              </div>
+
+              {pagesMax != null && pagesMax > 0 ? (
+                <div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+                      <IconGrid className="h-4 w-4 text-emerald-400/90" />
+                      Pages used
+                    </div>
+                    <span className="text-sm font-semibold tabular-nums text-zinc-300">
+                      {pagesUsed} / {pagesMax}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-[#2A3037]">
+                    <div
+                      className="h-full rounded-full bg-emerald-500 transition-[width]"
+                      style={{ width: `${pagesProgress}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </article>
+
           {!hideUpgradeCard ? (
             <article className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                Upgrade
-              </p>
-              <h2 className="mt-2 text-3xl font-bold leading-tight text-white">
-                Upgrade to Pro
-              </h2>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Upgrade</p>
+              <h2 className="mt-2 text-2xl font-bold leading-tight text-white sm:text-3xl">Upgrade to Pro</h2>
               <p className="mt-3 text-sm text-zinc-400">
-                Move up from Growth for more capacity and support.
+                Move up for more included edits, pages, and faster support.
               </p>
               <Link
                 to={`/projects/${project.id}/subscription`}
-                className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-white px-3 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200"
+                className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-white px-3 py-2.5 text-sm font-semibold text-canvas transition hover:bg-zinc-200"
               >
-                View Pro
+                View plans
               </Link>
             </article>
           ) : null}
         </div>
 
         <article className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-2xl font-bold text-white">Uploaded Assets</h2>
-              <p className="mt-1 text-sm text-zinc-400">
-                Files required for this project.
-              </p>
+              <h2 className="text-2xl font-bold text-white">Uploaded assets</h2>
+              <p className="mt-1 text-sm text-zinc-400">Files required for this project.</p>
             </div>
             <label
               className={`cursor-pointer rounded-xl bg-white px-4 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200 ${
-                assetUploadBusy || assetDeleteBusyType
-                  ? "pointer-events-none cursor-not-allowed opacity-50"
-                  : ""
+                assetUploadBusy || assetDeleteBusyType ? "pointer-events-none cursor-not-allowed opacity-50" : ""
               }`}
             >
-              Upload File
+              Upload file
               <input
                 type="file"
                 disabled={assetUploadBusy || assetDeleteBusyType !== null}
                 className="hidden"
                 onChange={(e) => {
                   setAssetFile(e.target.files?.[0] ?? null);
-                  // Allow selecting the same file again in the next pick.
                   e.currentTarget.value = "";
                 }}
               />
@@ -308,54 +535,50 @@ export function ProjectDashboardPage() {
             </p>
           ) : assetsLoading ? (
             <p className="mt-4 rounded-xl border border-[#2A3037] bg-[#1C2126] px-4 py-3 text-sm text-zinc-400">
-              Loading assets...
+              Loading assets…
             </p>
           ) : (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <ul className="mt-4 divide-y divide-[#2A3037] rounded-xl border border-[#2A3037] bg-[#101317]">
               {serverAssets.map((asset) => (
-                <div
+                <li
                   key={`${asset.type}:${asset.id}`}
-                  className="flex items-center justify-between gap-2 rounded-xl border border-[#2A3037] bg-[#101317] px-3 py-3"
+                  className="flex items-center justify-between gap-3 px-4 py-3.5 first:rounded-t-xl last:rounded-b-xl"
                 >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-white">
-                      {asset.fileName}
-                    </p>
-                    <p className="text-xs text-zinc-400">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-white">{asset.fileName}</p>
+                    <p className="mt-0.5 text-xs text-zinc-500">
                       {fakeSizeLabel(asset)} · {prettyAssetType(asset.type)}
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
+                  <div className="flex shrink-0 items-center gap-2">
                     <button
                       type="button"
+                      title="Download"
                       disabled={
-                        assetUploadBusy ||
-                        assetDeleteBusyType !== null ||
-                        assetDownloadBusyType === asset.type
+                        assetUploadBusy || assetDeleteBusyType !== null || assetDownloadBusyType === asset.type
                       }
                       onClick={async () => {
                         setAssetDownloadBusyType(asset.type);
                         setNotice(null);
                         try {
-                          await downloadProjectAssetFromServer(
-                            project.id,
-                            asset.type,
-                          );
+                          await downloadProjectAssetFromServer(project.id, asset.type);
                         } catch {
                           setNotice("Could not download asset.");
                         } finally {
                           setAssetDownloadBusyType(null);
                         }
                       }}
-                      className="rounded-lg border border-zinc-500 bg-[#2A3037] px-2 py-1 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-600 bg-[#1C2126] text-zinc-200 transition hover:border-zinc-400 hover:bg-[#252b33] disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      {assetDownloadBusyType === asset.type ? "…" : "↓"}
+                      <span className="sr-only">Download</span>
+                      <span className="text-sm leading-none" aria-hidden>
+                        {assetDownloadBusyType === asset.type ? "…" : "↓"}
+                      </span>
                     </button>
                     <button
                       type="button"
-                      disabled={
-                        assetUploadBusy || assetDeleteBusyType !== null
-                      }
+                      title="Delete"
+                      disabled={assetUploadBusy || assetDeleteBusyType !== null}
                       onClick={async () => {
                         setAssetDeleteBusyType(asset.type);
                         setNotice(null);
@@ -363,24 +586,23 @@ export function ProjectDashboardPage() {
                           await deleteProjectAssetFile(project.id, asset.type);
                           await refreshAssets({ silent: true });
                         } catch (err) {
-                          setNotice(
-                            err instanceof Error
-                              ? err.message
-                              : "Could not remove asset.",
-                          );
+                          setNotice(err instanceof Error ? err.message : "Could not remove asset.");
                         } finally {
                           setAssetDeleteBusyType(null);
                         }
                         setTick((v) => v + 1);
                       }}
-                      className="rounded-lg border border-zinc-500 bg-[#2A3037] px-2 py-1 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-600 bg-[#1C2126] text-zinc-200 transition hover:border-rose-400/50 hover:bg-rose-950/30 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      {assetDeleteBusyType === asset.type ? "…" : "✕"}
+                      <span className="sr-only">Delete</span>
+                      <span className="text-sm leading-none" aria-hidden>
+                        {assetDeleteBusyType === asset.type ? "…" : "✕"}
+                      </span>
                     </button>
                   </div>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
 
           <form
@@ -393,12 +615,9 @@ export function ProjectDashboardPage() {
               try {
                 await uploadProjectAssetFile(project.id, assetType, assetFile);
                 await refreshAssets({ silent: true });
+                await refreshProject();
               } catch (err) {
-                setNotice(
-                  err instanceof Error
-                    ? err.message
-                    : "Could not upload asset.",
-                );
+                setNotice(err instanceof Error ? err.message : "Could not upload asset.");
                 return;
               } finally {
                 setAssetFormUploadBusy(false);
@@ -410,9 +629,7 @@ export function ProjectDashboardPage() {
           >
             <select
               value={assetType}
-              onChange={(e) =>
-                setAssetType(e.target.value as ProjectRequirementType)
-              }
+              onChange={(e) => setAssetType(e.target.value as ProjectRequirementType)}
               disabled={assetUploadBusy}
               className="rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -434,9 +651,7 @@ export function ProjectDashboardPage() {
               {assetFormUploadBusy ? "Saving…" : "Save"}
             </button>
           </form>
-          {notice ? (
-            <p className="mt-2 text-xs text-amber-300">{notice}</p>
-          ) : null}
+          {notice ? <p className="mt-2 text-xs text-amber-300">{notice}</p> : null}
 
           {needsOnboarding ? (
             <p className="mt-3 text-xs text-amber-300">
@@ -549,6 +764,7 @@ export function ProjectDashboardPage() {
                     file,
                   );
                   await refreshAssets({ silent: true });
+                  await refreshProject();
                 } catch (err) {
                   setNotice(
                     err instanceof Error
@@ -584,134 +800,45 @@ export function ProjectDashboardPage() {
         </div>
       ) : null}
 
-      <section className="grid gap-5 xl:grid-cols-2">
-        <article className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
-          <h2 className="text-sm font-semibold text-white">
-            Uploaded setup files
-          </h2>
-          {!assetsLoading && serverAssets.length === 0 ? (
-            <p className="mt-2 text-sm text-zinc-400">No files uploaded yet.</p>
-          ) : assetsLoading ? (
-            <p className="mt-2 text-sm text-zinc-400">Loading assets...</p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {serverAssets.map((asset) => (
-                <li
-                  key={`${asset.type}:${asset.id}`}
-                  className="flex items-center justify-between gap-2 rounded-lg border border-[#2A3037] bg-[#1C2126] px-3 py-2"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-white">
-                      {asset.fileName}
-                    </p>
-                    <p className="text-xs text-zinc-400">
-                      {asset.type.replace("_", " ")}
-                    </p>
-                  </div>
-                  <div className="flex gap-1">
-                    <button
-                      type="button"
-                      disabled={
-                        assetUploadBusy ||
-                        assetDeleteBusyType !== null ||
-                        assetDownloadBusyType === asset.type
-                      }
-                      onClick={async () => {
-                        setAssetDownloadBusyType(asset.type);
-                        setNotice(null);
-                        try {
-                          await downloadProjectAssetFromServer(
-                            project.id,
-                            asset.type,
-                          );
-                        } catch {
-                          setNotice("Could not download asset.");
-                        } finally {
-                          setAssetDownloadBusyType(null);
-                        }
-                      }}
-                      className="rounded-md border border-zinc-500 bg-[#2A3037] px-2 py-1 text-[10px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {assetDownloadBusyType === asset.type
-                        ? "…"
-                        : "Download"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={
-                        assetUploadBusy || assetDeleteBusyType !== null
-                      }
-                      onClick={async () => {
-                        setAssetDeleteBusyType(asset.type);
-                        setNotice(null);
-                        try {
-                          await deleteProjectAssetFile(project.id, asset.type);
-                          await refreshAssets({ silent: true });
-                        } catch (err) {
-                          setNotice(
-                            err instanceof Error
-                              ? err.message
-                              : "Could not remove asset.",
-                          );
-                        } finally {
-                          setAssetDeleteBusyType(null);
-                        }
-                        setTick((v) => v + 1);
-                      }}
-                      className="rounded-md border border-zinc-500 bg-[#2A3037] px-2 py-1 text-[10px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {assetDeleteBusyType === asset.type ? "…" : "Remove"}
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </article>
-
-        <article className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-white">Invoices</h2>
-            <Link
-              to={`/projects/${project.id}/subscription`}
-              className="text-xs font-semibold text-zinc-300 underline"
-            >
-              Upgrade plan
-            </Link>
-          </div>
-          {project.invoices.length === 0 ? (
-            <p className="mt-2 text-sm text-zinc-400">
-              No invoices yet for this project.
-            </p>
-          ) : (
-            <div className="mt-3 overflow-hidden rounded-xl border border-[#2A3037]">
-              <div className="grid grid-cols-12 bg-[#1C2126] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
-                <div className="col-span-4">Invoice</div>
-                <div className="col-span-3">Amount</div>
-                <div className="col-span-3">Date</div>
-                <div className="col-span-2">Status</div>
-              </div>
-              {project.invoices.map((inv) => (
-                <div
-                  key={inv.id}
-                  className="grid grid-cols-12 border-t border-[#2A3037] px-3 py-2 text-xs text-zinc-200"
-                >
-                  <div className="col-span-4 font-medium">
-                    {inv.invoiceNumber}
-                  </div>
-                  <div className="col-span-3">
-                    {money(inv.amountCents, inv.currency)}
-                  </div>
-                  <div className="col-span-3">{fmtDate(inv.paidAt)}</div>
-                  <div className="col-span-2 capitalize">{inv.status}</div>
-                </div>
-              ))}
+      <section className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-bold text-white">Invoices</h2>
+          <Link
+            to={`/projects/${project.id}/subscription`}
+            className="text-xs font-semibold text-emerald-400/90 underline-offset-2 hover:underline"
+          >
+            Manage billing
+          </Link>
+        </div>
+        {project.invoices.length === 0 ? (
+          <p className="mt-3 text-sm text-zinc-400">No invoices yet for this project.</p>
+        ) : (
+          <div className="mt-4 overflow-hidden rounded-xl border border-[#2A3037]">
+            <div className="grid grid-cols-12 bg-[#1C2126] px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+              <div className="col-span-4">Invoice</div>
+              <div className="col-span-3">Amount</div>
+              <div className="col-span-3">Date</div>
+              <div className="col-span-2">Status</div>
             </div>
-          )}
-        </article>
+            {project.invoices.map((inv) => (
+              <div
+                key={inv.id}
+                className="grid grid-cols-12 border-t border-[#2A3037] px-3 py-2.5 text-xs text-zinc-200"
+              >
+                <div className="col-span-4 font-medium">{inv.invoiceNumber}</div>
+                <div className="col-span-3">{money(inv.amountCents, inv.currency)}</div>
+                <div className="col-span-3">{fmtDate(inv.paidAt)}</div>
+                <div className="col-span-2 capitalize">{inv.status}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
-      <section className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
+      <section
+        id="project-add-ons"
+        className="scroll-mt-24 rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass"
+      >
         <h2 className="text-3xl font-bold tracking-tight text-white">Add-ons</h2>
         <p className="mt-1 text-sm text-zinc-400">
           Purchased add-ons stay on your subscription. Buy new extras individually through secure checkout.
@@ -734,10 +861,16 @@ export function ProjectDashboardPage() {
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-lg font-semibold text-white">{addon.label}</p>
                       <span className="rounded-full bg-zinc-700 px-2 py-0.5 text-xs font-semibold text-zinc-100">
-                        {money(addon.priceCents, addon.currency || "USD")}
+                        {money(addonCardDisplayCents(addon, plans, project.planId), addon.currency || "USD")}
                       </span>
                     </div>
                     <p className="mt-2 text-xs text-zinc-500">{addon.desc}</p>
+                    {extraEditAddonCaption(addon, plans, project.planId) ? (
+                      <p className="mt-1 text-[11px] font-medium text-zinc-500">
+                        {extraEditAddonCaption(addon, plans, project.planId)}
+                      </p>
+                    ) : null}
+                    {recurringSetupPriceBreakdown(addon, addon.currency || "USD")}
                     <span className="mt-4 inline-flex w-full cursor-not-allowed items-center justify-center rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm font-semibold text-zinc-500">
                       On your plan
                     </span>
@@ -747,13 +880,13 @@ export function ProjectDashboardPage() {
           </div>
         ) : null}
 
-        {addonCatalog.some((a) => !project.addons.includes(a.code)) ? (
+        {purchasableAddons.some((a) => !project.addons.includes(a.code)) ? (
           <div className="mt-8">
             <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-zinc-500">
               Available add-ons
             </h3>
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              {addonCatalog
+              {purchasableAddons
                 .filter((addon) => !project.addons.includes(addon.code))
                 .map((addon) => (
                   <button
@@ -792,10 +925,16 @@ export function ProjectDashboardPage() {
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-lg font-semibold">{addon.label}</p>
                       <span className="rounded-full bg-zinc-700 px-2 py-0.5 text-xs font-semibold text-zinc-100">
-                        {money(addon.priceCents, addon.currency || "USD")}
+                        {money(addonCardDisplayCents(addon, plans, project.planId), addon.currency || "USD")}
                       </span>
                     </div>
                     <p className="mt-2 text-xs text-zinc-400">{addon.desc}</p>
+                    {extraEditAddonCaption(addon, plans, project.planId) ? (
+                      <p className="mt-1 text-[11px] font-medium text-zinc-400">
+                        {extraEditAddonCaption(addon, plans, project.planId)}
+                      </p>
+                    ) : null}
+                    {recurringSetupPriceBreakdown(addon, addon.currency || "USD")}
                     <span className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-white px-3 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40">
                       {hasValidPlan ? "Purchase add-on" : "Subscribe to enable"}
                     </span>
