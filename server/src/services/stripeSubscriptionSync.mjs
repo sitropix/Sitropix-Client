@@ -115,7 +115,7 @@ export async function syncSubscriptionFromStripeForUserId(userId, options = {}) 
       });
     }
     const existing = await prisma.subscription.findFirst({
-      where: { stripeSubscriptionId: full.id, userId, projectId: { not: null } },
+      where: { stripeSubscriptionId: full.id, userId },
       select: { projectId: true },
     });
     if (existing?.projectId) return existing.projectId;
