@@ -80,7 +80,7 @@ export interface CreateTicketInput {
   priority?: TicketPriority;
   /** Optional — must be a project you own. */
   projectId?: string | null;
-  /** Required when projectId is set — website edit type (credit cost). */
+  /** When set with projectId, reserves website edit credits for this edit type. */
   editTypeId?: string | null;
   attachments?: File[];
 }

@@ -13,6 +13,7 @@ import { findPrimaryUserSubscription, findUserProjectSubscription } from "../ser
 import {
   allocateCreditCharge,
   chargeSubscriptionCreditsTx,
+  subscriptionCreditView,
   totalCreditsAvailable,
 } from "../services/subscriptionCredits.mjs";
 import {
@@ -22,6 +23,12 @@ import {
 } from "../services/ticketAttachmentPaths.mjs";
 import { projectNameByIdForTickets } from "../services/supportTicketProjectNames.mjs";
 import { resolveSupportTicketPriority } from "../services/supportTicketPriority.mjs";
+
+function insufficientCreditsMessage(needed, available) {
+  const creditWord = needed === 1 ? "credit" : "credits";
+  const availVerb = available === 1 ? "is" : "are";
+  return `This edit requires ${needed} website edit ${creditWord}, but only ${available} ${availVerb} available on this project.`;
+}
 
 const router = express.Router();
 router.use(requireAuth);
@@ -151,7 +158,16 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
   let projectSub = null;
   if (linkedProjectId) {
     projectSub = await findUserProjectSubscription(req.auth.userId, linkedProjectId, {
-      include: { plan: { select: { code: true, name: true } } },
+      include: {
+        plan: {
+          select: {
+            code: true,
+            name: true,
+            catalogJson: true,
+            includedEditCreditsPerPeriod: true,
+          },
+        },
+      },
     });
   }
 
@@ -169,6 +185,7 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
   if (linkedProjectId && projectSub && ["active", "trialing"].includes(projectSub.status)) {
     ticketPriority = resolveSupportTicketPriority({
       planCode: projectSub.plan?.code ?? "",
+      catalogJson: projectSub.plan?.catalogJson,
       boostUntil: projectSub.supportPriorityBoostUntil,
     });
   }
@@ -189,70 +206,82 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
       });
     }
     creditCost = Math.max(0, editTypeRow.defaultChargeCredits ?? 0);
-    const splitPreview = allocateCreditCharge(projectSub, creditCost);
+    const subForCredits = subscriptionCreditView(projectSub, projectSub.plan);
+    const splitPreview = allocateCreditCharge(subForCredits, creditCost);
     if (creditCost > 0 && !splitPreview) {
+      const available = totalCreditsAvailable(subForCredits);
       return res.status(400).json({
         error: "insufficient_credits",
         needed: creditCost,
-        available: totalCreditsAvailable(projectSub),
+        available,
+        message: insufficientCreditsMessage(creditCost, available),
       });
     }
   }
 
   let ticket;
   try {
-    ticket = await prisma.$transaction(async (tx) => {
-      let creditsCharged = 0;
-      let creditsFromIncluded = 0;
-      let creditsFromPurchased = 0;
-      let editTypeId = null;
+    ticket = await prisma.$transaction(
+      async (tx) => {
+        let creditsCharged = 0;
+        let creditsFromIncluded = 0;
+        let creditsFromPurchased = 0;
+        let editTypeId = null;
 
-      if (linkedProjectId && editTypeRow && projectSub) {
-        editTypeId = editTypeRow.id;
-        creditsCharged = creditCost;
-        if (creditCost > 0) {
-          const charged = await chargeSubscriptionCreditsTx(tx, projectSub.id, creditCost);
-          if (!charged) {
-            const err = new Error("insufficient_credits");
-            err.code = "insufficient_credits";
-            throw err;
+        if (linkedProjectId && editTypeRow && projectSub) {
+          editTypeId = editTypeRow.id;
+          creditsCharged = creditCost;
+          if (creditCost > 0) {
+            const charged = await chargeSubscriptionCreditsTx(tx, projectSub.id, creditCost);
+            if (!charged) {
+              const err = new Error("insufficient_credits");
+              err.code = "insufficient_credits";
+              throw err;
+            }
+            creditsFromIncluded = charged.fromIncluded;
+            creditsFromPurchased = charged.fromPurchased;
           }
-          creditsFromIncluded = charged.fromIncluded;
-          creditsFromPurchased = charged.fromPurchased;
         }
-      }
 
-      return tx.supportTicket.create({
-        data: {
-          userId: req.auth.userId,
-          projectId: linkedProjectId,
-          subject: payload.subject,
-          description: payload.description,
-          department: payload.departmentId ?? "General",
-          priority: ticketPriority,
-          userPlan,
-          editTypeId,
-          creditsCharged,
-          creditsFromIncluded,
-          creditsFromPurchased,
-          messages: {
-            create: {
-              userId: req.auth.userId,
-              isStaff: false,
-              body: payload.description,
+        return tx.supportTicket.create({
+          data: {
+            userId: req.auth.userId,
+            projectId: linkedProjectId,
+            subject: payload.subject,
+            description: payload.description,
+            department: payload.departmentId ?? "General",
+            priority: ticketPriority,
+            userPlan,
+            editTypeId,
+            creditsCharged,
+            creditsFromIncluded,
+            creditsFromPurchased,
+            messages: {
+              create: {
+                userId: req.auth.userId,
+                isStaff: false,
+                body: payload.description,
+              },
             },
           },
-        },
-        include: {
-          messages: { orderBy: { createdAt: "asc" } },
-        },
-      });
-    });
+          include: {
+            messages: { orderBy: { createdAt: "asc" } },
+          },
+        });
+      },
+      { maxWait: 10_000, timeout: 20_000 },
+    );
   } catch (e) {
     if (e?.code === "insufficient_credits") {
+      const available =
+        projectSub != null
+          ? totalCreditsAvailable(subscriptionCreditView(projectSub, projectSub.plan))
+          : 0;
       return res.status(400).json({
         error: "insufficient_credits",
-        message: "Not enough website edit credits for this project.",
+        needed: creditCost,
+        available,
+        message: insufficientCreditsMessage(creditCost, available),
       });
     }
     log.error("ticket.create_failed", { error: e?.message });

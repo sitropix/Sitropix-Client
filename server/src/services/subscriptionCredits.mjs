@@ -1,4 +1,22 @@
-import { prisma } from "../db/client.mjs";
+/**
+ * Same rule as project GET `usage`: if the subscription row has no included cap,
+ * fall back to the plan's per-period allowance.
+ */
+export function effectiveIncludedCreditsPerPeriod(sub, plan) {
+  if (!sub) return 0;
+  const subCap = Math.max(0, sub.includedCreditsPerPeriod ?? 0);
+  const planCap = Math.max(0, plan?.includedEditCreditsPerPeriod ?? 0);
+  return subCap > 0 ? subCap : planCap;
+}
+
+/** Row shaped for allocate/totalCreditsAvailable, aligned with project API usage. */
+export function subscriptionCreditView(sub, plan) {
+  if (!sub) return sub;
+  const cap = effectiveIncludedCreditsPerPeriod(sub, plan);
+  const prev = Math.max(0, sub.includedCreditsPerPeriod ?? 0);
+  if (cap === prev) return sub;
+  return { ...sub, includedCreditsPerPeriod: cap };
+}
 
 /** Included pool remaining (never negative). */
 export function includedCreditsRemaining(sub) {
@@ -43,20 +61,29 @@ export function allocateCreditCharge(sub, cost) {
 }
 
 export async function chargeSubscriptionCreditsTx(tx, subscriptionId, cost) {
-  const sub = await tx.subscription.findUnique({ where: { id: subscriptionId } });
+  const sub = await tx.subscription.findUnique({
+    where: { id: subscriptionId },
+    include: { plan: { select: { includedEditCreditsPerPeriod: true } } },
+  });
   if (!sub) throw new Error("subscription_not_found");
-  const split = allocateCreditCharge(sub, cost);
+  const view = subscriptionCreditView(sub, sub.plan);
+  const split = allocateCreditCharge(view, cost);
   if (!split) return null;
   if (split.fromIncluded === 0 && split.fromPurchased === 0) return split;
   const nextUsed = (sub.includedCreditsUsedThisPeriod ?? 0) + split.fromIncluded;
   const nextPurchased = (sub.purchasedCreditsBalance ?? 0) - split.fromPurchased;
-  if (nextPurchased < 0) return null;
+  if (nextPurchased < 0 || nextUsed < 0) return null;
+  const effectiveCap = effectiveIncludedCreditsPerPeriod(sub, sub.plan);
+  const data = {
+    includedCreditsUsedThisPeriod: nextUsed,
+    purchasedCreditsBalance: nextPurchased,
+  };
+  if (Math.max(0, sub.includedCreditsPerPeriod ?? 0) !== effectiveCap) {
+    data.includedCreditsPerPeriod = effectiveCap;
+  }
   await tx.subscription.update({
     where: { id: subscriptionId },
-    data: {
-      includedCreditsUsedThisPeriod: nextUsed,
-      purchasedCreditsBalance: nextPurchased,
-    },
+    data,
   });
   return split;
 }

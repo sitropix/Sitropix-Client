@@ -8,6 +8,7 @@ import {
   handleSubscriptionDeleted,
   handleSubscriptionUpdated,
 } from "../services/stripeWebhookHandlers.mjs";
+import { schedulePlanCatalogSyncFromStripePrice } from "../services/stripePlanCatalogSync.mjs";
 import { env } from "../config/env.mjs";
 import { log } from "../observability/logger.mjs";
 import { metricsWebhook } from "../observability/metrics.mjs";
@@ -84,6 +85,10 @@ router.post(
         break;
       case "invoice.payment_failed":
         await handleInvoicePaymentFailed(event.data.object);
+        break;
+      case "price.created":
+      case "price.updated":
+        await schedulePlanCatalogSyncFromStripePrice(event.data.object);
         break;
       default:
         log.infoReq(req, "subscription.webhook.ignored", { provider: "stripe", eventId: event.id, eventType: event.type });

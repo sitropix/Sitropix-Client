@@ -29,6 +29,13 @@ export const planSchema = z.object({
   catalogJson: z.record(z.string(), z.any()).optional(),
 });
 
+export const planCatalogSyncSchema = z
+  .object({
+    migrateSubscriptions: z.boolean().optional(),
+    prorationBehavior: z.enum(["none", "create_prorations", "always_invoice"]).optional(),
+  })
+  .strict();
+
 export const planPatchSchema = z
   .object({
     description: z.string().max(2000).optional(),
@@ -121,11 +128,19 @@ export const checkoutSessionSchema = z.object({
   cancelUrl: safeReturnUrlSchema.optional(),
 });
 
+export const extraEditCheckoutSchema = z
+  .object({
+    mode: z.enum(["per_edit", "bundle"]),
+    perEditQuantity: z.number().int().positive().max(500).optional(),
+  })
+  .strict();
+
 export const addonCheckoutSessionSchema = z.object({
   projectId: z.string().min(1).max(120),
   addonCodes: z.array(z.string().min(1)).min(1).max(20),
   successUrl: safeReturnUrlSchema.optional(),
   cancelUrl: safeReturnUrlSchema.optional(),
+  extraEditCheckout: extraEditCheckoutSchema.optional(),
 });
 
 export const confirmAddonCheckoutSchema = z.object({

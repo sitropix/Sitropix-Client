@@ -10,9 +10,7 @@ import {
   subscriptionPeriodDates,
 } from "./stripeSyncHelpers.mjs";
 import { isPlanOneTimeOnly } from "./billingProration.mjs";
-import {
-  didBillingPeriodAdvance,
-} from "./subscriptionCredits.mjs";
+import { buildExistingSubscriptionPatchFromStripe } from "./stripeSubscriptionReconcile.mjs";
 
 function logCheckout(phase, fields = {}) {
   log.info("billing.stripe_checkout", { phase, ...fields });
@@ -71,7 +69,14 @@ async function findUserIdByStripeCustomerId(customerId) {
 }
 
 async function ensureProjectIdForSubscription({ userId, projectId, stripeSubscriptionId = null }) {
-  if (projectId) return projectId;
+  if (projectId) {
+    const owned = await prisma.project.findFirst({
+      where: { id: projectId, ownerUserId: userId },
+      select: { id: true },
+    });
+    if (owned?.id) return owned.id;
+    logCheckout("project_id_ignored", { userId, projectId });
+  }
   const existingProjectSub =
     stripeSubscriptionId
       ? await prisma.subscription.findFirst({
@@ -86,18 +91,7 @@ async function ensureProjectIdForSubscription({ userId, projectId, stripeSubscri
     select: { id: true },
   });
   if (latestProject?.id) return latestProject.id;
-  const created = await prisma.project.create({
-    data: {
-      ownerUserId: userId,
-      name: "Imported Subscription Project",
-      description: "Auto-created to attach Stripe subscription.",
-      subscriptionStatus: "on_hold",
-      addonsJson: [],
-      invoicesJson: [],
-    },
-    select: { id: true },
-  });
-  return created.id;
+  return null;
 }
 
 async function handleOneTimePlanCheckoutSession(session) {
@@ -296,6 +290,10 @@ export async function handleCheckoutSessionCompleted(session) {
     projectId: projectIdFromMetadata(session.metadata, stripeSub.metadata),
     stripeSubscriptionId: stripeSub.id,
   });
+  if (!projectId) {
+    logCheckout("skip_no_project", { sessionId: session.id, userId, subId: stripeSub.id });
+    return;
+  }
 
   try {
     await prisma.user.update({
@@ -495,24 +493,7 @@ export async function handleSubscriptionUpdated(stripeSub) {
   });
 
   if (existing) {
-    const { start: periodStart, end: periodEnd } = subscriptionPeriodDates(stripeSub);
-    const status = mapStripeStatus(stripeSub);
-    const plan = await prisma.plan.findUnique({ where: { id: existing.planId } });
-    const periodAdvanced = didBillingPeriodAdvance(existing.currentPeriodStart, periodStart);
-    const patch = {
-      status,
-      pausedAt: status === "paused" ? new Date() : null,
-      currentPeriodStart: periodStart,
-      currentPeriodEnd: periodEnd,
-      cancelAtPeriodEnd: Boolean(stripeSub.cancel_at_period_end),
-      stripeCustomerId:
-        typeof stripeSub.customer === "string" ? stripeSub.customer : stripeSub.customer?.id ?? existing.stripeCustomerId,
-    };
-    if (periodAdvanced && plan) {
-      patch.includedCreditsPerPeriod = Math.max(0, plan.includedEditCreditsPerPeriod ?? 0);
-      patch.includedCreditsUsedThisPeriod = 0;
-      patch.supportPriorityBoostUntil = null;
-    }
+    const { patch } = await buildExistingSubscriptionPatchFromStripe(stripeSub, existing);
     await prisma.subscription.update({
       where: { id: existing.id },
       data: patch,
@@ -571,6 +552,10 @@ export async function handleSubscriptionUpdated(stripeSub) {
     projectId: projectIdFromMetadata(stripeSub.metadata),
     stripeSubscriptionId: stripeSub.id,
   });
+  if (!projectId) {
+    logCheckout("sub_event_skip_no_project", { stripeSubId: stripeSub.id, userId });
+    return;
+  }
   const { start: periodStart, end: periodEnd } = subscriptionPeriodDates(stripeSub);
   const status = mapStripeStatus(stripeSub);
   const pausedAt = status === "paused" ? new Date() : null;

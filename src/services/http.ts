@@ -9,13 +9,25 @@ export class ApiRequestError extends Error {
   readonly moduleKey?: string;
   /** Present when server returns Zod `flatten()` from validation middleware. */
   readonly issues?: unknown;
-  constructor(message: string, status: number, code?: string, moduleKey?: string, issues?: unknown) {
+  /** Website edit credit shortfall (`insufficient_credits` on ticket create). */
+  readonly needed?: number;
+  readonly available?: number;
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    moduleKey?: string,
+    issues?: unknown,
+    extras?: { needed?: number; available?: number },
+  ) {
     super(message);
     this.name = "ApiRequestError";
     this.status = status;
     this.code = code;
     this.moduleKey = moduleKey;
     this.issues = issues;
+    this.needed = extras?.needed;
+    this.available = extras?.available;
   }
 }
 
@@ -75,6 +87,8 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       message?: string;
       moduleKey?: string;
       issues?: unknown;
+      needed?: number;
+      available?: number;
     };
     throw new ApiRequestError(
       body.message ?? body.error ?? "request_failed",
@@ -82,6 +96,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       body.error,
       body.moduleKey,
       body.issues,
+      { needed: body.needed, available: body.available },
     );
   }
   return (await res.json()) as T;

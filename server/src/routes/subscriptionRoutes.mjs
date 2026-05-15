@@ -25,6 +25,7 @@ import {
   funnelEventSchema,
   paymentMethodSchema,
   projectSubscriptionActionSchema,
+  planCatalogSyncSchema,
   planPatchSchema,
   planSchema,
   editTypePatchSchema,
@@ -37,6 +38,11 @@ import { getSystemConfigPayload, saveSystemConfig } from "../services/systemConf
 import { sendTransactionalEmail } from "../services/emailService.mjs";
 import { deleteExpiredPendingInvites } from "../services/inviteCleanup.mjs";
 import { assertStripeConfigured, reloadStripeFromSystemConfig, stripe } from "../services/stripeService.mjs";
+import {
+  planPatchTriggersCatalogSync,
+  runPlanCatalogSync,
+  schedulePlanCatalogSync,
+} from "../services/stripePlanCatalogSync.mjs";
 import {
   buildProrationBreakdown,
   isPlanOneTimeOnly,
@@ -51,9 +57,12 @@ import {
 } from "../services/subscriptionCredits.mjs";
 import { mergePlanWebsiteCatalogJson } from "../services/planWebsiteCatalog.mjs";
 import {
+  EXTRA_EDIT_BUNDLE_CODE,
+  EXTRA_EDIT_SINGLE_CODE,
   addonEligibleForPlan,
-  assertCreditPurchaseUnderCap,
+  assertWebsiteEditPurchaseAllowed,
   isPlanPricedExtraEditAddonCode,
+  isRepeatableExtraEditPurchase,
   resolveCreditPackGrantForAddon,
   resolveExtraEditAddonPriceCents,
   validateExtraEditAddonAgainstPlan,
@@ -943,6 +952,7 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
     planId: plan.id,
     billingCycle: effectiveCycle,
     addons: normalizedAddons.join(","),
+    ...(plan.stripeProductId ? { stripeProductId: plan.stripeProductId } : {}),
     ...(projectId ? { projectId } : {}),
   };
   const session = await stripe.checkout.sessions.create({
@@ -969,6 +979,28 @@ router.post("/checkout-session", validate(checkoutSessionSchema), async (req, re
   return res.json({ url: session.url });
 });
 
+function parseCreditPackGrantOverridesFromMeta(meta) {
+  const raw = meta?.creditPackGrants;
+  if (!raw || typeof raw !== "string" || String(raw).trim() === "") return {};
+  try {
+    const o = JSON.parse(raw);
+    if (o && typeof o === "object" && !Array.isArray(o)) return o;
+  } catch {
+    // ignore invalid JSON
+  }
+  return {};
+}
+
+function resolveCreditPackGrantWithOverrides(plan, addonRow, overrides) {
+  const code = addonRow?.code;
+  if (code === EXTRA_EDIT_SINGLE_CODE) {
+    const raw = overrides?.[EXTRA_EDIT_SINGLE_CODE];
+    const n = typeof raw === "number" ? raw : parseInt(String(raw ?? ""), 10);
+    if (Number.isFinite(n) && n > 0 && n <= 500) return Math.floor(n);
+  }
+  return resolveCreditPackGrantForAddon(plan, addonRow);
+}
+
 /** One-time payment for add-on(s) on an existing project subscription; merges codes into `project.addonsJson`. */
 router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), async (req, res) => {
   assertStripeConfigured();
@@ -977,6 +1009,7 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
     addonCodes: rawCodes,
     successUrl: successUrlOverride,
     cancelUrl: cancelUrlOverride,
+    extraEditCheckout,
   } = req.validatedBody;
   subscriptionDebug(req, "addon_checkout_session.start", {
     userId: req.auth.userId,
@@ -999,7 +1032,16 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
   const addonCatalogRows = await fetchSubscriptionAddonCatalog();
   const addonByCode = new Map(addonCatalogRows.map((r) => [r.code, r]));
   const requested = Array.from(
-    new Set(rawCodes.map((c) => String(c ?? "").trim()).filter((c) => addonByCode.has(c) && !existing.includes(c))),
+    new Set(
+      rawCodes
+        .map((c) => String(c ?? "").trim())
+        .filter((c) => {
+          const row = addonByCode.get(c);
+          if (!row) return false;
+          if (isRepeatableExtraEditPurchase(row)) return true;
+          return !existing.includes(c);
+        }),
+    ),
   );
   if (requested.length === 0) {
     return res.status(400).json({ error: "no_new_addons_to_purchase" });
@@ -1040,16 +1082,53 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
     });
   }
 
+  const hasSingle = requested.includes(EXTRA_EDIT_SINGLE_CODE);
+  const hasBundle = requested.includes(EXTRA_EDIT_BUNDLE_CODE);
+  if (hasSingle && hasBundle) {
+    return res.status(400).json({
+      error: "extra_edit_mix_not_allowed",
+      message: "Purchase per-edit credits or a fixed bundle in a single checkout, not both.",
+    });
+  }
+
+  /** @type {Record<string, number>} */
+  let creditPackOverrides = {};
+  if (hasSingle) {
+    if (extraEditCheckout?.mode === "bundle") {
+      return res.status(400).json({
+        error: "extra_edit_checkout_invalid",
+        message: "Per-edit checkout options do not apply to the bundle add-on.",
+      });
+    }
+    const qRaw =
+      extraEditCheckout?.mode === "per_edit" ? extraEditCheckout.perEditQuantity ?? 1 : 1;
+    const q = Math.floor(Number(qRaw));
+    if (!Number.isFinite(q) || q < 1 || q > 500) {
+      return res.status(400).json({
+        error: "extra_edit_invalid_quantity",
+        message: "Enter a number of edits between 1 and 500.",
+      });
+    }
+    creditPackOverrides[EXTRA_EDIT_SINGLE_CODE] = q;
+  } else if (hasBundle) {
+    if (extraEditCheckout?.mode === "per_edit") {
+      return res.status(400).json({
+        error: "extra_edit_checkout_invalid",
+        message: "Use the bundle option when purchasing the edit bundle add-on.",
+      });
+    }
+  }
+
   let purchasedDelta = 0;
   for (const code of requested) {
     const row = addonByCode.get(code);
     const effect = readAddonEffectKind(row.catalogJson);
     if (effect === "credit_pack") {
-      purchasedDelta += resolveCreditPackGrantForAddon(plan, row);
+      purchasedDelta += resolveCreditPackGrantWithOverrides(plan, row, creditPackOverrides);
     }
   }
   if (purchasedDelta > 0) {
-    const capCheck = assertCreditPurchaseUnderCap({
+    const capCheck = assertWebsiteEditPurchaseAllowed({
       plan,
       subscriptionRow: sub,
       purchasedDelta,
@@ -1112,13 +1191,17 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
     if (isPlanPricedExtraEditAddonCode(code) && unit <= 0) {
       return res.status(400).json({ error: "invalid_addon_price", code });
     }
+    const qty =
+      code === EXTRA_EDIT_SINGLE_CODE && creditPackOverrides[EXTRA_EDIT_SINGLE_CODE]
+        ? creditPackOverrides[EXTRA_EDIT_SINGLE_CODE]
+        : 1;
     lineItems.push({
       price_data: {
         currency,
         product_data: { name: `${item.label} (add-on)` },
         unit_amount: unit,
       },
-      quantity: 1,
+      quantity: qty,
     });
   }
 
@@ -1128,6 +1211,9 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
     kind: "project_addon_payment",
     addonCodes: requested.join(","),
     planIdSnapshot: plan.id,
+    ...(Object.keys(creditPackOverrides).length > 0
+      ? { creditPackGrants: JSON.stringify(creditPackOverrides) }
+      : {}),
     ...(attachRecurringAddonJson ? { attachRecurringAddonJson } : {}),
   };
   const session = await stripe.checkout.sessions.create({
@@ -1173,6 +1259,7 @@ router.post("/confirm-addon-checkout", validate(confirmAddonCheckoutSchema), asy
   if (String(meta.kind ?? "") !== "project_addon_payment") {
     return res.status(400).json({ error: "wrong_session_kind" });
   }
+  const grantOverrides = parseCreditPackGrantOverridesFromMeta(meta);
   const codes = String(meta.addonCodes ?? "")
     .split(",")
     .map((s) => s.trim())
@@ -1210,6 +1297,8 @@ router.post("/confirm-addon-checkout", validate(confirmAddonCheckoutSchema), asy
       currentPeriodEnd: true,
       supportPriorityBoostUntil: true,
       purchasedCreditsBalance: true,
+      includedCreditsPerPeriod: true,
+      includedCreditsUsedThisPeriod: true,
       stripeSubscriptionId: true,
       billingCycle: true,
       planId: true,
@@ -1230,7 +1319,7 @@ router.post("/confirm-addon-checkout", validate(confirmAddonCheckoutSchema), asy
     if (!row) continue;
     const effect = readAddonEffectKind(row.catalogJson);
     if (effect === "credit_pack") {
-      purchasedDelta += resolveCreditPackGrantForAddon(localSub?.plan, row);
+      purchasedDelta += resolveCreditPackGrantWithOverrides(localSub?.plan, row, grantOverrides);
     }
   }
   if (purchasedDelta > 0 && !localSub) {
@@ -1240,7 +1329,7 @@ router.post("/confirm-addon-checkout", validate(confirmAddonCheckoutSchema), asy
     });
   }
   if (purchasedDelta > 0 && localSub?.plan) {
-    const capCheck = assertCreditPurchaseUnderCap({
+    const capCheck = assertWebsiteEditPurchaseAllowed({
       plan: localSub.plan,
       subscriptionRow: localSub,
       purchasedDelta,
@@ -1509,13 +1598,6 @@ adminRouter.patch("/plans/:id", validate(planPatchSchema), async (req, res) => {
       if (e instanceof ZodError) {
         return res.status(400).json({ error: "invalid_plan_catalog", issues: e.flatten() });
       }
-      if (String(e?.message) === "invalid_extra_edit_pricing") {
-        return res.status(400).json({
-          error: "invalid_extra_edit_pricing",
-          message:
-            'Extra edit pricing must look like "$12/edit" or "5 for $49" (dollar amounts can use decimals). Leave blank to keep current pricing.',
-        });
-      }
       throw e;
     }
   }
@@ -1529,7 +1611,48 @@ adminRouter.patch("/plans/:id", validate(planPatchSchema), async (req, res) => {
     metadata: { patchKeys: Object.keys(data ?? {}) },
     ...auditCtx,
   });
+  if (stripe && planPatchTriggersCatalogSync(body)) {
+    schedulePlanCatalogSync(updated.id, {
+      triggeredBy: "admin_plan_patch",
+      migrateSubscriptions: true,
+      prorationBehavior: "none",
+    });
+  }
   return res.json(updated);
+});
+
+adminRouter.post("/plans/:id/sync-stripe-catalog", validate(planCatalogSyncSchema), async (req, res) => {
+  const auditCtx = requestAuditContext(req);
+  const plan = await prisma.plan.findUnique({ where: { id: req.params.id } });
+  if (!plan) return res.status(404).json({ error: "plan_not_found" });
+  try {
+    assertStripeConfigured();
+  } catch {
+    return res.status(503).json({ error: "stripe_not_configured" });
+  }
+  const result = await runPlanCatalogSync(plan.id, {
+    triggeredBy: "admin_manual",
+    migrateSubscriptions: req.validatedBody.migrateSubscriptions ?? true,
+    prorationBehavior: req.validatedBody.prorationBehavior ?? "none",
+  });
+  await logAuditEvent({
+    action: "admin.plan_stripe_catalog_sync",
+    actorUserId: req.auth.userId,
+    actorRole: req.auth.role,
+    targetType: "plan",
+    targetId: plan.id,
+    metadata: {
+      ok: result.ok,
+      catalogChanged: result.catalog?.catalogChanged ?? false,
+      migrationUpdated: result.migration?.updated ?? 0,
+    },
+    ...auditCtx,
+  });
+  if (!result.ok) {
+    return res.status(result.reason === "stripe_not_configured" ? 503 : 400).json(result);
+  }
+  const refreshed = await prisma.plan.findUnique({ where: { id: plan.id } });
+  return res.json({ plan: refreshed, sync: result });
 });
 
 adminRouter.delete("/plans/:id", async (req, res) => {

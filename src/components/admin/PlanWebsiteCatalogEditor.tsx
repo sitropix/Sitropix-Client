@@ -1,5 +1,13 @@
-import type { ReactNode } from "react";
 import type { Plan } from "@/types/subscription";
+import type { ReactNode } from "react";
+
+export type SupportChannelCode = "email_48h" | "email_chat_24h" | "priority_4h";
+
+export const SUPPORT_CHANNEL_OPTIONS: { value: SupportChannelCode; label: string }[] = [
+  { value: "email_48h", label: "Email (48h)" },
+  { value: "email_chat_24h", label: "Email+Chat (24h)" },
+  { value: "priority_4h", label: "Priority (4h)" },
+];
 
 export type PlanWebsiteCatalogValues = {
   listPriceUsd: number;
@@ -29,8 +37,13 @@ export type PlanWebsiteCatalogValues = {
   uptimeMonitoringAlerts: boolean;
   cookieGdprComplianceBanner: boolean;
   monthlySecurityScan: boolean;
-  extraEditPricing: string;
-  supportChannel: string;
+  /** USD per extra website edit (maps to `extraEditSingleCents`). */
+  extraEditPerEditUsd: number;
+  /** Number of edits in the fixed-price pack (maps to `extraEditPackCount`). */
+  extraEditPackEditCount: number;
+  /** Total USD for the edit pack (maps to `extraEditPackCents`). */
+  extraEditPackTotalUsd: number;
+  supportChannel: SupportChannelCode;
   dedicatedAccountContact: boolean;
 };
 
@@ -66,15 +79,41 @@ function bool(v: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
-function defaultExtraEditPricing(j: Record<string, unknown>): string {
-  const ep = str(j.extraEditPricing, "").trim();
-  if (ep) return ep;
+function normalizeSupportChannel(raw: string): SupportChannelCode {
+  const s = raw.trim().toLowerCase();
+  if (s === "email_chat_24h" || s === "email+chat_24h" || s.includes("chat")) {
+    return "email_chat_24h";
+  }
+  if (s === "priority_4h" || s.includes("priority")) {
+    return "priority_4h";
+  }
+  if (s === "email_48h" || s === "email" || s === "") {
+    return "email_48h";
+  }
+  const hit = SUPPORT_CHANNEL_OPTIONS.find((o) => o.value === s);
+  return hit ? hit.value : "email_48h";
+}
+
+function extraEditPerEditUsdFromCatalog(j: Record<string, unknown>): number {
+  const direct = num(j.extraEditPerEditUsd, NaN);
+  if (Number.isFinite(direct) && direct > 0) return direct;
   const singleC = intNonNeg(j.extraEditSingleCents ?? j.extra_edit_single_cents, 0);
-  const packN = intNonNeg(j.extraEditPackCount ?? j.extra_edit_pack_count, 0);
+  return singleC > 0 ? Math.max(0.01, singleC / 100) : 12;
+}
+
+function extraEditPackEditCountFromCatalog(j: Record<string, unknown>): number {
+  if (typeof j.extraEditPackEditCount === "number" && Number.isFinite(j.extraEditPackEditCount)) {
+    const n = Math.floor(j.extraEditPackEditCount);
+    if (n > 0) return n;
+  }
+  return intPos(j.extraEditPackCount ?? j.extra_edit_pack_count, 5);
+}
+
+function extraEditPackTotalUsdFromCatalog(j: Record<string, unknown>): number {
+  const direct = num(j.extraEditPackTotalUsd, NaN);
+  if (Number.isFinite(direct) && direct > 0) return direct;
   const packC = intNonNeg(j.extraEditPackCents ?? j.extra_edit_pack_cents, 0);
-  if (packN > 0 && packC > 0) return `${packN} for $${(packC / 100).toFixed(0)}`;
-  if (singleC > 0) return `$${(singleC / 100).toFixed(0)}/edit`;
-  return "";
+  return packC > 0 ? Math.max(0.01, packC / 100) : 49;
 }
 
 function defaultProductCatalog(j: Record<string, unknown>): string {
@@ -113,10 +152,16 @@ function ecommerceCap(j: Record<string, unknown>): number {
 }
 
 /** Hydrate admin form state from `plan` + legacy `catalogJson` keys. */
-export function planWebsiteCatalogValuesFromPlan(plan: Plan): PlanWebsiteCatalogValues {
-  const j = (plan.catalogJson && typeof plan.catalogJson === "object" && !Array.isArray(plan.catalogJson)
-    ? plan.catalogJson
-    : {}) as Record<string, unknown>;
+export function planWebsiteCatalogValuesFromPlan(
+  plan: Plan,
+): PlanWebsiteCatalogValues {
+  const j = (
+    plan.catalogJson &&
+    typeof plan.catalogJson === "object" &&
+    !Array.isArray(plan.catalogJson)
+      ? plan.catalogJson
+      : {}
+  ) as Record<string, unknown>;
   const monthlyUsd = Math.max(0.01, plan.priceMonthlyCents / 100);
   const cap = ecommerceCap(j);
   const hasStore = cap > 0;
@@ -135,26 +180,54 @@ export function planWebsiteCatalogValuesFromPlan(plan: Plan): PlanWebsiteCatalog
     productCmsAccess: bool(j.productCmsAccess, hasStore),
     contactFormLeadCapture: bool(j.contactFormLeadCapture, true),
     liveChatWidgetTawk: bool(j.liveChatWidgetTawk ?? j.liveChatIncluded, false),
-    appointmentBookingCalendly: bool(j.appointmentBookingCalendly ?? j.bookingIncluded, false),
+    appointmentBookingCalendly: bool(
+      j.appointmentBookingCalendly ?? j.bookingIncluded,
+      false,
+    ),
     businessEmailInboxes: intNonNeg(j.businessEmailInboxes, 0),
     basicMetaTagsSitemap: bool(j.basicMetaTagsSitemap, true),
     fullSeoSetup: bool(j.fullSeoSetup ?? j.fullSeoSetupOneTime, false),
-    googleBusinessProfileSetup: bool(j.googleBusinessProfileSetup ?? j.googleBusinessProfileOneTime, false),
-    monthlySeoHealthReport: bool(j.monthlySeoHealthReport ?? j.monthlySeoReport, false),
+    googleBusinessProfileSetup: bool(
+      j.googleBusinessProfileSetup ?? j.googleBusinessProfileOneTime,
+      false,
+    ),
+    monthlySeoHealthReport: bool(
+      j.monthlySeoHealthReport ?? j.monthlySeoReport,
+      false,
+    ),
     blogCmsAccess: bool(j.blogCmsAccess, false),
-    socialMediaFeedEmbed: bool(j.socialMediaFeedEmbed ?? j.socialFeedEmbed, false),
-    googleShoppingIntegration: bool(j.googleShoppingIntegration ?? j.googleShopping, false),
-    automatedDailyBackups: bool(j.automatedDailyBackups ?? j.automatedBackups, true),
-    uptimeMonitoringAlerts: bool(j.uptimeMonitoringAlerts ?? j.uptimeMonitoring, true),
-    cookieGdprComplianceBanner: bool(j.cookieGdprComplianceBanner ?? j.cookieGdprBanner, true),
+    socialMediaFeedEmbed: bool(
+      j.socialMediaFeedEmbed ?? j.socialFeedEmbed,
+      false,
+    ),
+    googleShoppingIntegration: bool(
+      j.googleShoppingIntegration ?? j.googleShopping,
+      false,
+    ),
+    automatedDailyBackups: bool(
+      j.automatedDailyBackups ?? j.automatedBackups,
+      true,
+    ),
+    uptimeMonitoringAlerts: bool(
+      j.uptimeMonitoringAlerts ?? j.uptimeMonitoring,
+      true,
+    ),
+    cookieGdprComplianceBanner: bool(
+      j.cookieGdprComplianceBanner ?? j.cookieGdprBanner,
+      true,
+    ),
     monthlySecurityScan: bool(j.monthlySecurityScan, false),
-    extraEditPricing: defaultExtraEditPricing(j),
-    supportChannel: str(j.supportChannel, "email"),
+    extraEditPerEditUsd: extraEditPerEditUsdFromCatalog(j),
+    extraEditPackEditCount: extraEditPackEditCountFromCatalog(j),
+    extraEditPackTotalUsd: extraEditPackTotalUsdFromCatalog(j),
+    supportChannel: normalizeSupportChannel(str(j.supportChannel, "")),
     dedicatedAccountContact: bool(j.dedicatedAccountContact, false),
   };
 }
 
-export function planWebsiteCatalogValuesToPayload(v: PlanWebsiteCatalogValues): Record<string, unknown> {
+export function planWebsiteCatalogValuesToPayload(
+  v: PlanWebsiteCatalogValues,
+): Record<string, unknown> {
   return {
     listPriceUsd: v.listPriceUsd,
     oneTimeSetupFeeUsd: v.oneTimeSetupFeeUsd,
@@ -183,8 +256,10 @@ export function planWebsiteCatalogValuesToPayload(v: PlanWebsiteCatalogValues): 
     uptimeMonitoringAlerts: v.uptimeMonitoringAlerts,
     cookieGdprComplianceBanner: v.cookieGdprComplianceBanner,
     monthlySecurityScan: v.monthlySecurityScan,
-    extraEditPricing: v.extraEditPricing.trim(),
-    supportChannel: v.supportChannel.trim(),
+    extraEditPerEditUsd: v.extraEditPerEditUsd,
+    extraEditPackEditCount: v.extraEditPackEditCount,
+    extraEditPackTotalUsd: v.extraEditPackTotalUsd,
+    supportChannel: v.supportChannel,
     dedicatedAccountContact: v.dedicatedAccountContact,
   };
 }
@@ -195,43 +270,64 @@ type Props = {
 };
 
 function FieldLabel({ children }: { children: ReactNode }) {
-  return <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">{children}</span>;
+  return (
+    <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">
+      {children}
+    </span>
+  );
 }
 
 function rowCls() {
-  return "grid gap-2 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:grid-cols-3";
+  return "grid gap-2 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:grid-cols-2";
 }
 
 export function PlanWebsiteCatalogEditor({ value, onChange }: Props) {
-  const patch = (p: Partial<PlanWebsiteCatalogValues>) => onChange({ ...value, ...p });
+  const patch = (p: Partial<PlanWebsiteCatalogValues>) =>
+    onChange({ ...value, ...p });
 
   return (
     <div className="space-y-3 rounded-lg border border-[#24292E] bg-[#101317] p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">Website package catalog</p>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">
+        Website package catalog
+      </p>
       <div className={rowCls()}>
         <label className="flex flex-col gap-1">
-          <FieldLabel>Price (USD)</FieldLabel>
+          <FieldLabel>Price</FieldLabel>
           <input
             type="number"
             min={0.01}
             step="0.01"
             value={value.listPriceUsd}
-            onChange={(e) => patch({ listPriceUsd: Math.max(0.01, parseFloat(e.target.value) || 0.01) })}
+            onChange={(e) =>
+              patch({
+                listPriceUsd: Math.max(
+                  0.01,
+                  parseFloat(e.target.value) || 0.01,
+                ),
+              })
+            }
             className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <FieldLabel>One-time setup fee (USD)</FieldLabel>
+          <FieldLabel>One-time setup fee</FieldLabel>
           <input
             type="number"
             min={0.01}
             step="0.01"
             value={value.oneTimeSetupFeeUsd}
-            onChange={(e) => patch({ oneTimeSetupFeeUsd: Math.max(0.01, parseFloat(e.target.value) || 0.01) })}
+            onChange={(e) =>
+              patch({
+                oneTimeSetupFeeUsd: Math.max(
+                  0.01,
+                  parseFloat(e.target.value) || 0.01,
+                ),
+              })
+            }
             className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
           />
         </label>
-        <label className="flex flex-col gap-1 sm:col-span-2 lg:col-span-1">
+        <label className="flex flex-col gap-1 sm:col-span-2">
           <FieldLabel>Onboarding turnaround</FieldLabel>
           <input
             value={value.onboardingTurnaround}
@@ -242,7 +338,7 @@ export function PlanWebsiteCatalogEditor({ value, onChange }: Props) {
         </label>
       </div>
       <div className={rowCls()}>
-        <label className="flex flex-col gap-1">
+        <label className="flex flex-col gap-1 sm:col-span-2">
           <FieldLabel>Website type</FieldLabel>
           <input
             value={value.websiteType}
@@ -250,18 +346,7 @@ export function PlanWebsiteCatalogEditor({ value, onChange }: Props) {
             className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
           />
         </label>
-        <label className="flex flex-col gap-1">
-          <FieldLabel>Pages included</FieldLabel>
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={value.pagesIncluded}
-            onChange={(e) => patch({ pagesIncluded: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-            className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
-          />
-        </label>
-        <label className="flex flex-col gap-1 sm:col-span-2 lg:col-span-1">
+        <label className="flex flex-col gap-1 sm:col-span-2">
           <FieldLabel>Design level</FieldLabel>
           <input
             value={value.designLevel}
@@ -269,8 +354,23 @@ export function PlanWebsiteCatalogEditor({ value, onChange }: Props) {
             className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
           />
         </label>
+        <label className="flex flex-col gap-1 sm:col-span-2">
+          <FieldLabel>Pages included</FieldLabel>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={value.pagesIncluded}
+            onChange={(e) =>
+              patch({
+                pagesIncluded: Math.max(1, parseInt(e.target.value, 10) || 1),
+              })
+            }
+            className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
+          />
+        </label>
       </div>
-      <label className="flex flex-col gap-1">
+      <label className="flex flex-col gap-1 sm:col-span-2">
         <FieldLabel>Product catalog</FieldLabel>
         <input
           value={value.productCatalog}
@@ -279,7 +379,7 @@ export function PlanWebsiteCatalogEditor({ value, onChange }: Props) {
           className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
         />
       </label>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2">
         {(
           [
             ["mobileResponsive", "Mobile responsive"],
@@ -304,11 +404,18 @@ export function PlanWebsiteCatalogEditor({ value, onChange }: Props) {
             ["dedicatedAccountContact", "Dedicated account contact"],
           ] as const
         ).map(([key, label]) => (
-          <label key={key} className="flex items-center gap-2 rounded border border-[#2A3037]/80 bg-[#15191C] px-2 py-1.5 text-[11px] text-zinc-200">
+          <label
+            key={key}
+            className="flex items-center gap-2 rounded border border-[#2A3037]/80 bg-[#15191C] px-2 py-1.5 text-[11px] text-zinc-200"
+          >
             <input
               type="checkbox"
               checked={value[key]}
-              onChange={(e) => patch({ [key]: e.target.checked } as Partial<PlanWebsiteCatalogValues>)}
+              onChange={(e) =>
+                patch({
+                  [key]: e.target.checked,
+                } as Partial<PlanWebsiteCatalogValues>)
+              }
               className="accent-brand-lime"
             />
             {label}
@@ -323,33 +430,94 @@ export function PlanWebsiteCatalogEditor({ value, onChange }: Props) {
             min={0}
             step={1}
             value={value.businessEmailInboxes}
-            onChange={(e) => patch({ businessEmailInboxes: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+            onChange={(e) =>
+              patch({
+                businessEmailInboxes: Math.max(
+                  0,
+                  parseInt(e.target.value, 10) || 0,
+                ),
+              })
+            }
             className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <FieldLabel>Support channel</FieldLabel>
-          <input
+          <FieldLabel>Support channel type</FieldLabel>
+          <select
             value={value.supportChannel}
-            onChange={(e) => patch({ supportChannel: e.target.value })}
-            placeholder="e.g. email_48h"
+            onChange={(e) =>
+              patch({ supportChannel: e.target.value as SupportChannelCode })
+            }
+            className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
+          >
+            {SUPPORT_CHANNEL_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className={`${rowCls()} mt-1`}>
+        <label className="flex flex-col gap-1">
+          <FieldLabel>Extra edits — price per edit ($/edit)</FieldLabel>
+          <input
+            type="number"
+            min={0.01}
+            step="0.01"
+            value={value.extraEditPerEditUsd}
+            onChange={(e) =>
+              patch({
+                extraEditPerEditUsd: Math.max(
+                  0.01,
+                  parseFloat(e.target.value) || 0.01,
+                ),
+              })
+            }
+            className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <FieldLabel>Extra edits — pack size (# of edits)</FieldLabel>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={value.extraEditPackEditCount}
+            onChange={(e) =>
+              patch({
+                extraEditPackEditCount: Math.max(
+                  1,
+                  parseInt(e.target.value, 10) || 1,
+                ),
+              })
+            }
+            className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
+          />
+        </label>
+        <label className="flex flex-col gap-1 sm:col-span-2">
+          <FieldLabel>Extra edits — pack total price ($)</FieldLabel>
+          <input
+            type="number"
+            min={0.01}
+            step="0.01"
+            value={value.extraEditPackTotalUsd}
+            onChange={(e) =>
+              patch({
+                extraEditPackTotalUsd: Math.max(
+                  0.01,
+                  parseFloat(e.target.value) || 0.01,
+                ),
+              })
+            }
             className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
           />
         </label>
       </div>
-      <label className="flex flex-col gap-1">
-        <FieldLabel>Extra edit pricing</FieldLabel>
-        <input
-          value={value.extraEditPricing}
-          onChange={(e) => patch({ extraEditPricing: e.target.value })}
-          placeholder='e.g. $12/edit or "5 for $49" — leave blank to keep current Stripe add-on cents'
-          className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 font-mono text-[11px] text-white"
-        />
-        <span className="text-[10px] text-zinc-500">
-          Parsed on save to update extra-edit add-on amounts. Formats: <code className="text-zinc-400">$12/edit</code> or{" "}
-          <code className="text-zinc-400">5 for $49</code>.
-        </span>
-      </label>
+      <p className="text-[10px] text-zinc-500">
+        Per-edit and pack prices sync to Stripe extra-edit add-ons on save. Customers buying per-edit
+        pay (count × per-edit price); the pack is one checkout at the pack total.
+      </p>
     </div>
   );
 }

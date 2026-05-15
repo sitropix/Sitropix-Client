@@ -675,10 +675,19 @@ export function deleteProjectAssetFile(projectId: string, type: ProjectRequireme
   });
 }
 
+export type ExtraEditCheckoutPayload = {
+  mode: "per_edit" | "bundle";
+  perEditQuantity?: number;
+};
+
 export function createAddonCheckoutSession(
   projectId: string,
   addonCodes: string[],
-  opts?: { successUrl?: string; cancelUrl?: string },
+  opts?: {
+    successUrl?: string;
+    cancelUrl?: string;
+    extraEditCheckout?: ExtraEditCheckoutPayload;
+  },
 ) {
   logSubscriptionDebug("frontend.addon_checkout_session.start", {
     projectId,
@@ -692,6 +701,7 @@ export function createAddonCheckoutSession(
       addonCodes,
       ...(opts?.successUrl ? { successUrl: opts.successUrl } : {}),
       ...(opts?.cancelUrl ? { cancelUrl: opts.cancelUrl } : {}),
+      ...(opts?.extraEditCheckout ? { extraEditCheckout: opts.extraEditCheckout } : {}),
     }),
   });
 }

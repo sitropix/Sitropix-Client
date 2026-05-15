@@ -6,7 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useTickets } from "@/hooks/useTickets";
 import { useUser } from "@/context/UserContext";
 import { listProjectsByUser } from "@/services/projectsStore";
-import { fetchSupportEditTypes } from "@/services/supportApi";
+import { fetchSupportEditTypes, messageForTicketSubmitError } from "@/services/supportApi";
 import type { ProjectRecord } from "@/types/project";
 import type { SupportEditType, TicketPriority } from "@/types/support";
 
@@ -92,10 +92,6 @@ export function SubmitTicketPage() {
       setError("Subject and details (at least 10 characters) are required.");
       return;
     }
-    if (projectId.trim() && !editTypeId.trim()) {
-      setError("Choose a website edit type when you link a project.");
-      return;
-    }
     setSubmitting(true);
     try {
       await submitTicket({
@@ -108,8 +104,8 @@ export function SubmitTicketPage() {
         attachments,
       });
       navigate("/requests");
-    } catch {
-      setError("Could not submit the ticket. Please try again.");
+    } catch (err) {
+      setError(messageForTicketSubmitError(err));
     } finally {
       setSubmitting(false);
     }
@@ -187,9 +183,10 @@ export function SubmitTicketPage() {
               <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">Queue priority</p>
                 <p className="mt-1 text-xs text-ink-muted">
-                  Set automatically from your project&apos;s plan (Starter → low, Growth → medium, Pro → high). The
-                  optional <span className="text-white/90">Support priority boost</span> add-on raises website edit
-                  tickets to <span className="text-white/90">high</span> until your next billing date.
+                  Set from your project plan&apos;s <span className="text-white/90">support channel</span>{" "}
+                  (Email 48h → low, Email+Chat 24h → medium, Priority 4h → high). The optional{" "}
+                  <span className="text-white/90">Support priority boost</span> add-on raises website edit tickets to{" "}
+                  <span className="text-white/90">high</span> until your next billing date.
                 </p>
               </div>
             )}
@@ -219,10 +216,13 @@ export function SubmitTicketPage() {
             {projectId.trim() ? (
               <div>
                 <label htmlFor="ticket-edit-type" className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">
-                  Type of website edit <span className="text-rose-400">*</span>
+                  Type of website edit{" "}
+                  <span className="font-normal normal-case text-zinc-500">(optional — billable edits only)</span>
                 </label>
                 <p className="mt-1 text-[11px] text-ink-muted">
-                  Credits are reserved from this project&apos;s subscription when the ticket is created.
+                  Select an edit type only when this ticket should consume website edit credits from this
+                  project&apos;s subscription. Leave unselected for general project context. Credits are reserved when
+                  the ticket is created; insufficient credits are rejected.
                 </p>
                 <select
                   id="ticket-edit-type"

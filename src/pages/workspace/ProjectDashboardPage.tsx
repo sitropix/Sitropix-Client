@@ -6,12 +6,20 @@ import {
   PROJECT_ASSET_TYPES,
   getProjectById,
   hasValidProjectPlan,
-  isHighestPricedPlan,
 } from "@/services/projectsStore";
 import {
   confirmAddonCheckoutSession,
   createAddonCheckoutSession,
 } from "@/services/subscriptionsApi";
+import { ExtraEditPurchaseModal } from "@/components/billing/ExtraEditPurchaseModal";
+import {
+  canOfferExtraEditPurchases,
+  isCreditPackAddon,
+  readPlanExtraEditPricing,
+  resolveExtraEditPurchaseAddons,
+} from "@/constants/extraEditAddons";
+import { maxPurchasableExtraEditCredits } from "@/lib/websiteEditCreditsLimit";
+import { formatFileSize } from "@/lib/formatFileSize";
 import {
   deleteProjectAssetFile,
   downloadProjectAssetFromServer,
@@ -105,12 +113,7 @@ function recurringSetupPriceBreakdown(addon: SubscriptionAddon, ccy: string) {
   );
 }
 
-function fakeSizeLabel(asset: ProjectAssetUploadRow) {
-  if (asset.sizeBytes > 0)
-    return `${(asset.sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
-  const base = asset.fileName.length + asset.type.length;
-  return `${(Math.max(8, base) / 10).toFixed(1)} MB`;
-}
+const ADDONS_PAGE_SIZE = 6;
 
 function IconPuzzle(props: { className?: string }) {
   return (
@@ -170,11 +173,13 @@ export function ProjectDashboardPage() {
     () =>
       addonCatalog.filter(
         (a) =>
-          a.billingKind !== "recurring" ||
-          (typeof a.setupFeeCents === "number" && a.setupFeeCents > 0),
+          !isCreditPackAddon(a) &&
+          (a.billingKind !== "recurring" ||
+            (typeof a.setupFeeCents === "number" && a.setupFeeCents > 0)),
       ),
     [addonCatalog],
   );
+  const [addonPage, setAddonPage] = useState(0);
   const userId = user?.id ?? portal?.user?.id ?? "guest-user";
   const [, setTick] = useState(0);
   const [serverAssets, setServerAssets] = useState<ProjectAssetUploadRow[]>([]);
@@ -189,6 +194,7 @@ export function ProjectDashboardPage() {
   const [rawProject, setRawProject] = useState<ProjectRecord | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
   const [addonCheckoutBusy, setAddonCheckoutBusy] = useState(false);
+  const [extraEditModalOpen, setExtraEditModalOpen] = useState(false);
   const [assetFormUploadBusy, setAssetFormUploadBusy] = useState(false);
   const [quickAssetUploadBusy, setQuickAssetUploadBusy] = useState(false);
   const assetUploadBusy = assetFormUploadBusy || quickAssetUploadBusy;
@@ -199,13 +205,14 @@ export function ProjectDashboardPage() {
   const addonReturnHandledRef = useRef<string | null>(null);
   const ownedProject =
     rawProject && rawProject.ownerUserId === userId ? rawProject : null;
-  async function refreshProject() {
-    setProjectLoading(true);
+  async function refreshProject(opts?: { silent?: boolean }) {
+    const silent = opts?.silent === true;
+    if (!silent) setProjectLoading(true);
     try {
       const row = await getProjectById(projectId);
       setRawProject(row);
     } finally {
-      setProjectLoading(false);
+      if (!silent) setProjectLoading(false);
     }
   }
   useEffect(() => {
@@ -273,10 +280,22 @@ export function ProjectDashboardPage() {
   const assetsReady = !assetsLoading;
   const needsOnboarding = assetsReady && completedCoreCount < coreRequired.length;
   const hasValidPlan = ownedProject ? hasValidProjectPlan(ownedProject) : false;
-  const hideUpgradeCard =
-    hasValidPlan && isHighestPricedPlan(ownedProject?.planId ?? null, plans);
-  const showSetupOverlay = assetsReady && (needsOnboarding || !hasValidPlan);
+  const showSetupOverlay = assetsReady && !hasValidPlan;
   const allRequirementsDone = assetsReady && !needsOnboarding;
+  const ownedAddonCodes = ownedProject?.addons ?? [];
+  const availableAddons = useMemo(
+    () => purchasableAddons.filter((addon) => !ownedAddonCodes.includes(addon.code)),
+    [purchasableAddons, ownedAddonCodes],
+  );
+  const addonPageCount = Math.max(1, Math.ceil(availableAddons.length / ADDONS_PAGE_SIZE));
+  const addonPageSafe = Math.min(addonPage, addonPageCount - 1);
+  const pagedAvailableAddons = availableAddons.slice(
+    addonPageSafe * ADDONS_PAGE_SIZE,
+    addonPageSafe * ADDONS_PAGE_SIZE + ADDONS_PAGE_SIZE,
+  );
+  useEffect(() => {
+    setAddonPage((p) => Math.min(p, Math.max(0, addonPageCount - 1)));
+  }, [addonPageCount]);
 
   if (!ownedProject && !projectLoading)
     return <Navigate to="/projects" replace />;
@@ -294,30 +313,16 @@ export function ProjectDashboardPage() {
   const pagesUsed = usage?.pagesUsed ?? 0;
   const pagesProgress =
     pagesMax != null && pagesMax > 0 ? Math.min(100, Math.round((pagesUsed / pagesMax) * 100)) : 0;
-  const extraEditBundleAddon = purchasableAddons.find((a) => a.code === "addon_extra_edit_bundle");
-
-  async function buyExtraEditsCheckout() {
-    const target = extraEditBundleAddon ?? purchasableAddons.find((a) => a.code === "addon_extra_edit_single");
-    if (!target || !hasValidPlan) return;
-    setAddonCheckoutBusy(true);
-    setNotice(null);
-    try {
-      const base = `${window.location.origin}/projects/${project.id}`;
-      const { url } = await createAddonCheckoutSession(project.id, [target.code], {
-        successUrl: base,
-        cancelUrl: base,
-      });
-      if (!url) {
-        setNotice("Could not start checkout for extra edits.");
-        return;
-      }
-      window.location.assign(url);
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : "Could not start checkout.");
-    } finally {
-      setAddonCheckoutBusy(false);
-    }
-  }
+  const planForProject = plans.find((p) => p.id === project.planId) ?? null;
+  const { single: extraEditSinglePurchAddon, bundle: extraEditBundleAddon } =
+    resolveExtraEditPurchaseAddons(addonCatalog, planForProject);
+  const { perEditCents: modalPerEditCents, bundleCredits: modalBundleCredits, bundleCents: modalBundleCents } =
+    readPlanExtraEditPricing(planForProject);
+  const maxExtraEditsBuyable = maxPurchasableExtraEditCredits(usage, planForProject);
+  const canBuyExtraEdits =
+    hasValidPlan &&
+    canOfferExtraEditPurchases(planForProject, addonCatalog) &&
+    maxExtraEditsBuyable > 0;
 
   const statusLabel =
     project.subscriptionStatus === "active"
@@ -440,24 +445,37 @@ export function ProjectDashboardPage() {
                     {purchasedBal} purchased credit{purchasedBal === 1 ? "" : "s"} also available this period.
                   </p>
                 ) : null}
-                {includedDepleted &&
-                hasValidPlan &&
-                (extraEditBundleAddon ||
-                  purchasableAddons.some((a) => a.code === "addon_extra_edit_single")) ? (
-                  <div className="mt-3 rounded-xl border border-rose-500/25 bg-rose-950/30 px-3 py-3">
-                    <div className="flex gap-2">
-                      <IconInfo className="mt-0.5 h-4 w-4 shrink-0 text-rose-300/90" />
-                      <p className="text-xs leading-relaxed text-rose-100/90">
-                        You&apos;ve used all included edits for this billing cycle.
+                {canBuyExtraEdits ? (
+                  <div
+                    className={`mt-3 rounded-xl border px-3 py-3 ${
+                      includedDepleted
+                        ? "border-rose-500/25 bg-rose-950/30"
+                        : "border-[#2A3037] bg-[#101317]"
+                    }`}
+                  >
+                    {includedDepleted ? (
+                      <div className="flex gap-2">
+                        <IconInfo className="mt-0.5 h-4 w-4 shrink-0 text-rose-300/90" />
+                        <p className="text-xs leading-relaxed text-rose-100/90">
+                          You&apos;ve used all included edits for this billing cycle.
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-xs leading-relaxed text-zinc-400">
+                        Purchase additional website edit credits at your plan rate.
                       </p>
-                    </div>
+                    )}
                     <button
                       type="button"
                       disabled={addonCheckoutBusy}
-                      onClick={() => void buyExtraEditsCheckout()}
-                      className="mt-3 w-full rounded-lg border border-rose-400/30 bg-[#1a1416] py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-950/50 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => setExtraEditModalOpen(true)}
+                      className={`mt-3 w-full rounded-lg py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                        includedDepleted
+                          ? "border border-rose-400/30 bg-[#1a1416] text-rose-100 hover:bg-rose-950/50"
+                          : "border border-zinc-600 bg-[#1C2126] text-white hover:border-zinc-400 hover:bg-[#232a32]"
+                      }`}
                     >
-                      {addonCheckoutBusy ? "Starting checkout…" : "Buy extra edits"}
+                      {addonCheckoutBusy ? "Starting checkout…" : "Buy edit credits"}
                     </button>
                   </div>
                 ) : null}
@@ -488,21 +506,6 @@ export function ProjectDashboardPage() {
             </div>
           </article>
 
-          {!hideUpgradeCard ? (
-            <article className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Upgrade</p>
-              <h2 className="mt-2 text-2xl font-bold leading-tight text-white sm:text-3xl">Upgrade to Pro</h2>
-              <p className="mt-3 text-sm text-zinc-400">
-                Move up for more included edits, pages, and faster support.
-              </p>
-              <Link
-                to={`/projects/${project.id}/subscription`}
-                className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-white px-3 py-2.5 text-sm font-semibold text-canvas transition hover:bg-zinc-200"
-              >
-                View plans
-              </Link>
-            </article>
-          ) : null}
         </div>
 
         <article className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
@@ -547,7 +550,7 @@ export function ProjectDashboardPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-white">{asset.fileName}</p>
                     <p className="mt-0.5 text-xs text-zinc-500">
-                      {fakeSizeLabel(asset)} · {prettyAssetType(asset.type)}
+                      {formatFileSize(asset.sizeBytes)} · {prettyAssetType(asset.type)}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -615,7 +618,7 @@ export function ProjectDashboardPage() {
               try {
                 await uploadProjectAssetFile(project.id, assetType, assetFile);
                 await refreshAssets({ silent: true });
-                await refreshProject();
+                await refreshProject({ silent: true });
               } catch (err) {
                 setNotice(err instanceof Error ? err.message : "Could not upload asset.");
                 return;
@@ -764,7 +767,7 @@ export function ProjectDashboardPage() {
                     file,
                   );
                   await refreshAssets({ silent: true });
-                  await refreshProject();
+                  await refreshProject({ silent: true });
                 } catch (err) {
                   setNotice(
                     err instanceof Error
@@ -844,6 +847,33 @@ export function ProjectDashboardPage() {
           Purchased add-ons stay on your subscription. Buy new extras individually through secure checkout.
         </p>
 
+        {canBuyExtraEdits ? (
+          <div className="mt-6">
+            <article className="rounded-2xl border border-[#2A3037] bg-[#101317] p-4 sm:p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Extra website edits</h3>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    {modalPerEditCents > 0
+                      ? `From ${money(modalPerEditCents, extraEditSinglePurchAddon?.currency || "USD")} per edit`
+                      : modalBundleCredits > 0 && modalBundleCents > 0
+                        ? `Bundle: ${modalBundleCredits} edits for ${money(modalBundleCents, extraEditBundleAddon?.currency || "USD")}`
+                        : "Plan-priced edit credits"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={addonCheckoutBusy}
+                  onClick={() => setExtraEditModalOpen(true)}
+                  className="shrink-0 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Buy edit credits
+                </button>
+              </div>
+            </article>
+          </div>
+        ) : null}
+
         {addonCatalog.some((a) => project.addons.includes(a.code)) ? (
           <div className="mt-6">
             <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-zinc-500">
@@ -880,15 +910,20 @@ export function ProjectDashboardPage() {
           </div>
         ) : null}
 
-        {purchasableAddons.some((a) => !project.addons.includes(a.code)) ? (
+        {availableAddons.length > 0 ? (
           <div className="mt-8">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-zinc-500">
-              Available add-ons
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                Available add-ons
+              </h3>
+              {addonPageCount > 1 ? (
+                <p className="text-xs text-zinc-500">
+                  Page {addonPageSafe + 1} of {addonPageCount}
+                </p>
+              ) : null}
+            </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              {purchasableAddons
-                .filter((addon) => !project.addons.includes(addon.code))
-                .map((addon) => (
+              {pagedAvailableAddons.map((addon) => (
                   <button
                     key={addon.code}
                     type="button"
@@ -941,6 +976,26 @@ export function ProjectDashboardPage() {
                   </button>
                 ))}
             </div>
+            {addonPageCount > 1 ? (
+              <div className="mt-4 flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  disabled={addonPageSafe <= 0}
+                  onClick={() => setAddonPage((p) => Math.max(0, p - 1))}
+                  className="rounded-lg border border-[#2A3037] bg-[#1C2126] px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={addonPageSafe >= addonPageCount - 1}
+                  onClick={() => setAddonPage((p) => Math.min(addonPageCount - 1, p + 1))}
+                  className="rounded-lg border border-[#2A3037] bg-[#1C2126] px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -950,6 +1005,28 @@ export function ProjectDashboardPage() {
           </p>
         ) : null}
       </section>
+
+      <ExtraEditPurchaseModal
+        open={extraEditModalOpen}
+        onClose={() => setExtraEditModalOpen(false)}
+        projectId={project.id}
+        plan={planForProject}
+        usage={usage ?? undefined}
+        singleAddon={extraEditSinglePurchAddon}
+        bundleAddon={extraEditBundleAddon}
+        currency={
+          extraEditSinglePurchAddon?.currency ||
+          extraEditBundleAddon?.currency ||
+          "USD"
+        }
+        perEditCents={modalPerEditCents}
+        bundleCredits={modalBundleCredits}
+        bundleCents={modalBundleCents}
+        busy={addonCheckoutBusy}
+        setBusy={setAddonCheckoutBusy}
+        onNotice={setNotice}
+        baseReturnUrl={`${window.location.origin}/projects/${project.id}`}
+      />
     </div>
   );
 }

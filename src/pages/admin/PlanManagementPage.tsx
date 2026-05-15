@@ -1,15 +1,19 @@
-import { FormEvent, useEffect, useState } from "react";
-import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
-import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { useToast } from "@/components/Toast";
-import { CatalogObjectEditor, catalogToRows, rowsToCatalog, type CatalogEditRow } from "@/components/admin/CatalogObjectEditor";
+import {
+  CatalogObjectEditor,
+  catalogToRows,
+  rowsToCatalog,
+  type CatalogEditRow,
+} from "@/components/admin/CatalogObjectEditor";
 import {
   PlanWebsiteCatalogEditor,
   planWebsiteCatalogValuesFromPlan,
   planWebsiteCatalogValuesToPayload,
   type PlanWebsiteCatalogValues,
 } from "@/components/admin/PlanWebsiteCatalogEditor";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { isModuleForbiddenError, userFacingApiError } from "@/services/http";
 import {
   createAdminAddon,
@@ -21,6 +25,7 @@ import {
   updateAdminPlan,
 } from "@/services/subscriptionsApi";
 import type { Plan, SubscriptionAddon } from "@/types/subscription";
+import { FormEvent, useEffect, useState } from "react";
 
 function moneyInputToNullableCents(s: string): number | null {
   const t = s.trim().replace(/,/g, "");
@@ -57,7 +62,8 @@ export function PlanManagementPage() {
   const [eIncludedCredits, setEIncludedCredits] = useState("0");
   const [ePlanCode, setEPlanCode] = useState("");
   const [eCurrency, setECurrency] = useState("USD");
-  const [ePlanWebsiteCatalog, setEPlanWebsiteCatalog] = useState<PlanWebsiteCatalogValues | null>(null);
+  const [ePlanWebsiteCatalog, setEPlanWebsiteCatalog] =
+    useState<PlanWebsiteCatalogValues | null>(null);
   const [eStripeProduct, setEStripeProduct] = useState("");
   const [eStripePriceMonthly, setEStripePriceMonthly] = useState("");
   const [eStripePriceYearly, setEStripePriceYearly] = useState("");
@@ -67,7 +73,10 @@ export function PlanManagementPage() {
   const [noModuleAccess, setNoModuleAccess] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; plan: Plan | null }>({ open: false, plan: null });
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    open: boolean;
+    plan: Plan | null;
+  }>({ open: false, plan: null });
   const [addonLabel, setAddonLabel] = useState("");
   const [addonCode, setAddonCode] = useState("");
   const [addonPrice, setAddonPrice] = useState("19");
@@ -77,8 +86,12 @@ export function PlanManagementPage() {
   const [eAddonPrice, setEAddonPrice] = useState("");
   const [eAddonBillMonthly, setEAddonBillMonthly] = useState(true);
   const [eAddonBillYearly, setEAddonBillYearly] = useState(true);
-  const [eAddonBillingKind, setEAddonBillingKind] = useState<"recurring" | "one_time" | "per_use">("recurring");
-  const [eAddonCatalogRows, setEAddonCatalogRows] = useState<CatalogEditRow[]>([]);
+  const [eAddonBillingKind, setEAddonBillingKind] = useState<
+    "recurring" | "one_time" | "per_use"
+  >("recurring");
+  const [eAddonCatalogRows, setEAddonCatalogRows] = useState<CatalogEditRow[]>(
+    [],
+  );
   const [eAddonSetupFee, setEAddonSetupFee] = useState("0");
   const [eAddonPriceMin, setEAddonPriceMin] = useState("");
   const [eAddonPriceMax, setEAddonPriceMax] = useState("");
@@ -86,7 +99,9 @@ export function PlanManagementPage() {
   const [eAddonEligible, setEAddonEligible] = useState("");
   const [addonCreateBillMonthly, setAddonCreateBillMonthly] = useState(true);
   const [addonCreateBillYearly, setAddonCreateBillYearly] = useState(true);
-  const [addonCreateBillingKind, setAddonCreateBillingKind] = useState<"recurring" | "one_time" | "per_use">("recurring");
+  const [addonCreateBillingKind, setAddonCreateBillingKind] = useState<
+    "recurring" | "one_time" | "per_use"
+  >("recurring");
   const [addonCreateCurrency, setAddonCreateCurrency] = useState("USD");
   const [addonCreateSetupFee, setAddonCreateSetupFee] = useState("0");
   const [addonCreatePriceMin, setAddonCreatePriceMin] = useState("");
@@ -96,8 +111,7 @@ export function PlanManagementPage() {
 
   async function load() {
     setNoModuleAccess(false);
-    const next = await fetchAdminPlans();
-    const addonRows = await fetchAdminAddons();
+    const [next, addonRows] = await Promise.all([fetchAdminPlans(), fetchAdminAddons()]);
     setPlans(next);
     setAddons(addonRows);
     updateCache({ plans: next });
@@ -153,7 +167,8 @@ export function PlanManagementPage() {
         setSaving(false);
         return;
       }
-      const catalogJson = planWebsiteCatalogValuesToPayload(ePlanWebsiteCatalog);
+      const catalogJson =
+        planWebsiteCatalogValuesToPayload(ePlanWebsiteCatalog);
       await updateAdminPlan(editingId, {
         description: eDesc,
         priceMonthlyCents: Math.round(Number(eMonthly) * 100),
@@ -163,7 +178,10 @@ export function PlanManagementPage() {
         isActive: eActive,
         billingMonthlyEnabled: eBillMonthly,
         billingYearlyEnabled: eBillYearly,
-        includedEditCreditsPerPeriod: Math.max(0, parseInt(eIncludedCredits, 10) || 0),
+        includedEditCreditsPerPeriod: Math.max(
+          0,
+          parseInt(eIncludedCredits, 10) || 0,
+        ),
         catalogJson,
         stripeProductId: emptyToNull(eStripeProduct),
         stripePriceMonthlyId: emptyToNull(eStripePriceMonthly),
@@ -175,7 +193,12 @@ export function PlanManagementPage() {
       setEPlanWebsiteCatalog(null);
       await load();
     } catch (err) {
-      showError(userFacingApiError(err, "Could not save plan changes. Please try again."));
+      showError(
+        userFacingApiError(
+          err,
+          "Could not save plan changes. Please try again.",
+        ),
+      );
     } finally {
       setSaving(false);
     }
@@ -219,7 +242,9 @@ export function PlanManagementPage() {
       setMonthly("29");
       await load();
     } catch {
-      showError("Plan creation failed. Check Stripe configuration and plan fields.");
+      showError(
+        "Plan creation failed. Check Stripe configuration and plan fields.",
+      );
     } finally {
       setCreating(false);
     }
@@ -238,7 +263,9 @@ export function PlanManagementPage() {
         billingMonthlyEnabled: addonCreateBillMonthly,
         billingYearlyEnabled: addonCreateBillYearly,
         billingKind: addonCreateBillingKind,
-        setupFeeCents: Math.round(Math.max(0, Number(addonCreateSetupFee) || 0) * 100),
+        setupFeeCents: Math.round(
+          Math.max(0, Number(addonCreateSetupFee) || 0) * 100,
+        ),
         priceMinCents: moneyInputToNullableCents(addonCreatePriceMin),
         priceMaxCents: moneyInputToNullableCents(addonCreatePriceMax),
         deliveryMode: addonCreateDelivery.trim(),
@@ -282,8 +309,12 @@ export function PlanManagementPage() {
     setEAddonBillYearly(addon.billingYearlyEnabled !== false);
     setEAddonBillingKind(addon.billingKind ?? "recurring");
     setEAddonSetupFee(((addon.setupFeeCents ?? 0) / 100).toFixed(2));
-    setEAddonPriceMin(addon.priceMinCents != null ? String(addon.priceMinCents / 100) : "");
-    setEAddonPriceMax(addon.priceMaxCents != null ? String(addon.priceMaxCents / 100) : "");
+    setEAddonPriceMin(
+      addon.priceMinCents != null ? String(addon.priceMinCents / 100) : "",
+    );
+    setEAddonPriceMax(
+      addon.priceMaxCents != null ? String(addon.priceMaxCents / 100) : "",
+    );
     setEAddonDelivery(addon.deliveryMode ?? "");
     setEAddonEligible((addon.eligiblePlanCodes ?? []).join(", "));
     setEAddonCatalogRows(catalogToRows(addon.catalogJson));
@@ -295,14 +326,18 @@ export function PlanManagementPage() {
       try {
         catalogJson = rowsToCatalog(eAddonCatalogRows);
       } catch (err) {
-        showError(err instanceof Error ? err.message : "Invalid add-on catalog data.");
+        showError(
+          err instanceof Error ? err.message : "Invalid add-on catalog data.",
+        );
         return;
       }
       const eligible = eAddonEligible
         .split(/[,;\n]/)
         .map((s) => s.trim())
         .filter(Boolean);
-      const setupCents = Math.round(Math.max(0, Number(eAddonSetupFee) || 0) * 100);
+      const setupCents = Math.round(
+        Math.max(0, Number(eAddonSetupFee) || 0) * 100,
+      );
       await updateAdminAddon(addonId, {
         desc: eAddonDesc.trim(),
         priceCents: Math.round(Number(eAddonPrice) * 100),
@@ -327,9 +362,12 @@ export function PlanManagementPage() {
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="text-3xl font-black tracking-tight text-white">Plan Inventory</h1>
+        <h1 className="text-3xl font-black tracking-tight text-white">
+          Plan Inventory
+        </h1>
         <p className="mt-2 text-sm text-neutral-400">
-          Create plans in Stripe and the app catalog together, and edit pricing/catalog details from one place.
+          Create plans in Stripe and the app catalog together, and edit
+          pricing/catalog details from one place.
         </p>
       </header>
       <section className="rounded-xl border border-[#24292E] bg-[#15191C] p-6">
@@ -355,14 +393,27 @@ export function PlanManagementPage() {
           />
           <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-400 md:col-span-2">
             <label className="flex items-center gap-2">
-              <input type="checkbox" checked={createBillMonthly} onChange={(e) => setCreateBillMonthly(e.target.checked)} className="accent-brand-lime" />
+              <input
+                type="checkbox"
+                checked={createBillMonthly}
+                onChange={(e) => setCreateBillMonthly(e.target.checked)}
+                className="accent-brand-lime"
+              />
               Monthly billing
             </label>
             <label className="flex items-center gap-2">
-              <input type="checkbox" checked={createBillYearly} onChange={(e) => setCreateBillYearly(e.target.checked)} className="accent-brand-lime" />
+              <input
+                type="checkbox"
+                checked={createBillYearly}
+                onChange={(e) => setCreateBillYearly(e.target.checked)}
+                className="accent-brand-lime"
+              />
               Yearly billing
             </label>
-            <span className="text-zinc-500">Uncheck both for a one-time plan (uses monthly price as purchase amount).</span>
+            <span className="text-zinc-500">
+              Uncheck both for a one-time plan (uses monthly price as purchase
+              amount).
+            </span>
           </div>
           <button
             type="button"
@@ -377,12 +428,17 @@ export function PlanManagementPage() {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {plans.map((plan) => (
-          <article key={plan.id} className="rounded-xl border border-[#24292E] bg-[#15191C] p-5">
+          <article
+            key={plan.id}
+            className="rounded-xl border border-[#24292E] bg-[#15191C] p-5"
+          >
             {editingId === plan.id ? (
               <form className="space-y-3" onSubmit={saveEdit}>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <div>
-                    <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">Plan code</label>
+                    <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">
+                      Plan code
+                    </label>
                     <input
                       value={ePlanCode}
                       readOnly
@@ -392,7 +448,9 @@ export function PlanManagementPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">Currency</label>
+                    <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">
+                      Currency
+                    </label>
                     <input
                       value={eCurrency}
                       readOnly
@@ -403,7 +461,9 @@ export function PlanManagementPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">Plan name</label>
+                  <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">
+                    Plan name
+                  </label>
                   <input
                     value={eName}
                     readOnly
@@ -411,46 +471,81 @@ export function PlanManagementPage() {
                     className="mt-1 w-full cursor-not-allowed rounded-lg border border-[#24292E] bg-[#1a1d22] px-3 py-2 text-sm text-zinc-400 outline-none"
                   />
                 </div>
-                <textarea
-                  value={eDesc}
-                  onChange={(e) => setEDesc(e.target.value)}
-                  rows={2}
-                  className="w-full rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    value={eMonthly}
-                    onChange={(e) => setEMonthly(e.target.value)}
-                    placeholder="Monthly $"
-                    className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
-                  />
-                  <input
-                    value={eYearly}
-                    onChange={(e) => setEYearly(e.target.value)}
-                    placeholder="Yearly $"
-                    className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
+                <div>
+                  <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">
+                    Description
+                  </label>
+                  <textarea
+                    value={eDesc}
+                    onChange={(e) => setEDesc(e.target.value)}
+                    rows={2}
+                    className="w-full rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
                   />
                 </div>
-                <textarea
-                  value={eFeatures}
-                  onChange={(e) => setEFeatures(e.target.value)}
-                  placeholder="One feature per line"
-                  rows={4}
-                  className="w-full rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-xs text-white outline-none focus:border-brand-lime/35"
-                />
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">
+                      Monthly price
+                    </label>
+                    <input
+                      value={eMonthly}
+                      onChange={(e) => setEMonthly(e.target.value)}
+                      placeholder="Monthly $"
+                      className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">
+                      Yearly price
+                    </label>
+                    <input
+                      value={eYearly}
+                      onChange={(e) => setEYearly(e.target.value)}
+                      placeholder="Yearly $"
+                      className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">
+                    Features
+                  </label>
+                  <textarea
+                    value={eFeatures}
+                    onChange={(e) => setEFeatures(e.target.value)}
+                    placeholder="One feature per line"
+                    rows={4}
+                    className="w-full rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-xs text-white outline-none focus:border-brand-lime/35"
+                  />
+                </div>
                 <div className="flex flex-wrap gap-4 text-xs text-ink-muted">
                   <label className="flex items-center gap-2">
-                    <input type="checkbox" checked={eBillMonthly} onChange={(e) => setEBillMonthly(e.target.checked)} className="accent-brand-lime" />
+                    <input
+                      type="checkbox"
+                      checked={eBillMonthly}
+                      onChange={(e) => setEBillMonthly(e.target.checked)}
+                      className="accent-brand-lime"
+                    />
                     Monthly available
                   </label>
                   <label className="flex items-center gap-2">
-                    <input type="checkbox" checked={eBillYearly} onChange={(e) => setEBillYearly(e.target.checked)} className="accent-brand-lime" />
+                    <input
+                      type="checkbox"
+                      checked={eBillYearly}
+                      onChange={(e) => setEBillYearly(e.target.checked)}
+                      className="accent-brand-lime"
+                    />
                     Yearly available
                   </label>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                   <label className="flex items-center gap-2 text-xs text-ink-muted">
-                    <input type="checkbox" checked={eActive} onChange={(e) => setEActive(e.target.checked)} className="accent-brand-lime" />
+                    <input
+                      type="checkbox"
+                      checked={eActive}
+                      onChange={(e) => setEActive(e.target.checked)}
+                      className="accent-brand-lime"
+                    />
                     Active in catalog
                   </label>
                   <input
@@ -510,7 +605,10 @@ export function PlanManagementPage() {
                   </div>
                 </div>
                 {ePlanWebsiteCatalog ? (
-                  <PlanWebsiteCatalogEditor value={ePlanWebsiteCatalog} onChange={setEPlanWebsiteCatalog} />
+                  <PlanWebsiteCatalogEditor
+                    value={ePlanWebsiteCatalog}
+                    onChange={setEPlanWebsiteCatalog}
+                  />
                 ) : null}
                 <div className="flex gap-2">
                   <button
@@ -518,7 +616,9 @@ export function PlanManagementPage() {
                     disabled={saving}
                     className="flex items-center gap-2 rounded-full bg-brand-lime px-4 py-2 text-xs font-semibold text-canvas disabled:opacity-50"
                   >
-                    {saving && <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />}
+                    {saving && (
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    )}
                     {saving ? "Saving..." : "Save"}
                   </button>
                   <button
@@ -538,25 +638,38 @@ export function PlanManagementPage() {
               <>
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="text-base font-semibold text-white">{plan.name}</h3>
-                    <p className="text-[11px] font-mono text-zinc-500">{plan.code}</p>
-                    <p className="text-sm text-ink-muted">
-                      ${(plan.priceMonthlyCents / 100).toFixed(2)} mo · ${(plan.priceYearlyCents / 100).toFixed(2)} yr
+                    <h3 className="text-base font-semibold text-white">
+                      {plan.name}
+                    </h3>
+                    <p className="text-[11px] font-mono text-zinc-500">
+                      {plan.code}
                     </p>
-                    <p className="mt-1 text-xs text-brand-lime/90">
-                      {plan.includedEditCreditsPerPeriod ?? 0} website edit credits / billing period
+                    <p className="text-sm text-ink-muted">
+                      ${(plan.priceMonthlyCents / 100).toFixed(2)} mo · $
+                      {(plan.priceYearlyCents / 100).toFixed(2)} yr
+                    </p>
+                    <p className="mt-1 text-xs text-green-500">
+                      {plan.includedEditCreditsPerPeriod ?? 0} website edit
+                      credits / billing period
                     </p>
                     <p className="mt-0.5 text-[10px] text-zinc-500">
-                      {plan.billingMonthlyEnabled === false && plan.billingYearlyEnabled === false
+                      {plan.billingMonthlyEnabled === false &&
+                      plan.billingYearlyEnabled === false
                         ? "One-time plan (customer sees monthly field as purchase price)"
                         : [
-                            plan.billingMonthlyEnabled !== false ? "Monthly" : null,
-                            plan.billingYearlyEnabled !== false ? "Yearly" : null,
+                            plan.billingMonthlyEnabled !== false
+                              ? "Monthly"
+                              : null,
+                            plan.billingYearlyEnabled !== false
+                              ? "Yearly"
+                              : null,
                           ]
                             .filter(Boolean)
                             .join(" · ") || "No billing intervals"}
                     </p>
-                    <p className="mt-1 text-xs text-ink-subtle">{plan.isActive ? "Active" : "Inactive"}</p>
+                    <p className="mt-1 text-xs text-ink-subtle">
+                      {plan.isActive ? "Active" : "Inactive"}
+                    </p>
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -579,7 +692,9 @@ export function PlanManagementPage() {
                     </button>
                   </div>
                 </div>
-                <p className="mt-2 text-sm text-ink-muted">{plan.description}</p>
+                <p className="mt-2 text-sm text-ink-muted">
+                  {plan.description}
+                </p>
               </>
             )}
           </article>
@@ -589,30 +704,98 @@ export function PlanManagementPage() {
       <section className="rounded-xl border border-[#24292E] bg-[#15191C] p-6">
         <h2 className="text-sm font-semibold text-white">Manage add-ons</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-5">
-          <input value={addonCode} onChange={(e) => setAddonCode(e.target.value)} placeholder="Code" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35" />
-          <input value={addonLabel} onChange={(e) => setAddonLabel(e.target.value)} placeholder="Label" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35" />
-          <input value={addonPrice} onChange={(e) => setAddonPrice(e.target.value)} placeholder="Base price" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35" />
-          <input value={addonDesc} onChange={(e) => setAddonDesc(e.target.value)} placeholder="Description" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35 md:col-span-2" />
-          <input value={addonCreateCurrency} onChange={(e) => setAddonCreateCurrency(e.target.value.toUpperCase())} maxLength={3} placeholder="USD" title="Currency" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 font-mono text-sm text-white outline-none focus:border-brand-lime/35" />
-          <input value={addonCreateSetupFee} onChange={(e) => setAddonCreateSetupFee(e.target.value)} placeholder="Setup fee (USD)" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35" />
-          <input value={addonCreatePriceMin} onChange={(e) => setAddonCreatePriceMin(e.target.value)} placeholder="Min price (optional)" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35" />
-          <input value={addonCreatePriceMax} onChange={(e) => setAddonCreatePriceMax(e.target.value)} placeholder="Max price (optional)" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35" />
-          <input value={addonCreateDelivery} onChange={(e) => setAddonCreateDelivery(e.target.value)} placeholder="Delivery mode" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35 md:col-span-2" />
-          <input value={addonCreateEligible} onChange={(e) => setAddonCreateEligible(e.target.value)} placeholder="Eligible plan codes (comma-separated)" className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35 md:col-span-3" />
+          <input
+            value={addonCode}
+            onChange={(e) => setAddonCode(e.target.value)}
+            placeholder="Code"
+            className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
+          />
+          <input
+            value={addonLabel}
+            onChange={(e) => setAddonLabel(e.target.value)}
+            placeholder="Label"
+            className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
+          />
+          <input
+            value={addonPrice}
+            onChange={(e) => setAddonPrice(e.target.value)}
+            placeholder="Base price"
+            className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
+          />
+          <input
+            value={addonDesc}
+            onChange={(e) => setAddonDesc(e.target.value)}
+            placeholder="Description"
+            className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35 md:col-span-2"
+          />
+          <input
+            value={addonCreateCurrency}
+            onChange={(e) =>
+              setAddonCreateCurrency(e.target.value.toUpperCase())
+            }
+            maxLength={3}
+            placeholder="USD"
+            title="Currency"
+            className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 font-mono text-sm text-white outline-none focus:border-brand-lime/35"
+          />
+          <input
+            value={addonCreateSetupFee}
+            onChange={(e) => setAddonCreateSetupFee(e.target.value)}
+            placeholder="Setup fee (USD)"
+            className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
+          />
+          <input
+            value={addonCreatePriceMin}
+            onChange={(e) => setAddonCreatePriceMin(e.target.value)}
+            placeholder="Min price (optional)"
+            className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
+          />
+          <input
+            value={addonCreatePriceMax}
+            onChange={(e) => setAddonCreatePriceMax(e.target.value)}
+            placeholder="Max price (optional)"
+            className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
+          />
+          <input
+            value={addonCreateDelivery}
+            onChange={(e) => setAddonCreateDelivery(e.target.value)}
+            placeholder="Delivery mode"
+            className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35 md:col-span-2"
+          />
+          <input
+            value={addonCreateEligible}
+            onChange={(e) => setAddonCreateEligible(e.target.value)}
+            placeholder="Eligible plan codes (comma-separated)"
+            className="rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35 md:col-span-3"
+          />
           <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-400 md:col-span-5">
             <label className="flex items-center gap-2">
-              <input type="checkbox" checked={addonCreateBillMonthly} onChange={(e) => setAddonCreateBillMonthly(e.target.checked)} className="accent-brand-lime" />
+              <input
+                type="checkbox"
+                checked={addonCreateBillMonthly}
+                onChange={(e) => setAddonCreateBillMonthly(e.target.checked)}
+                className="accent-brand-lime"
+              />
               With monthly plan
             </label>
             <label className="flex items-center gap-2">
-              <input type="checkbox" checked={addonCreateBillYearly} onChange={(e) => setAddonCreateBillYearly(e.target.checked)} className="accent-brand-lime" />
+              <input
+                type="checkbox"
+                checked={addonCreateBillYearly}
+                onChange={(e) => setAddonCreateBillYearly(e.target.checked)}
+                className="accent-brand-lime"
+              />
               With yearly plan
             </label>
             <label className="flex items-center gap-2 text-zinc-300">
               <span>Billing kind</span>
               <select
                 value={addonCreateBillingKind}
-                onChange={(e) => setAddonCreateBillingKind(e.target.value as "recurring" | "one_time" | "per_use")}
+                onChange={(e) =>
+                  setAddonCreateBillingKind(
+                    e.target.value as "recurring" | "one_time" | "per_use",
+                  )
+                }
                 className="rounded border border-[#24292E] bg-[#1C2126] px-2 py-1 text-xs text-white"
               >
                 <option value="recurring">Recurring</option>
@@ -620,31 +803,79 @@ export function PlanManagementPage() {
                 <option value="per_use">Per use</option>
               </select>
             </label>
-            <span className="text-zinc-500">Uncheck both for one-time-style add-ons (allowed on one-time plans only).</span>
+            <span className="text-zinc-500">
+              Uncheck both for one-time-style add-ons (allowed on one-time plans
+              only).
+            </span>
           </div>
-          <button type="button" onClick={() => void addAddon()} className="rounded-lg bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim">
+          <button
+            type="button"
+            onClick={() => void addAddon()}
+            className="rounded-lg bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim"
+          >
             Add Add-on
           </button>
         </div>
         <div className="mt-4 space-y-2">
           {addons.map((addon) => (
-            <div key={addon.id ?? addon.code} className="flex items-center justify-between rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm">
+            <div
+              key={addon.id ?? addon.code}
+              className="flex items-center justify-between rounded-lg border border-[#24292E] bg-[#1C2126] px-3 py-2 text-sm"
+            >
               {editingAddonId === String(addon.id) ? (
                 <div className="flex w-full flex-col gap-2">
                   <div className="rounded border border-[#2A3037]/80 bg-[#15191C] px-2 py-1.5 text-[11px] text-zinc-300">
-                    <span className="font-semibold text-white">{addon.label}</span>{" "}
-                    <span className="font-mono text-zinc-500">({addon.code})</span>
+                    <span className="font-semibold text-white">
+                      {addon.label}
+                    </span>{" "}
+                    <span className="font-mono text-zinc-500">
+                      ({addon.code})
+                    </span>
                     <span className="text-zinc-500"> · </span>
-                    <span className="font-mono text-zinc-400">{(addon.currency || "USD").toUpperCase()}</span>
-                    <span className="block text-[10px] text-zinc-500">Name, code, and currency cannot be changed here.</span>
+                    <span className="font-mono text-zinc-400">
+                      {(addon.currency || "USD").toUpperCase()}
+                    </span>
+                    <span className="block text-[10px] text-zinc-500">
+                      Name, code, and currency cannot be changed here.
+                    </span>
                   </div>
                   <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
-                    <input value={eAddonDesc} onChange={(e) => setEAddonDesc(e.target.value)} placeholder="Description" className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
-                    <input value={eAddonPrice} onChange={(e) => setEAddonPrice(e.target.value)} placeholder="Base price" className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
-                    <input value={eAddonSetupFee} onChange={(e) => setEAddonSetupFee(e.target.value)} placeholder="Setup fee" className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
-                    <input value={eAddonPriceMin} onChange={(e) => setEAddonPriceMin(e.target.value)} placeholder="Min price" className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
-                    <input value={eAddonPriceMax} onChange={(e) => setEAddonPriceMax(e.target.value)} placeholder="Max price" className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
-                    <input value={eAddonDelivery} onChange={(e) => setEAddonDelivery(e.target.value)} placeholder="Delivery mode" className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white" />
+                    <input
+                      value={eAddonDesc}
+                      onChange={(e) => setEAddonDesc(e.target.value)}
+                      placeholder="Description"
+                      className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white"
+                    />
+                    <input
+                      value={eAddonPrice}
+                      onChange={(e) => setEAddonPrice(e.target.value)}
+                      placeholder="Base price"
+                      className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white"
+                    />
+                    <input
+                      value={eAddonSetupFee}
+                      onChange={(e) => setEAddonSetupFee(e.target.value)}
+                      placeholder="Setup fee"
+                      className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white"
+                    />
+                    <input
+                      value={eAddonPriceMin}
+                      onChange={(e) => setEAddonPriceMin(e.target.value)}
+                      placeholder="Min price"
+                      className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white"
+                    />
+                    <input
+                      value={eAddonPriceMax}
+                      onChange={(e) => setEAddonPriceMax(e.target.value)}
+                      placeholder="Max price"
+                      className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white"
+                    />
+                    <input
+                      value={eAddonDelivery}
+                      onChange={(e) => setEAddonDelivery(e.target.value)}
+                      placeholder="Delivery mode"
+                      className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white"
+                    />
                   </div>
                   <input
                     value={eAddonEligible}
@@ -654,18 +885,35 @@ export function PlanManagementPage() {
                   />
                   <div className="flex flex-wrap items-center gap-4 text-[10px] text-zinc-400">
                     <label className="flex items-center gap-1">
-                      <input type="checkbox" checked={eAddonBillMonthly} onChange={(e) => setEAddonBillMonthly(e.target.checked)} className="accent-brand-lime" />
+                      <input
+                        type="checkbox"
+                        checked={eAddonBillMonthly}
+                        onChange={(e) => setEAddonBillMonthly(e.target.checked)}
+                        className="accent-brand-lime"
+                      />
                       With monthly plan
                     </label>
                     <label className="flex items-center gap-1">
-                      <input type="checkbox" checked={eAddonBillYearly} onChange={(e) => setEAddonBillYearly(e.target.checked)} className="accent-brand-lime" />
+                      <input
+                        type="checkbox"
+                        checked={eAddonBillYearly}
+                        onChange={(e) => setEAddonBillYearly(e.target.checked)}
+                        className="accent-brand-lime"
+                      />
                       With yearly plan
                     </label>
                     <label className="flex items-center gap-1 text-zinc-300">
                       Kind
                       <select
                         value={eAddonBillingKind}
-                        onChange={(e) => setEAddonBillingKind(e.target.value as "recurring" | "one_time" | "per_use")}
+                        onChange={(e) =>
+                          setEAddonBillingKind(
+                            e.target.value as
+                              | "recurring"
+                              | "one_time"
+                              | "per_use",
+                          )
+                        }
                         className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-[10px] text-white"
                       >
                         <option value="recurring">Recurring</option>
@@ -674,25 +922,51 @@ export function PlanManagementPage() {
                       </select>
                     </label>
                   </div>
-                  <CatalogObjectEditor rows={eAddonCatalogRows} onChange={setEAddonCatalogRows} title="Add-on catalog fields" />
+                  <CatalogObjectEditor
+                    rows={eAddonCatalogRows}
+                    onChange={setEAddonCatalogRows}
+                    title="Add-on catalog fields"
+                  />
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => void saveAddonEdit(String(addon.id))} className="rounded-md bg-brand-lime px-3 py-1 text-xs font-semibold text-canvas">Save</button>
-                    <button type="button" onClick={() => setEditingAddonId(null)} className="rounded-md border border-white/15 px-3 py-1 text-xs text-white">Cancel</button>
+                    <button
+                      type="button"
+                      onClick={() => void saveAddonEdit(String(addon.id))}
+                      className="rounded-md bg-brand-lime px-3 py-1 text-xs font-semibold text-canvas"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingAddonId(null)}
+                      className="rounded-md border border-white/15 px-3 py-1 text-xs text-white"
+                    >
+                      Cancel
+                    </button>
                   </div>
                 </div>
               ) : (
                 <>
                   <div>
-                    <p className="font-semibold text-white">{addon.label} <span className="text-xs text-zinc-500">({addon.code})</span></p>
+                    <p className="font-semibold text-white">
+                      {addon.label}{" "}
+                      <span className="text-xs text-zinc-500">
+                        ({addon.code})
+                      </span>
+                    </p>
                     <p className="text-xs text-zinc-400">
-                      {(addon.currency || "USD").toUpperCase()} ${(addon.priceCents / 100).toFixed(2)}
-                      {(addon.setupFeeCents ?? 0) > 0 ? ` + $${((addon.setupFeeCents ?? 0) / 100).toFixed(2)} setup` : ""}
+                      {(addon.currency || "USD").toUpperCase()} $
+                      {(addon.priceCents / 100).toFixed(2)}
+                      {(addon.setupFeeCents ?? 0) > 0
+                        ? ` + $${((addon.setupFeeCents ?? 0) / 100).toFixed(2)} setup`
+                        : ""}
                       {" · "}
                       {addon.billingKind ?? "recurring"}
-                      {addon.priceMinCents != null || addon.priceMaxCents != null
+                      {addon.priceMinCents != null ||
+                      addon.priceMaxCents != null
                         ? ` · range ${addon.priceMinCents != null ? `$${(addon.priceMinCents / 100).toFixed(0)}` : "—"}–${addon.priceMaxCents != null ? `$${(addon.priceMaxCents / 100).toFixed(0)}` : "—"}`
                         : ""}
-                      {addon.eligiblePlanCodes && addon.eligiblePlanCodes.length > 0
+                      {addon.eligiblePlanCodes &&
+                      addon.eligiblePlanCodes.length > 0
                         ? ` · plans: ${addon.eligiblePlanCodes.join(", ")}`
                         : ""}
                       {addon.deliveryMode ? ` · ${addon.deliveryMode}` : ""}
@@ -700,11 +974,16 @@ export function PlanManagementPage() {
                       {addon.desc}
                       <span className="ml-1 text-zinc-500">
                         (
-                        {addon.billingMonthlyEnabled === false && addon.billingYearlyEnabled === false
+                        {addon.billingMonthlyEnabled === false &&
+                        addon.billingYearlyEnabled === false
                           ? "one-time style"
                           : [
-                              addon.billingMonthlyEnabled !== false ? "monthly" : null,
-                              addon.billingYearlyEnabled !== false ? "yearly" : null,
+                              addon.billingMonthlyEnabled !== false
+                                ? "monthly"
+                                : null,
+                              addon.billingYearlyEnabled !== false
+                                ? "yearly"
+                                : null,
                             ]
                               .filter(Boolean)
                               .join(", ") || "—"}
@@ -740,8 +1019,12 @@ export function PlanManagementPage() {
         title="Delete plan"
         description={
           <>
-            Are you sure you want to delete <span className="font-semibold text-white">{deleteConfirm.plan?.name}</span>?
-            This will remove the plan from the catalog. Existing subscriptions may be affected.
+            Are you sure you want to delete{" "}
+            <span className="font-semibold text-white">
+              {deleteConfirm.plan?.name}
+            </span>
+            ? This will remove the plan from the catalog. Existing subscriptions
+            may be affected.
           </>
         }
         confirmLabel="Delete plan"

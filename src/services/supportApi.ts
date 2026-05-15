@@ -8,7 +8,24 @@ import type {
   SupportTicketDetail,
   TicketStatus,
 } from "@/types/support";
-import { api, apiBlob } from "@/services/http";
+import { api, apiBlob, ApiRequestError, userFacingApiError } from "@/services/http";
+
+/** User-visible copy when POST /api/support/tickets fails. */
+export function messageForTicketSubmitError(err: unknown): string {
+  const fallback = "Could not submit the ticket. Please try again.";
+  if (err instanceof ApiRequestError && err.code === "insufficient_credits") {
+    const { needed, available } = err;
+    if (typeof needed === "number" && typeof available === "number") {
+      const creditWord = needed === 1 ? "credit" : "credits";
+      const availVerb = available === 1 ? "is" : "are";
+      return `This edit requires ${needed} website edit ${creditWord}, but only ${available} ${availVerb} available on this project. Buy more credits from your project dashboard.`;
+    }
+    const msg = err.message.trim();
+    if (msg && !msg.includes("_")) return msg;
+    return "Not enough website edit credits on this project. Buy more credits from your project dashboard.";
+  }
+  return userFacingApiError(err, fallback);
+}
 
 export function fetchTickets() {
   return api<SupportTicket[]>("/api/support/tickets");
@@ -37,8 +54,10 @@ export function createTicket(input: CreateTicketInput) {
     form.set("description", input.description);
     if (input.departmentId) form.set("departmentId", input.departmentId);
     if (input.priority) form.set("priority", input.priority);
-    if (input.projectId?.trim()) form.set("projectId", input.projectId.trim());
-    if (input.editTypeId?.trim()) form.set("editTypeId", input.editTypeId.trim());
+    if (input.projectId?.trim()) {
+      form.set("projectId", input.projectId.trim());
+      if (input.editTypeId?.trim()) form.set("editTypeId", input.editTypeId.trim());
+    }
     for (const file of input.attachments ?? []) {
       form.append("attachments", file);
     }
@@ -54,8 +73,12 @@ export function createTicket(input: CreateTicketInput) {
       description: input.description,
       departmentId: input.departmentId,
       priority: input.priority,
-      ...(input.projectId?.trim() ? { projectId: input.projectId.trim() } : {}),
-      ...(input.editTypeId?.trim() ? { editTypeId: input.editTypeId.trim() } : {}),
+      ...(input.projectId?.trim()
+        ? {
+            projectId: input.projectId.trim(),
+            ...(input.editTypeId?.trim() ? { editTypeId: input.editTypeId.trim() } : {}),
+          }
+        : {}),
     }),
   });
 }

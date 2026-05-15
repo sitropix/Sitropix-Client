@@ -16,7 +16,7 @@ import { log } from "../observability/logger.mjs";
  * `options.projectId` (optional) restricts the upsert to a specific (user, project) row.
  *  - When provided we prefer the matching Stripe subscription whose metadata.projectId matches.
  *  - When omitted we resolve project from Stripe metadata, an existing DB row for this Stripe sub,
- *    the user's latest project, or a small auto-created project (subscriptions require a project FK).
+ *    or the user's latest project. Never auto-creates a project (users create projects in-app).
  */
 export async function syncSubscriptionFromStripeForUserId(userId, options = {}) {
   const targetProjectId = options.projectId ?? null;
@@ -125,20 +125,13 @@ export async function syncSubscriptionFromStripeForUserId(userId, options = {}) 
       select: { id: true },
     });
     if (latestProject?.id) return latestProject.id;
-    const created = await prisma.project.create({
-      data: {
-        ownerUserId: userId,
-        name: "Imported Subscription Project",
-        description: "Auto-created to attach Stripe subscription.",
-        subscriptionStatus: "on_hold",
-        addonsJson: [],
-        invoicesJson: [],
-      },
-      select: { id: true },
-    });
-    return created.id;
+    return null;
   }
   const resolvedProjectId = await ensureProjectId();
+  if (!resolvedProjectId) {
+    log.info("subscription.sync_pull.no_project", { userId, stripeSubscriptionId: full.id });
+    return { ok: false, reason: "no_project" };
+  }
 
   // Upsert by stripeSubscriptionId first (catches a row that already exists in another
   // project slot for the same user) then fall back to (userId, projectId).

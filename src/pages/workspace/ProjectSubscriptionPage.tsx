@@ -20,6 +20,16 @@ import {
   fetchCustomerPortal,
   fetchProjectAssets,
 } from "@/services/subscriptionsApi";
+import { ExtraEditPurchaseModal } from "@/components/billing/ExtraEditPurchaseModal";
+import {
+  EXTRA_EDIT_BUNDLE_CODE,
+  EXTRA_EDIT_SINGLE_CODE,
+  canOfferExtraEditPurchases,
+  isCreditPackAddon,
+  readPlanExtraEditPricing,
+  resolveExtraEditPurchaseAddons,
+} from "@/constants/extraEditAddons";
+import { maxPurchasableExtraEditCredits } from "@/lib/websiteEditCreditsLimit";
 import type { BillingCycle, Plan, SubscriptionAddon } from "@/types/subscription";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -82,6 +92,8 @@ export function ProjectSubscriptionPage() {
   const [addons, setAddons] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [extraEditModalOpen, setExtraEditModalOpen] = useState(false);
+  const [extraEditCompanionCodes, setExtraEditCompanionCodes] = useState<string[]>([]);
   const [plans, setPlans] = useState(() => portal?.plans ?? []);
   const [addonCatalog, setAddonCatalog] = useState(() => portal?.addons ?? []);
   const [ready, setReady] = useState(false);
@@ -123,7 +135,10 @@ export function ProjectSubscriptionPage() {
   const showBillingCycleToggle = anyMonthly || anyYearly;
 
   const eligibleAddons = useMemo(
-    () => addonCatalog.filter((a) => addonEligibleForCheckout(a, billingCycle, selectedPlan)),
+    () =>
+      addonCatalog.filter(
+        (a) => !isCreditPackAddon(a) && addonEligibleForCheckout(a, billingCycle, selectedPlan),
+      ),
     [addonCatalog, billingCycle, selectedPlan],
   );
 
@@ -223,6 +238,19 @@ export function ProjectSubscriptionPage() {
         await changePlan(selectedPlanId, billingCycle, { projectId: ownedProject.id });
       }
       if (newAddonCodes.length > 0) {
+        const editSelected: string[] = newAddonCodes.filter(
+          (c) => c === EXTRA_EDIT_SINGLE_CODE || c === EXTRA_EDIT_BUNDLE_CODE,
+        );
+        const companion = newAddonCodes.filter((c) => !editSelected.includes(c));
+        if (editSelected.length > 1) {
+          setNotice("Choose only one extra-edits add-on (per-edit or bundle) per checkout.");
+          return;
+        }
+        if (editSelected.length === 1) {
+          setExtraEditCompanionCodes(companion);
+          setExtraEditModalOpen(true);
+          return;
+        }
         const base = `${window.location.origin}/projects/${ownedProject.id}`;
         const { url } = await createAddonCheckoutSession(ownedProject.id, newAddonCodes, {
           successUrl: base,
@@ -374,6 +402,26 @@ export function ProjectSubscriptionPage() {
   if (!project && !projectLoading) return <Navigate to="/projects" replace />;
   if (!project) return <div className="p-6 text-sm text-zinc-300">Loading project...</div>;
   if (!ownedProject) return <Navigate to="/projects" replace />;
+
+  const planForExtraEditModal =
+    plans.find((p) => p.id === selectedPlanId) ??
+    plans.find((p) => p.id === ownedProject.planId) ??
+    null;
+  const { single: subExtraEditSingle, bundle: subExtraEditBundle } =
+    resolveExtraEditPurchaseAddons(addonCatalog, planForExtraEditModal);
+  const {
+    perEditCents: subModalPerEditCents,
+    bundleCredits: subModalBundleCredits,
+    bundleCents: subModalBundleCents,
+  } = readPlanExtraEditPricing(planForExtraEditModal);
+  const maxExtraEditsBuyableOnSub = maxPurchasableExtraEditCredits(
+    ownedProject.usage,
+    planForExtraEditModal,
+  );
+  const canBuyExtraEditsOnSub =
+    hasLiveProjectPlan &&
+    canOfferExtraEditPurchases(planForExtraEditModal, addonCatalog) &&
+    maxExtraEditsBuyableOnSub > 0;
 
   return (
     <div className="client-workspace-view space-y-6 text-zinc-900">
@@ -562,22 +610,39 @@ export function ProjectSubscriptionPage() {
               <h3 className="text-xl font-semibold text-white">Enhance Your Plan</h3>
               <p className="mt-1 text-sm text-zinc-400">
                 {hasLiveProjectPlan
-                  ? "Add-ons already on your subscription cannot be purchased again. Pick new extras to buy."
+                  ? "One-time add-ons can only be purchased once. Extra website edit credits can be bought again until you reach your plan limit."
                   : "Add powerful extras to accelerate your project."}
               </p>
+              {canBuyExtraEditsOnSub ? (
+                <div className="mt-4 rounded-xl border border-[#2A3037] bg-[#101317] px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-zinc-300">Need more website edits this billing cycle?</p>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setExtraEditModalOpen(true)}
+                      className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-zinc-200 disabled:opacity-50"
+                    >
+                      Buy edit credits
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               <div className="mt-4 space-y-3">
                 {addonCatalog.filter(
                   (a) =>
-                    ownedAddonCodes.has(a.code) ||
-                    addonEligibleForCheckout(a, billingCycle, selectedPlan),
+                    !isCreditPackAddon(a) &&
+                    (ownedAddonCodes.has(a.code) ||
+                      addonEligibleForCheckout(a, billingCycle, selectedPlan)),
                 ).length === 0 ? (
                   <p className="text-sm text-zinc-500">No add-ons are available for this plan and billing choice.</p>
                 ) : null}
                 {addonCatalog
                   .filter(
                     (a) =>
-                      ownedAddonCodes.has(a.code) ||
-                      addonEligibleForCheckout(a, billingCycle, selectedPlan),
+                      !isCreditPackAddon(a) &&
+                      (ownedAddonCodes.has(a.code) ||
+                        addonEligibleForCheckout(a, billingCycle, selectedPlan)),
                   )
                   .map((addon) => {
                     const owned = ownedAddonCodes.has(addon.code);
@@ -691,6 +756,27 @@ export function ProjectSubscriptionPage() {
           </section>
         </div>
       )}
+      <ExtraEditPurchaseModal
+        open={extraEditModalOpen}
+        onClose={() => {
+          setExtraEditModalOpen(false);
+          setExtraEditCompanionCodes([]);
+        }}
+        projectId={ownedProject.id}
+        plan={planForExtraEditModal}
+        usage={ownedProject.usage ?? undefined}
+        singleAddon={subExtraEditSingle}
+        bundleAddon={subExtraEditBundle}
+        companionAddonCodes={extraEditCompanionCodes}
+        currency={subExtraEditSingle?.currency || subExtraEditBundle?.currency || "USD"}
+        perEditCents={subModalPerEditCents}
+        bundleCredits={subModalBundleCredits}
+        bundleCents={subModalBundleCents}
+        busy={busy}
+        setBusy={setBusy}
+        onNotice={setNotice}
+        baseReturnUrl={`${window.location.origin}/projects/${ownedProject.id}`}
+      />
     </div>
   );
 }

@@ -3,8 +3,8 @@ import { useAuth } from "@/context/AuthContext";
 
 export function Footer() {
   const { pathname } = useLocation();
-  const { isAuthenticated } = useAuth();
-  const isPublicLanding = pathname === "/" && !isAuthenticated;
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const isPublicLanding = pathname === "/" && !isAuthenticated && !authLoading;
 
   return (
     <footer className="mt-20 border-t border-white/[0.07] bg-black/20">

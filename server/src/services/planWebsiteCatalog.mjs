@@ -4,6 +4,8 @@ const posDollar = z.number().finite().positive();
 const posInt = z.number().int().positive();
 const nonNegInt = z.number().int().nonnegative();
 
+const supportChannelSchema = z.enum(["email_48h", "email_chat_24h", "priority_4h"]);
+
 /** Admin-editable website package fields stored in `plan.catalogJson`. */
 export const planWebsiteCatalogSchema = z
   .object({
@@ -34,9 +36,13 @@ export const planWebsiteCatalogSchema = z
     uptimeMonitoringAlerts: z.boolean(),
     cookieGdprComplianceBanner: z.boolean(),
     monthlySecurityScan: z.boolean(),
-    /** Display string, e.g. `$12/edit` or `5 for $49`. Empty keeps existing cent fields. */
-    extraEditPricing: z.string().max(160),
-    supportChannel: z.string().min(1).max(120),
+    /** Price per additional website edit (USD), synced to `extraEditSingleCents`. */
+    extraEditPerEditUsd: posDollar,
+    /** Fixed bundle: number of edits in the pack (synced to `extraEditPackCount`). */
+    extraEditPackEditCount: posInt,
+    /** Fixed bundle: total pack price in USD (synced to `extraEditPackCents`). */
+    extraEditPackTotalUsd: posDollar,
+    supportChannel: supportChannelSchema,
     dedicatedAccountContact: z.boolean(),
   })
   .strict();
@@ -78,7 +84,7 @@ export function mergePlanWebsiteCatalogJson(existingCatalog, incomingWebsite) {
       ? { ...existingCatalog }
       : {};
   const validated = planWebsiteCatalogSchema.parse(incomingWebsite);
-  const { extraEditPricing, ...rest } = validated;
+  const { extraEditPerEditUsd, extraEditPackEditCount, extraEditPackTotalUsd, ...rest } = validated;
 
   let next = { ...existing, ...rest };
   const setupCents = Math.round(validated.oneTimeSetupFeeUsd * 100);
@@ -97,20 +103,10 @@ export function mergePlanWebsiteCatalogJson(existingCatalog, incomingWebsite) {
   next.googleBusinessProfileOneTime = validated.googleBusinessProfileSetup;
   next.monthlySeoReport = validated.monthlySeoHealthReport;
 
-  const pricingTrim = extraEditPricing.trim();
-  if (pricingTrim) {
-    const parsed = parseExtraEditPricingString(pricingTrim);
-    if (parsed.extraEditSingleCents != null) {
-      next.extraEditSingleCents = parsed.extraEditSingleCents;
-    }
-    if (parsed.extraEditPackCount != null && parsed.extraEditPackCents != null) {
-      next.extraEditPackCount = parsed.extraEditPackCount;
-      next.extraEditPackCents = parsed.extraEditPackCents;
-    }
-    next.extraEditPricing = pricingTrim;
-  } else {
-    delete next.extraEditPricing;
-  }
+  next.extraEditSingleCents = Math.round(extraEditPerEditUsd * 100);
+  next.extraEditPackCount = extraEditPackEditCount;
+  next.extraEditPackCents = Math.round(extraEditPackTotalUsd * 100);
+  next.extraEditPricing = `$${extraEditPerEditUsd.toFixed(2)}/edit · ${extraEditPackEditCount} for $${extraEditPackTotalUsd.toFixed(2)}`;
 
   return next;
 }

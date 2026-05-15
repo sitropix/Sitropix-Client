@@ -81,12 +81,12 @@ function ProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
 export function Navbar() {
   const { pathname } = useLocation();
   const { contact, loading } = useUser();
-  const { logout, isAuthenticated } = useAuth();
+  const { logout, isAuthenticated, loading: authLoading } = useAuth();
   const { isAdmin } = useAuthz();
   const [open, setOpen] = useState(false);
   const isHomeScreen = pathname === "/";
   /** Public marketing landing: no search, no Home nav (Sign in / Sign up only). */
-  const isPublicLanding = isHomeScreen && !isAuthenticated;
+  const isPublicLanding = isHomeScreen && !isAuthenticated && !authLoading;
 
   const displayName = loading
     ? "…"
