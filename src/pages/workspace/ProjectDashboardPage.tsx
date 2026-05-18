@@ -12,13 +12,6 @@ import {
   createAddonCheckoutSession,
 } from "@/services/subscriptionsApi";
 import { ExtraEditPurchaseModal } from "@/components/billing/ExtraEditPurchaseModal";
-import {
-  canOfferExtraEditPurchases,
-  isCreditPackAddon,
-  readPlanExtraEditPricing,
-  resolveExtraEditPurchaseAddons,
-} from "@/constants/extraEditAddons";
-import { maxPurchasableExtraEditCredits } from "@/lib/websiteEditCreditsLimit";
 import { formatFileSize } from "@/lib/formatFileSize";
 import {
   deleteProjectAssetFile,
@@ -27,8 +20,8 @@ import {
   uploadProjectAssetFile,
   type ProjectAssetUploadRow,
 } from "@/services/subscriptionsApi";
-import type { ProjectRecord, ProjectRequirementType } from "@/types/project";
-import type { SubscriptionAddon } from "@/types/subscription";
+import type { ProjectAddonCard, ProjectRecord, ProjectRequirementType } from "@/types/project";
+import type { BillingCycle, SubscriptionAddon } from "@/types/subscription";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
@@ -50,52 +43,42 @@ function prettyAssetType(value: string) {
   return value.replace(/_/g, " ");
 }
 
-function resolveExtraEditAddonDisplayCents(
-  addon: { code: string; priceCents?: number },
-  plans: { id: string; catalogJson?: Record<string, unknown> }[],
-  projectPlanId: string | null | undefined,
-) {
-  if (addon.code !== "addon_extra_edit_single" && addon.code !== "addon_extra_edit_bundle") {
-    return addon.priceCents ?? 0;
-  }
-  const plan = plans.find((p) => p.id === projectPlanId);
-  const j = (plan?.catalogJson ?? {}) as Record<string, unknown>;
-  if (addon.code === "addon_extra_edit_single") {
-    const c = typeof j.extraEditSingleCents === "number" ? j.extraEditSingleCents : 0;
-    return Math.max(0, c);
-  }
-  const c = typeof j.extraEditPackCents === "number" ? j.extraEditPackCents : 0;
-  return Math.max(0, c);
+function isRecurringPurchasableAddon(addon: ProjectAddonCard) {
+  return addon.billingKind === "recurring";
 }
 
-function extraEditAddonCaption(
-  addon: { code: string },
-  plans: { id: string; catalogJson?: Record<string, unknown> }[],
-  projectPlanId: string | null | undefined,
-) {
-  if (addon.code === "addon_extra_edit_single") return "1 credit";
-  if (addon.code !== "addon_extra_edit_bundle") return "";
-  const plan = plans.find((p) => p.id === projectPlanId);
-  const j = (plan?.catalogJson ?? {}) as Record<string, unknown>;
-  const n = typeof j.extraEditPackCount === "number" ? j.extraEditPackCount : 0;
-  return n > 0 ? `${n} credits` : "";
-}
-
-function addonCardDisplayCents(
-  addon: SubscriptionAddon,
-  plans: { id: string; catalogJson?: Record<string, unknown> }[],
-  projectPlanId: string | null | undefined,
-) {
-  if (addon.billingKind === "recurring" && (addon.setupFeeCents ?? 0) > 0) {
-    return (addon.setupFeeCents ?? 0) + (addon.priceCents ?? 0);
+function displayCentsForPurchasableAddon(addon: ProjectAddonCard, chosenCycle: BillingCycle) {
+  if (addon.hasSetupPlusRecurring) {
+    const unit =
+      chosenCycle === "yearly" && addon.recurringPriceOptions?.yearlyPriceCents
+        ? addon.recurringPriceOptions.yearlyPriceCents
+        : addon.recurringPriceOptions?.monthlyPriceCents ?? addon.recurringPriceCents ?? 0;
+    return (addon.setupFeeCents ?? 0) + unit;
   }
-  return resolveExtraEditAddonDisplayCents(addon, plans, projectPlanId);
+  if (addon.recurringPriceOptions) {
+    if (chosenCycle === "yearly" && addon.recurringPriceOptions.yearlyPriceCents) {
+      return addon.recurringPriceOptions.yearlyPriceCents;
+    }
+    if (addon.recurringPriceOptions.monthlyPriceCents) {
+      return addon.recurringPriceOptions.monthlyPriceCents;
+    }
+  }
+  return addon.displayPriceCents;
 }
 
-function recurringSetupPriceBreakdown(addon: SubscriptionAddon, ccy: string) {
-  const setup = addon.setupFeeCents ?? 0;
-  if (addon.billingKind !== "recurring" || setup <= 0) return null;
-  const rec = addon.priceCents ?? 0;
+function recurringIntervalSuffix(addon: ProjectAddonCard, chosenCycle: BillingCycle) {
+  if (!isRecurringPurchasableAddon(addon)) return "";
+  return chosenCycle === "yearly" ? "/yr" : "/mo";
+}
+
+function recurringSetupPriceBreakdown(card: ProjectAddonCard, chosenCycle: BillingCycle) {
+  if (!card.hasSetupPlusRecurring) return null;
+  const setup = card.setupFeeCents ?? 0;
+  const rec =
+    chosenCycle === "yearly" && card.recurringPriceOptions?.yearlyPriceCents
+      ? card.recurringPriceOptions.yearlyPriceCents
+      : card.recurringPriceOptions?.monthlyPriceCents ?? card.recurringPriceCents ?? 0;
+  const ccy = card.currency || "USD";
   return (
     <div className="mt-2 rounded-lg border border-white/10 bg-black/25 px-2.5 py-2 text-[11px] leading-snug text-zinc-300">
       <div className="flex justify-between gap-2">
@@ -103,7 +86,9 @@ function recurringSetupPriceBreakdown(addon: SubscriptionAddon, ccy: string) {
         <span className="tabular-nums font-medium text-white">{money(setup, ccy)}</span>
       </div>
       <div className="mt-1 flex justify-between gap-2">
-        <span className="text-zinc-500">Recurring (per month)</span>
+        <span className="text-zinc-500">
+          Recurring (per {chosenCycle === "yearly" ? "year" : "month"})
+        </span>
         <span className="tabular-nums font-medium text-white">{money(rec, ccy)}</span>
       </div>
       <p className="mt-1.5 border-t border-white/5 pt-1.5 text-[10px] text-zinc-500">
@@ -167,19 +152,9 @@ export function ProjectDashboardPage() {
   const { user } = useAuth();
   const { portal } = useUser();
   const [searchParams, setSearchParams] = useSearchParams();
-  const addonCatalog = useMemo(() => portal?.addons ?? [], [portal?.addons]);
   const plans = useMemo(() => portal?.plans ?? [], [portal?.plans]);
-  const purchasableAddons = useMemo(
-    () =>
-      addonCatalog.filter(
-        (a) =>
-          !isCreditPackAddon(a) &&
-          (a.billingKind !== "recurring" ||
-            (typeof a.setupFeeCents === "number" && a.setupFeeCents > 0)),
-      ),
-    [addonCatalog],
-  );
   const [addonPage, setAddonPage] = useState(0);
+  const [addonRecurringCycle, setAddonRecurringCycle] = useState<BillingCycle>("monthly");
   const userId = user?.id ?? portal?.user?.id ?? "guest-user";
   const [, setTick] = useState(0);
   const [serverAssets, setServerAssets] = useState<ProjectAssetUploadRow[]>([]);
@@ -282,11 +257,13 @@ export function ProjectDashboardPage() {
   const hasValidPlan = ownedProject ? hasValidProjectPlan(ownedProject) : false;
   const showSetupOverlay = assetsReady && !hasValidPlan;
   const allRequirementsDone = assetsReady && !needsOnboarding;
-  const ownedAddonCodes = ownedProject?.addons ?? [];
-  const availableAddons = useMemo(
-    () => purchasableAddons.filter((addon) => !ownedAddonCodes.includes(addon.code)),
-    [purchasableAddons, ownedAddonCodes],
-  );
+  const accessibleAddons = ownedProject?.accessibleAddons ?? { existing: [], purchasable: [] };
+  const addonBillingContext = accessibleAddons.billingContext;
+  const existingAddons = accessibleAddons.existing;
+  const availableAddons = accessibleAddons.purchasable;
+  const showRecurringCycleToggle =
+    addonBillingContext?.canChooseRecurringAddonCycle === true &&
+    availableAddons.some((a) => a.canChooseRecurringCycle);
   const addonPageCount = Math.max(1, Math.ceil(availableAddons.length / ADDONS_PAGE_SIZE));
   const addonPageSafe = Math.min(addonPage, addonPageCount - 1);
   const pagedAvailableAddons = availableAddons.slice(
@@ -296,6 +273,12 @@ export function ProjectDashboardPage() {
   useEffect(() => {
     setAddonPage((p) => Math.min(p, Math.max(0, addonPageCount - 1)));
   }, [addonPageCount]);
+
+  useEffect(() => {
+    setAddonRecurringCycle(
+      addonBillingContext?.subscriptionBillingCycle === "yearly" ? "monthly" : "monthly",
+    );
+  }, [ownedProject?.id, addonBillingContext?.subscriptionBillingCycle]);
 
   if (!ownedProject && !projectLoading)
     return <Navigate to="/projects" replace />;
@@ -314,15 +297,17 @@ export function ProjectDashboardPage() {
   const pagesProgress =
     pagesMax != null && pagesMax > 0 ? Math.min(100, Math.round((pagesUsed / pagesMax) * 100)) : 0;
   const planForProject = plans.find((p) => p.id === project.planId) ?? null;
-  const { single: extraEditSinglePurchAddon, bundle: extraEditBundleAddon } =
-    resolveExtraEditPurchaseAddons(addonCatalog, planForProject);
-  const { perEditCents: modalPerEditCents, bundleCredits: modalBundleCredits, bundleCents: modalBundleCents } =
-    readPlanExtraEditPricing(planForProject);
-  const maxExtraEditsBuyable = maxPurchasableExtraEditCredits(usage, planForProject);
-  const canBuyExtraEdits =
-    hasValidPlan &&
-    canOfferExtraEditPurchases(planForProject, addonCatalog) &&
-    maxExtraEditsBuyable > 0;
+  const extraEditPurchase = project.extraEditPurchase;
+  const modalPerEditCents = extraEditPurchase?.perEditCents ?? 0;
+  const modalBundleCredits = extraEditPurchase?.bundleCredits ?? 0;
+  const modalBundleCents = extraEditPurchase?.bundleCents ?? 0;
+  const canBuyExtraEdits = hasValidPlan && (extraEditPurchase?.available ?? false);
+  const extraEditSinglePurchAddon: SubscriptionAddon | undefined = extraEditPurchase?.singleAddonCode
+    ? { code: extraEditPurchase.singleAddonCode, label: "", desc: "", priceCents: modalPerEditCents }
+    : undefined;
+  const extraEditBundleAddon: SubscriptionAddon | undefined = extraEditPurchase?.bundleAddonCode
+    ? { code: extraEditPurchase.bundleAddonCode, label: "", desc: "", priceCents: modalBundleCents }
+    : undefined;
 
   const statusLabel =
     project.subscriptionStatus === "active"
@@ -855,9 +840,9 @@ export function ProjectDashboardPage() {
                   <h3 className="text-lg font-semibold text-white">Extra website edits</h3>
                   <p className="mt-1 text-xs text-zinc-400">
                     {modalPerEditCents > 0
-                      ? `From ${money(modalPerEditCents, extraEditSinglePurchAddon?.currency || "USD")} per edit`
+                      ? `From ${money(modalPerEditCents, extraEditPurchase?.currency ?? "USD")} per edit`
                       : modalBundleCredits > 0 && modalBundleCents > 0
-                        ? `Bundle: ${modalBundleCredits} edits for ${money(modalBundleCents, extraEditBundleAddon?.currency || "USD")}`
+                        ? `Bundle: ${modalBundleCredits} edits for ${money(modalBundleCents, extraEditPurchase?.currency ?? "USD")}`
                         : "Plan-priced edit credits"}
                   </p>
                 </div>
@@ -874,15 +859,13 @@ export function ProjectDashboardPage() {
           </div>
         ) : null}
 
-        {addonCatalog.some((a) => project.addons.includes(a.code)) ? (
+        {existingAddons.length > 0 ? (
           <div className="mt-6">
             <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-zinc-500">
               Existing add-ons
             </h3>
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              {addonCatalog
-                .filter((addon) => project.addons.includes(addon.code))
-                .map((addon) => (
+              {existingAddons.map((addon) => (
                   <div
                     key={addon.code}
                     aria-disabled
@@ -891,18 +874,16 @@ export function ProjectDashboardPage() {
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-lg font-semibold text-white">{addon.label}</p>
                       <span className="rounded-full bg-zinc-700 px-2 py-0.5 text-xs font-semibold text-zinc-100">
-                        {money(addonCardDisplayCents(addon, plans, project.planId), addon.currency || "USD")}
+                        {money(addon.displayPriceCents, addon.currency)}
                       </span>
                     </div>
                     <p className="mt-2 text-xs text-zinc-500">{addon.desc}</p>
-                    {extraEditAddonCaption(addon, plans, project.planId) ? (
-                      <p className="mt-1 text-[11px] font-medium text-zinc-500">
-                        {extraEditAddonCaption(addon, plans, project.planId)}
-                      </p>
+                    {addon.creditsLabel ? (
+                      <p className="mt-1 text-[11px] font-medium text-zinc-500">{addon.creditsLabel}</p>
                     ) : null}
-                    {recurringSetupPriceBreakdown(addon, addon.currency || "USD")}
+                    {recurringSetupPriceBreakdown(addon, addon.defaultRecurringCycle ?? "monthly")}
                     <span className="mt-4 inline-flex w-full cursor-not-allowed items-center justify-center rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm font-semibold text-zinc-500">
-                      On your plan
+                      Purchased
                     </span>
                   </div>
                 ))}
@@ -922,8 +903,48 @@ export function ProjectDashboardPage() {
                 </p>
               ) : null}
             </div>
+            {showRecurringCycleToggle ? (
+              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#2A3037] bg-[#101317] px-4 py-3">
+                <span className="text-xs font-medium text-zinc-400">Recurring add-on billing</span>
+                <div className="inline-flex rounded-lg border border-[#2A3037] bg-[#1C2126] p-0.5">
+                  {(["monthly", "yearly"] as const).map((cycle) => (
+                    <button
+                      key={cycle}
+                      type="button"
+                      onClick={() => setAddonRecurringCycle(cycle)}
+                      className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition ${
+                        addonRecurringCycle === cycle
+                          ? "bg-white text-canvas"
+                          : "text-zinc-400 hover:text-white"
+                      }`}
+                    >
+                      {cycle}
+                    </button>
+                  ))}
+                </div>
+                {addonBillingContext?.periodStartIso ? (
+                  <p className="text-[11px] text-zinc-500">
+                    Renews on the same day as your plan (
+                    {new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(
+                      new Date(addonBillingContext.periodStartIso),
+                    )}
+                    )
+                  </p>
+                ) : null}
+              </div>
+            ) : addonBillingContext?.subscriptionBillingCycle === "monthly" &&
+              availableAddons.some((a) => isRecurringPurchasableAddon(a)) ? (
+              <p className="mt-3 text-[11px] text-zinc-500">
+                Recurring add-ons bill monthly on the same day as your subscription.
+              </p>
+            ) : null}
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              {pagedAvailableAddons.map((addon) => (
+              {pagedAvailableAddons.map((addon) => {
+                const purchaseCycle: BillingCycle = addon.canChooseRecurringCycle
+                  ? addonRecurringCycle
+                  : addon.defaultRecurringCycle ?? "monthly";
+                const priceCents = displayCentsForPurchasableAddon(addon, purchaseCycle);
+                return (
                   <button
                     key={addon.code}
                     type="button"
@@ -937,6 +958,9 @@ export function ProjectDashboardPage() {
                         const { url } = await createAddonCheckoutSession(project.id, [addon.code], {
                           successUrl: base,
                           cancelUrl: base,
+                          ...(isRecurringPurchasableAddon(addon)
+                            ? { addonRecurringCycle: purchaseCycle }
+                            : {}),
                         });
                         if (!url) {
                           setNotice("Could not start checkout for this add-on.");
@@ -960,21 +984,23 @@ export function ProjectDashboardPage() {
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-lg font-semibold">{addon.label}</p>
                       <span className="rounded-full bg-zinc-700 px-2 py-0.5 text-xs font-semibold text-zinc-100">
-                        {money(addonCardDisplayCents(addon, plans, project.planId), addon.currency || "USD")}
+                        {money(priceCents, addon.currency)}
+                        {isRecurringPurchasableAddon(addon)
+                          ? recurringIntervalSuffix(addon, purchaseCycle)
+                          : ""}
                       </span>
                     </div>
                     <p className="mt-2 text-xs text-zinc-400">{addon.desc}</p>
-                    {extraEditAddonCaption(addon, plans, project.planId) ? (
-                      <p className="mt-1 text-[11px] font-medium text-zinc-400">
-                        {extraEditAddonCaption(addon, plans, project.planId)}
-                      </p>
+                    {addon.creditsLabel ? (
+                      <p className="mt-1 text-[11px] font-medium text-zinc-400">{addon.creditsLabel}</p>
                     ) : null}
-                    {recurringSetupPriceBreakdown(addon, addon.currency || "USD")}
+                    {recurringSetupPriceBreakdown(addon, purchaseCycle)}
                     <span className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-white px-3 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40">
                       {hasValidPlan ? "Purchase add-on" : "Subscribe to enable"}
                     </span>
                   </button>
-                ))}
+                );
+              })}
             </div>
             {addonPageCount > 1 ? (
               <div className="mt-4 flex items-center justify-center gap-2">
@@ -999,9 +1025,12 @@ export function ProjectDashboardPage() {
           </div>
         ) : null}
 
-        {addonCatalog.length === 0 ? (
+        {!canBuyExtraEdits &&
+        existingAddons.length === 0 &&
+        availableAddons.length === 0 &&
+        hasValidPlan ? (
           <p className="mt-4 rounded-xl border border-[#2A3037] bg-[#1C2126] px-4 py-3 text-sm text-zinc-400">
-            No add-ons are available right now.
+            No add-ons are available for your plan and billing cycle.
           </p>
         ) : null}
       </section>
@@ -1014,11 +1043,7 @@ export function ProjectDashboardPage() {
         usage={usage ?? undefined}
         singleAddon={extraEditSinglePurchAddon}
         bundleAddon={extraEditBundleAddon}
-        currency={
-          extraEditSinglePurchAddon?.currency ||
-          extraEditBundleAddon?.currency ||
-          "USD"
-        }
+        currency={extraEditPurchase?.currency ?? "USD"}
         perEditCents={modalPerEditCents}
         bundleCredits={modalBundleCredits}
         bundleCents={modalBundleCents}

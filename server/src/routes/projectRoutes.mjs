@@ -9,6 +9,10 @@ import {
   findUserProjectSubscription,
 } from "../services/subscriptionLookup.mjs";
 import { fetchSubscriptionAddonCatalog } from "../services/addonCatalogStore.mjs";
+import {
+  resolveExtraEditPurchaseSummary,
+  resolveProjectAccessibleAddons,
+} from "../services/projectAccessibleAddons.mjs";
 
 const router = express.Router();
 router.use(requireAuth);
@@ -235,6 +239,25 @@ router.get("/:id", async (req, res) => {
   } else {
     normalized.usage = null;
   }
+
+  const billingCycle = sub?.billingCycle ?? normalized.billingCycle ?? null;
+  const addonCatalogRows = await fetchSubscriptionAddonCatalog();
+  normalized.accessibleAddons = resolveProjectAccessibleAddons({
+    catalog: addonCatalogRows,
+    plan: sub?.plan ?? null,
+    billingCycle,
+    ownedAddonCodes: normalized.addons,
+    periodStartIso: sub?.currentPeriodStart
+      ? sub.currentPeriodStart instanceof Date
+        ? sub.currentPeriodStart.toISOString()
+        : String(sub.currentPeriodStart)
+      : null,
+  });
+  normalized.extraEditPurchase = resolveExtraEditPurchaseSummary(
+    addonCatalogRows,
+    sub?.plan ?? null,
+  );
+
   return res.json(normalized);
 });
 

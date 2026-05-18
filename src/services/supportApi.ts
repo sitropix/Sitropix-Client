@@ -46,6 +46,29 @@ export function postTicketReply(id: string, body: string) {
   });
 }
 
+export function closeSupportTicket(id: string) {
+  return api<{ id: string; status: string; updatedAt: string; creditsRefunded?: boolean }>(
+    `/api/support/tickets/${id}/close`,
+    { method: "POST" },
+  );
+}
+
+export function reopenSupportTicket(id: string) {
+  return api<{ id: string; status: string; updatedAt: string; creditsRefunded?: boolean }>(
+    `/api/support/tickets/${id}/reopen`,
+    { method: "POST" },
+  );
+}
+
+/** Refreshes admin ticket list cache after detail mutations. */
+export async function refreshAdminTicketsList(limit = 100) {
+  return fetchAdminTickets({ limit });
+}
+
+export function deleteSupportTicket(id: string) {
+  return api<void>(`/api/support/tickets/${id}`, { method: "DELETE" });
+}
+
 export function createTicket(input: CreateTicketInput) {
   const hasAttachments = Array.isArray(input.attachments) && input.attachments.length > 0;
   if (hasAttachments) {

@@ -20,16 +20,18 @@ import {
   fetchCustomerPortal,
   fetchProjectAssets,
 } from "@/services/subscriptionsApi";
+import { AddonNotAvailableModal } from "@/components/billing/AddonNotAvailableModal";
 import { ExtraEditPurchaseModal } from "@/components/billing/ExtraEditPurchaseModal";
+import { addonEligibleForPlan, planForAddonPurchaseGate } from "@/lib/addonPlanEligibility";
+import { ApiRequestError } from "@/services/http";
 import {
   EXTRA_EDIT_BUNDLE_CODE,
   EXTRA_EDIT_SINGLE_CODE,
   canOfferExtraEditPurchases,
   isCreditPackAddon,
-  readPlanExtraEditPricing,
+  readExtraEditPricingForPlan,
   resolveExtraEditPurchaseAddons,
 } from "@/constants/extraEditAddons";
-import { maxPurchasableExtraEditCredits } from "@/lib/websiteEditCreditsLimit";
 import type { BillingCycle, Plan, SubscriptionAddon } from "@/types/subscription";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -93,6 +95,7 @@ export function ProjectSubscriptionPage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [extraEditModalOpen, setExtraEditModalOpen] = useState(false);
+  const [addonNotAvailableOpen, setAddonNotAvailableOpen] = useState(false);
   const [extraEditCompanionCodes, setExtraEditCompanionCodes] = useState<string[]>([]);
   const [plans, setPlans] = useState(() => portal?.plans ?? []);
   const [addonCatalog, setAddonCatalog] = useState(() => portal?.addons ?? []);
@@ -134,12 +137,26 @@ export function ProjectSubscriptionPage() {
   const anyYearly = useMemo(() => plans.some((p) => p.billingYearlyEnabled !== false), [plans]);
   const showBillingCycleToggle = anyMonthly || anyYearly;
 
+  const addonGatePlan = useMemo(
+    () =>
+      planForAddonPurchaseGate(
+        hasLiveProjectPlan,
+        ownedProject?.planId,
+        selectedPlan,
+        plans,
+      ),
+    [hasLiveProjectPlan, ownedProject?.planId, selectedPlan, plans],
+  );
+
   const eligibleAddons = useMemo(
     () =>
       addonCatalog.filter(
-        (a) => !isCreditPackAddon(a) && addonEligibleForCheckout(a, billingCycle, selectedPlan),
+        (a) =>
+          !isCreditPackAddon(a) &&
+          addonEligibleForPlan(a, addonGatePlan) &&
+          addonEligibleForCheckout(a, billingCycle, selectedPlan),
       ),
-    [addonCatalog, billingCycle, selectedPlan],
+    [addonCatalog, addonGatePlan, billingCycle, selectedPlan],
   );
 
   useEffect(() => {
@@ -231,6 +248,19 @@ export function ProjectSubscriptionPage() {
     const effectiveOwnedCycle: BillingCycle = ownedProject.billingCycle ?? "monthly";
     const planOrCycleChanged =
       selectedPlanId !== ownedProject.planId || billingCycle !== effectiveOwnedCycle;
+    const gatePlan = planForAddonPurchaseGate(
+      hasLiveProjectPlan,
+      ownedProject.planId,
+      selectedPlan,
+      plans,
+    );
+    const ineligibleAddon = newAddonCodes
+      .map((code) => addonByCode.get(code))
+      .find((row) => row && !addonEligibleForPlan(row, gatePlan));
+    if (ineligibleAddon) {
+      setAddonNotAvailableOpen(true);
+      return;
+    }
     setBusy(true);
     setNotice(null);
     try {
@@ -267,6 +297,10 @@ export function ProjectSubscriptionPage() {
       await refreshUser();
       navigate({ pathname: `/projects/${ownedProject.id}` }, { replace: true });
     } catch (err) {
+      if (err instanceof ApiRequestError && err.code === "addon_not_eligible_for_plan") {
+        setAddonNotAvailableOpen(true);
+        return;
+      }
       setNotice(err instanceof Error ? err.message : "Could not update subscription.");
     } finally {
       setBusy(false);
@@ -275,6 +309,13 @@ export function ProjectSubscriptionPage() {
 
   async function onSecureCheckout() {
     if (!selectedPlan || !ownedProject) return;
+    const ineligibleAddon = addons
+      .map((code) => addonByCode.get(code))
+      .find((row) => row && !addonEligibleForPlan(row, selectedPlan));
+    if (ineligibleAddon) {
+      setAddonNotAvailableOpen(true);
+      return;
+    }
     setBusy(true);
     setNotice(null);
     try {
@@ -413,15 +454,9 @@ export function ProjectSubscriptionPage() {
     perEditCents: subModalPerEditCents,
     bundleCredits: subModalBundleCredits,
     bundleCents: subModalBundleCents,
-  } = readPlanExtraEditPricing(planForExtraEditModal);
-  const maxExtraEditsBuyableOnSub = maxPurchasableExtraEditCredits(
-    ownedProject.usage,
-    planForExtraEditModal,
-  );
+  } = readExtraEditPricingForPlan(planForExtraEditModal, subExtraEditSingle, subExtraEditBundle);
   const canBuyExtraEditsOnSub =
-    hasLiveProjectPlan &&
-    canOfferExtraEditPurchases(planForExtraEditModal, addonCatalog) &&
-    maxExtraEditsBuyableOnSub > 0;
+    hasLiveProjectPlan && canOfferExtraEditPurchases(planForExtraEditModal, addonCatalog);
 
   return (
     <div className="client-workspace-view space-y-6 text-zinc-900">
@@ -632,8 +667,7 @@ export function ProjectSubscriptionPage() {
                 {addonCatalog.filter(
                   (a) =>
                     !isCreditPackAddon(a) &&
-                    (ownedAddonCodes.has(a.code) ||
-                      addonEligibleForCheckout(a, billingCycle, selectedPlan)),
+                    (ownedAddonCodes.has(a.code) || eligibleAddons.some((e) => e.code === a.code)),
                 ).length === 0 ? (
                   <p className="text-sm text-zinc-500">No add-ons are available for this plan and billing choice.</p>
                 ) : null}
@@ -641,8 +675,7 @@ export function ProjectSubscriptionPage() {
                   .filter(
                     (a) =>
                       !isCreditPackAddon(a) &&
-                      (ownedAddonCodes.has(a.code) ||
-                        addonEligibleForCheckout(a, billingCycle, selectedPlan)),
+                      (ownedAddonCodes.has(a.code) || eligibleAddons.some((e) => e.code === a.code)),
                   )
                   .map((addon) => {
                     const owned = ownedAddonCodes.has(addon.code);
@@ -670,11 +703,18 @@ export function ProjectSubscriptionPage() {
                       key={addon.code}
                       type="button"
                       disabled={checkoutReturnLocksUI}
-                      onClick={() =>
+                      onClick={() => {
+                        const selecting = !addons.includes(addon.code);
+                        if (selecting && !addonEligibleForPlan(addon, addonGatePlan)) {
+                          setAddonNotAvailableOpen(true);
+                          return;
+                        }
                         setAddons((prev) =>
-                          prev.includes(addon.code) ? prev.filter((code) => code !== addon.code) : [...prev, addon.code],
-                        )
-                      }
+                          prev.includes(addon.code)
+                            ? prev.filter((code) => code !== addon.code)
+                            : [...prev, addon.code],
+                        );
+                      }}
                       className={`w-full rounded-xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
                         selected ? "border-white bg-[#1C2126]" : "border-[#2A3037] bg-[#101317] hover:border-zinc-400"
                       }`}
@@ -756,6 +796,12 @@ export function ProjectSubscriptionPage() {
           </section>
         </div>
       )}
+      <AddonNotAvailableModal
+        open={addonNotAvailableOpen}
+        onClose={() => setAddonNotAvailableOpen(false)}
+        projectId={ownedProject.id}
+      />
+
       <ExtraEditPurchaseModal
         open={extraEditModalOpen}
         onClose={() => {

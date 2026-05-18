@@ -141,6 +141,8 @@ export const addonCheckoutSessionSchema = z.object({
   successUrl: safeReturnUrlSchema.optional(),
   cancelUrl: safeReturnUrlSchema.optional(),
   extraEditCheckout: extraEditCheckoutSchema.optional(),
+  /** When the project subscription is yearly, choose monthly vs yearly billing for recurring add-ons. */
+  addonRecurringCycle: z.enum(["monthly", "yearly"]).optional(),
 });
 
 export const confirmAddonCheckoutSchema = z.object({

@@ -36,12 +36,6 @@ export const planWebsiteCatalogSchema = z
     uptimeMonitoringAlerts: z.boolean(),
     cookieGdprComplianceBanner: z.boolean(),
     monthlySecurityScan: z.boolean(),
-    /** Price per additional website edit (USD), synced to `extraEditSingleCents`. */
-    extraEditPerEditUsd: posDollar,
-    /** Fixed bundle: number of edits in the pack (synced to `extraEditPackCount`). */
-    extraEditPackEditCount: posInt,
-    /** Fixed bundle: total pack price in USD (synced to `extraEditPackCents`). */
-    extraEditPackTotalUsd: posDollar,
     supportChannel: supportChannelSchema,
     dedicatedAccountContact: z.boolean(),
   })
@@ -84,9 +78,8 @@ export function mergePlanWebsiteCatalogJson(existingCatalog, incomingWebsite) {
       ? { ...existingCatalog }
       : {};
   const validated = planWebsiteCatalogSchema.parse(incomingWebsite);
-  const { extraEditPerEditUsd, extraEditPackEditCount, extraEditPackTotalUsd, ...rest } = validated;
 
-  let next = { ...existing, ...rest };
+  let next = { ...existing, ...validated };
   const setupCents = Math.round(validated.oneTimeSetupFeeUsd * 100);
   next.setupFeeMinCents = setupCents;
   next.setupFeeMaxCents = setupCents;
@@ -102,11 +95,6 @@ export function mergePlanWebsiteCatalogJson(existingCatalog, incomingWebsite) {
   next.fullSeoSetupOneTime = validated.fullSeoSetup;
   next.googleBusinessProfileOneTime = validated.googleBusinessProfileSetup;
   next.monthlySeoReport = validated.monthlySeoHealthReport;
-
-  next.extraEditSingleCents = Math.round(extraEditPerEditUsd * 100);
-  next.extraEditPackCount = extraEditPackEditCount;
-  next.extraEditPackCents = Math.round(extraEditPackTotalUsd * 100);
-  next.extraEditPricing = `$${extraEditPerEditUsd.toFixed(2)}/edit · ${extraEditPackEditCount} for $${extraEditPackTotalUsd.toFixed(2)}`;
 
   return next;
 }

@@ -44,6 +44,7 @@ export interface SubscriptionAddon {
   setupFeeCents?: number;
   deliveryMode?: string;
   eligiblePlanCodes?: string[];
+  /** Omitted on portal catalog except credit-pack add-ons (plan pricing). */
   catalogJson?: Record<string, unknown>;
 }
 
@@ -206,7 +207,7 @@ export interface AdminCustomerProfilePayload {
   tickets: Array<{
     id: string;
     subject: string;
-    status: "open" | "in_progress" | "hold" | "resolved";
+    status: "open" | "in_progress" | "hold" | "resolved" | "closed";
     department: string;
     createdAt: string;
     updatedAt: string;

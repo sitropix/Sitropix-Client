@@ -1,9 +1,5 @@
 import { EXTRA_EDIT_BUNDLE_CODE, EXTRA_EDIT_SINGLE_CODE } from "@/constants/extraEditAddons";
-import {
-  maxPurchasableExtraEditCredits,
-  readPlanTotalWebsiteEditCreditsLimit,
-  totalWebsiteEditCreditsAvailable,
-} from "@/lib/websiteEditCreditsLimit";
+import { totalWebsiteEditCreditsAvailable } from "@/lib/websiteEditCreditsLimit";
 import { createAddonCheckoutSession } from "@/services/subscriptionsApi";
 import type { ProjectUsageSnapshot } from "@/types/project";
 import type { Plan, SubscriptionAddon } from "@/types/subscription";
@@ -40,7 +36,6 @@ export function ExtraEditPurchaseModal({
   open,
   onClose,
   projectId,
-  plan,
   usage,
   singleAddon,
   bundleAddon,
@@ -59,9 +54,7 @@ export function ExtraEditPurchaseModal({
   const [mode, setMode] = useState<"per_edit" | "bundle">("per_edit");
   const [qty, setQty] = useState(1);
 
-  const maxBuy = useMemo(() => maxPurchasableExtraEditCredits(usage, plan), [usage, plan]);
   const creditsAvailable = useMemo(() => totalWebsiteEditCreditsAvailable(usage), [usage]);
-  const planLimit = useMemo(() => readPlanTotalWebsiteEditCreditsLimit(plan), [plan]);
 
   useEffect(() => {
     if (!open) return;
@@ -73,7 +66,7 @@ export function ExtraEditPurchaseModal({
 
   if (!open) return null;
 
-  const effectiveQty = Math.min(Math.max(1, qty), Math.max(1, maxBuy));
+  const effectiveQty = Math.max(1, qty);
   const perEditTotalCents = perEditCents * effectiveQty;
 
   async function startCheckout() {
@@ -83,25 +76,9 @@ export function ExtraEditPurchaseModal({
         onNotice("Per-edit purchases are not available for this plan.");
         return;
       }
-      if (maxBuy < 1) {
-        onNotice(
-          `You have ${creditsAvailable} edit credits and your plan allows at most ${planLimit} total. You cannot purchase more until you use credits or your plan changes.`,
-        );
-        return;
-      }
-      if (effectiveQty > maxBuy) {
-        onNotice(`You can purchase at most ${maxBuy} extra edits without exceeding your plan limit.`);
-        return;
-      }
     } else {
       if (!canBundle || bundleCredits <= 0 || bundleCents <= 0) {
         onNotice("The edit bundle is not available for this plan.");
-        return;
-      }
-      if (maxBuy < bundleCredits) {
-        onNotice(
-          `This bundle adds ${bundleCredits} credits but you may only add ${maxBuy} before reaching your plan limit of ${planLimit} total credits.`,
-        );
         return;
       }
     }
@@ -160,9 +137,8 @@ export function ExtraEditPurchaseModal({
         </h3>
         <p className="mt-2 text-xs leading-relaxed text-zinc-400">
           You have{" "}
-          <span className="font-semibold text-zinc-200">{creditsAvailable}</span> credits available now.
-          Your plan allows at most{" "}
-          <span className="font-semibold text-zinc-200">{planLimit}</span> total (included + purchased pool).
+          <span className="font-semibold text-zinc-200">{creditsAvailable}</span> website edit credits available
+          now. Purchase any quantity — there is no plan cap on extra credits bought.
         </p>
 
         <div className="mt-4 space-y-3">
@@ -211,7 +187,6 @@ export function ExtraEditPurchaseModal({
               <input
                 type="number"
                 min={1}
-                max={Math.max(1, maxBuy)}
                 step={1}
                 value={qty}
                 onChange={(e) => setQty(parseInt(e.target.value, 10) || 1)}
@@ -223,7 +198,6 @@ export function ExtraEditPurchaseModal({
               <span className="font-semibold text-white">{money(perEditTotalCents, currency)}</span> (
               {effectiveQty} × {money(perEditCents, currency)}).
             </p>
-            <p className="mt-1 text-[11px] text-zinc-500">Max you can add now: {maxBuy}.</p>
           </div>
         ) : null}
 

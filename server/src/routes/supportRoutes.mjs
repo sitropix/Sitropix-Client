@@ -23,6 +23,12 @@ import {
 } from "../services/ticketAttachmentPaths.mjs";
 import { projectNameByIdForTickets } from "../services/supportTicketProjectNames.mjs";
 import { resolveSupportTicketPriority } from "../services/supportTicketPriority.mjs";
+import {
+  canUserCloseTicket,
+  canUserDeleteTicket,
+  canUserReopenTicket,
+  refundTicketCreditsIfNeeded,
+} from "../services/supportTicketLifecycle.mjs";
 
 function insufficientCreditsMessage(needed, available) {
   const creditWord = needed === 1 ? "credit" : "credits";
@@ -106,6 +112,8 @@ router.get("/tickets/:id", async (req, res) => {
     projectName: (ticket.projectId && projectNames.get(ticket.projectId)) || null,
     editTypeId: ticket.editTypeId ?? null,
     creditsCharged: ticket.creditsCharged ?? 0,
+    workCompleted: ticket.workCompleted ?? null,
+    creditsRefunded: ticket.creditsRefunded ?? false,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
     messages: ticket.messages.map((m) => ({
@@ -386,11 +394,142 @@ router.get("/tickets/:id/attachments/:attachmentId/download", async (req, res) =
   return res.send(buf);
 });
 
+router.post("/tickets/:id/close", async (req, res) => {
+  const existing = await prisma.supportTicket.findFirst({
+    where: { id: req.params.id, userId: req.auth.userId },
+  });
+  if (!existing) return res.status(404).json({ error: "not_found" });
+  if (!canUserCloseTicket(existing)) {
+    return res.status(400).json({
+      error: "cannot_close",
+      message: "Only open requests that are not yet resolved can be closed.",
+    });
+  }
+
+  let creditsRefunded = existing.creditsRefunded;
+  await prisma.$transaction(async (tx) => {
+    const data = { status: "closed", updatedAt: new Date() };
+    const { refunded } = await refundTicketCreditsIfNeeded(tx, existing);
+    if (refunded) {
+      data.creditsRefunded = true;
+      creditsRefunded = true;
+    }
+    await tx.supportTicket.update({ where: { id: existing.id }, data });
+  });
+
+  const ticket = await prisma.supportTicket.findUnique({ where: { id: existing.id } });
+  return res.json({
+    id: ticket.id,
+    status: ticket.status,
+    updatedAt: ticket.updatedAt,
+    creditsRefunded,
+  });
+});
+
+router.post("/tickets/:id/reopen", async (req, res) => {
+  const existing = await prisma.supportTicket.findFirst({
+    where: { id: req.params.id, userId: req.auth.userId },
+  });
+  if (!existing) return res.status(404).json({ error: "not_found" });
+  if (!canUserReopenTicket(existing)) {
+    return res.status(400).json({
+      error: "cannot_reopen",
+      message: "Only closed requests can be reopened.",
+    });
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const data = { status: "open", updatedAt: new Date() };
+
+      if (
+        (existing.creditsCharged ?? 0) > 0 &&
+        existing.creditsRefunded &&
+        existing.projectId
+      ) {
+        const sub = await tx.subscription.findFirst({
+          where: {
+            userId: existing.userId,
+            projectId: existing.projectId,
+            status: { not: "canceled" },
+          },
+          include: { plan: { select: { includedEditCreditsPerPeriod: true, catalogJson: true } } },
+        });
+        if (!sub) {
+          const err = new Error("subscription_required");
+          err.code = "subscription_required";
+          throw err;
+        }
+        const charged = await chargeSubscriptionCreditsTx(tx, sub.id, existing.creditsCharged);
+        if (!charged) {
+          const available = totalCreditsAvailable(subscriptionCreditView(sub, sub.plan));
+          const err = new Error("insufficient_credits");
+          err.code = "insufficient_credits";
+          err.needed = existing.creditsCharged;
+          err.available = available;
+          throw err;
+        }
+        data.creditsRefunded = false;
+        data.creditsFromIncluded = charged.fromIncluded;
+        data.creditsFromPurchased = charged.fromPurchased;
+      }
+
+      await tx.supportTicket.update({ where: { id: existing.id }, data });
+    });
+  } catch (e) {
+    if (e?.code === "insufficient_credits") {
+      return res.status(400).json({
+        error: "insufficient_credits",
+        needed: e.needed,
+        available: e.available,
+        message: insufficientCreditsMessage(e.needed ?? existing.creditsCharged, e.available ?? 0),
+      });
+    }
+    if (e?.code === "subscription_required") {
+      return res.status(400).json({
+        error: "subscription_required",
+        message: "An active subscription is required to reopen this website edit request.",
+      });
+    }
+    log.error("ticket.reopen_failed", { ticketId: existing.id, error: e?.message });
+    return res.status(500).json({ error: "ticket_reopen_failed" });
+  }
+
+  const ticket = await prisma.supportTicket.findUnique({ where: { id: existing.id } });
+  return res.json({
+    id: ticket.id,
+    status: ticket.status,
+    updatedAt: ticket.updatedAt,
+    creditsRefunded: ticket.creditsRefunded,
+  });
+});
+
+router.delete("/tickets/:id", async (req, res) => {
+  const existing = await prisma.supportTicket.findFirst({
+    where: { id: req.params.id, userId: req.auth.userId },
+  });
+  if (!existing) return res.status(404).json({ error: "not_found" });
+  if (!canUserDeleteTicket(existing)) {
+    return res.status(400).json({
+      error: "cannot_delete",
+      message: "Only resolved and completed requests can be deleted.",
+    });
+  }
+  await prisma.supportTicket.delete({ where: { id: existing.id } });
+  return res.status(204).end();
+});
+
 router.post("/tickets/:id/messages", validate(replyTicketSchema), async (req, res) => {
   const ticket = await prisma.supportTicket.findFirst({
     where: { id: req.params.id, userId: req.auth.userId },
   });
   if (!ticket) return res.status(404).json({ error: "not_found" });
+  if (ticket.status === "closed" || ticket.status === "resolved") {
+    return res.status(400).json({
+      error: "ticket_not_replyable",
+      message: "This request is closed and cannot receive new replies.",
+    });
+  }
   const msg = await prisma.ticketMessage.create({
     data: {
       ticketId: ticket.id,

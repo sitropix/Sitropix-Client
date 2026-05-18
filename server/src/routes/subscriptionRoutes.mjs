@@ -60,18 +60,25 @@ import {
   EXTRA_EDIT_BUNDLE_CODE,
   EXTRA_EDIT_SINGLE_CODE,
   addonEligibleForPlan,
-  assertWebsiteEditPurchaseAllowed,
   isPlanPricedExtraEditAddonCode,
   isRepeatableExtraEditPurchase,
   resolveCreditPackGrantForAddon,
-  resolveExtraEditAddonPriceCents,
   validateExtraEditAddonAgainstPlan,
 } from "../services/extraEditCredits.mjs";
+import { resolveAddonPlanPriceCents } from "../services/addonPlanPricing.mjs";
 import {
-  addonStripeRecurringInterval,
   buildSubscriptionCheckoutAddonLineItems,
+  createStripeRecurringPriceForAddon,
 } from "../services/recurringAddonStripe.mjs";
 import {
+  buildRecurringAttachEntry,
+  isRecurringAddonRow,
+  recurringAddonFirstCheckoutCents,
+  resolveChosenAddonRecurringCycle,
+  subscriptionBillingAnchorUnix,
+} from "../services/recurringAddonCheckout.mjs";
+import {
+  resolveStripeCustomerIdForSubscription,
   syncPaidInvoicesFromStripe,
   syncSubscriptionFromStripeForUserId,
 } from "../services/stripeSubscriptionSync.mjs";
@@ -88,6 +95,7 @@ import {
 } from "../services/featureFlagService.mjs";
 import {
   fetchAllSubscriptionAddons,
+  fetchPortalAddonCatalog,
   fetchSubscriptionAddonCatalog,
 } from "../services/addonCatalogStore.mjs";
 import { randomToken, sha256 } from "../utils/crypto.mjs";
@@ -101,45 +109,86 @@ function subscriptionDebug(req, step, fields = {}) {
   log.infoReq(req, `subscription.${step}`, fields);
 }
 
+function parseAttachRecurringEntries(meta) {
+  const attachRaw = meta.attachRecurringAddonJson ? String(meta.attachRecurringAddonJson) : "";
+  if (!attachRaw) return [];
+  try {
+    const parsed = JSON.parse(attachRaw);
+    if (Array.isArray(parsed)) return parsed.filter((e) => e && typeof e === "object");
+    if (parsed && typeof parsed === "object" && parsed.code) return [parsed];
+  } catch {
+    return [];
+  }
+  return [];
+}
+
 /**
- * After a paid add-on checkout, attach a recurring Stripe price (no proration) when metadata requests it.
- * Used on first confirm and on idempotent retries if a prior run failed after the DB commit.
+ * After a paid add-on checkout, attach recurring Stripe subscription item(s) (no proration).
+ * First period was collected in Checkout; renewals align to the plan billing anchor day.
  */
 async function attachRecurringAddonIfNeeded(meta, localSub, addonCatalogRows, session) {
-  const attachRaw = meta.attachRecurringAddonJson ? String(meta.attachRecurringAddonJson) : "";
-  if (!attachRaw) return { ok: true };
+  const entries = parseAttachRecurringEntries(meta);
+  if (entries.length === 0) return { ok: true };
   if (!localSub?.stripeSubscriptionId) {
     return { ok: false, message: "missing_stripe_subscription" };
   }
-  let parsed;
-  try {
-    parsed = JSON.parse(attachRaw);
-  } catch {
-    return { ok: false, message: "invalid_attach_metadata" };
-  }
-  const attachCode = String(parsed.code ?? "").trim();
-  const arow = addonCatalogRows.find((r) => r.code === attachCode);
-  if (!arow || (arow.setupFeeCents ?? 0) <= 0) {
-    return { ok: false, message: "invalid_recurring_attach" };
-  }
   try {
     const subMs = String(localSub.stripeSubscriptionId).trim();
+    const stripeSub = await stripe.subscriptions.retrieve(subMs);
+    const anchorUnix = subscriptionBillingAnchorUnix(localSub, stripeSub);
     const existingItems = await stripe.subscriptionItems.list({ subscription: subMs, limit: 100 });
-    const already = existingItems.data?.some((si) => si?.metadata?.sitropixAddon === attachCode);
-    if (!already) {
-      const recur = Math.max(0, Number(parsed.recurringAmountCents) || arow.priceCents || 0);
-      const intv = parsed.interval === "year" ? "year" : "month";
-      await stripe.subscriptionItems.create({
+    const currency = String(session.currency ?? "usd").toLowerCase();
+
+    for (const entry of entries) {
+      const attachCode = String(entry.code ?? "").trim();
+      const arow = addonCatalogRows.find((r) => r.code === attachCode);
+      if (!arow || !isRecurringAddonRow(arow)) {
+        return { ok: false, message: "invalid_recurring_attach" };
+      }
+      const already = existingItems.data?.some((si) => si?.metadata?.sitropixAddon === attachCode);
+      if (already) continue;
+
+      const recur = Math.max(
+        0,
+        Number(entry.recurringAmountCents) ||
+          resolveAddonPlanPriceCents(
+            localSub.plan,
+            arow,
+            entry.chosenCycle === "yearly" ? "yearly" : "monthly",
+          ) ||
+          arow.priceCents ||
+          0,
+      );
+      if (recur <= 0) {
+        return { ok: false, message: "invalid_recurring_amount" };
+      }
+      const intv = entry.interval === "year" ? "year" : "month";
+      const price = await createStripeRecurringPriceForAddon(stripe, {
+        currency,
+        unitAmountCents: recur,
+        interval: intv,
+        label: arow.label,
+        addonCode: attachCode,
+      });
+      const createParams = {
         subscription: subMs,
         proration_behavior: "none",
         metadata: { sitropixAddon: attachCode },
-        price_data: {
-          currency: String(session.currency ?? "usd").toLowerCase(),
-          unit_amount: recur,
-          recurring: { interval: intv },
-          product_data: { name: arow.label },
-        },
-      });
+        price: price.id,
+      };
+      try {
+        await stripe.subscriptionItems.create({
+          ...createParams,
+          billing_cycle_anchor: anchorUnix,
+        });
+      } catch (anchorErr) {
+        const msg = anchorErr?.message ?? "";
+        if (msg.includes("billing_cycle_anchor") || anchorErr?.code === "parameter_unknown") {
+          await stripe.subscriptionItems.create(createParams);
+        } else {
+          throw anchorErr;
+        }
+      }
     }
   } catch (e) {
     return { ok: false, message: e?.message ?? "stripe_subscription_item_failed" };
@@ -340,7 +389,7 @@ router.get("/portal", async (req, res) => {
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
-    fetchSubscriptionAddonCatalog(),
+    fetchPortalAddonCatalog(),
   ]);
 
   // Pick "current" subscription for the response: project-scoped when projectId is provided,
@@ -1010,6 +1059,7 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
     successUrl: successUrlOverride,
     cancelUrl: cancelUrlOverride,
     extraEditCheckout,
+    addonRecurringCycle,
   } = req.validatedBody;
   subscriptionDebug(req, "addon_checkout_session.start", {
     userId: req.auth.userId,
@@ -1022,7 +1072,8 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
   if (!sub || !["active", "trialing"].includes(sub.status)) {
     return res.status(409).json({ error: "subscription_not_active" });
   }
-  if (!sub.stripeCustomerId) {
+  const stripeCustomerId = await resolveStripeCustomerIdForSubscription(req.auth.userId, sub);
+  if (!stripeCustomerId) {
     return res.status(400).json({
       error: "missing_stripe_customer",
       message: "Billing profile is incomplete. Open subscription checkout once, then retry add-ons.",
@@ -1062,24 +1113,38 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
       const v = validateExtraEditAddonAgainstPlan(plan, row);
       if (!v.ok) return res.status(400).json({ error: v.error, message: v.message });
     }
-    if (row.billingKind === "recurring" && (row.setupFeeCents ?? 0) <= 0) {
-      return res.status(400).json({
-        error: "recurring_addon_not_supported_here",
-        message: "This recurring add-on must be added when you start or change your subscription.",
-        code: row.code,
-      });
-    }
   }
 
-  const recurringSetupCode = requested.find((c) => {
-    const r = addonByCode.get(c);
-    return r?.billingKind === "recurring" && (r.setupFeeCents ?? 0) > 0;
-  });
-  if (recurringSetupCode && requested.length > 1) {
+  const subBillingCycle = sub.billingCycle === "yearly" ? "yearly" : "monthly";
+  const recurringCodes = requested.filter((c) => isRecurringAddonRow(addonByCode.get(c)));
+  if (recurringCodes.length > 1) {
     return res.status(400).json({
-      error: "single_addon_checkout_only",
-      message: "Purchase the e-commerce bolt-on alone in this checkout (first-period billing is combined).",
+      error: "single_recurring_addon_checkout",
+      message: "Purchase one recurring add-on at a time.",
     });
+  }
+  const recurringCode = recurringCodes[0] ?? null;
+  let recurringChosenCycle = null;
+  if (recurringCode) {
+    const row = addonByCode.get(recurringCode);
+    recurringChosenCycle = resolveChosenAddonRecurringCycle(
+      subBillingCycle,
+      row,
+      addonRecurringCycle,
+    );
+    if (!recurringChosenCycle) {
+      return res.status(400).json({
+        error: "addon_recurring_cycle_unavailable",
+        message: "This add-on is not available on the selected billing interval.",
+        code: recurringCode,
+      });
+    }
+    if (!sub.stripeSubscriptionId) {
+      return res.status(400).json({
+        error: "missing_stripe_subscription",
+        message: "Cannot attach a recurring add-on without a Stripe subscription id.",
+      });
+    }
   }
 
   const hasSingle = requested.includes(EXTRA_EDIT_SINGLE_CODE);
@@ -1127,17 +1192,6 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
       purchasedDelta += resolveCreditPackGrantWithOverrides(plan, row, creditPackOverrides);
     }
   }
-  if (purchasedDelta > 0) {
-    const capCheck = assertWebsiteEditPurchaseAllowed({
-      plan,
-      subscriptionRow: sub,
-      purchasedDelta,
-    });
-    if (!capCheck.ok) {
-      return res.status(400).json({ error: capCheck.error, message: capCheck.message });
-    }
-  }
-
   const currency = (plan.currency ?? addonByCode.get(requested[0])?.currency ?? "USD").toLowerCase();
   const successUrl = successUrlOverride ?? env.stripeSuccessUrl;
   const cancelUrl = cancelUrlOverride ?? env.stripeCancelUrl;
@@ -1155,40 +1209,37 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
 
   let attachRecurringAddonJson = "";
   const lineItems = [];
+  const attachEntries = [];
 
-  if (recurringSetupCode) {
-    const item = addonByCode.get(recurringSetupCode);
+  if (recurringCode) {
+    const item = addonByCode.get(recurringCode);
+    const firstPeriodCents = recurringAddonFirstCheckoutCents(
+      item,
+      plan,
+      recurringChosenCycle,
+    );
+    if (firstPeriodCents <= 0) {
+      return res.status(400).json({ error: "invalid_addon_price", code: recurringCode });
+    }
     const setup = item.setupFeeCents ?? 0;
-    const recurring = item.priceCents ?? 0;
+    const labelSuffix =
+      setup > 0 ? " (setup + first billing cycle)" : " (first billing cycle)";
     lineItems.push({
       price_data: {
         currency,
-        product_data: { name: `${item.label} (setup + first billing cycle)` },
-        unit_amount: setup + recurring,
+        product_data: { name: `${item.label}${labelSuffix}` },
+        unit_amount: firstPeriodCents,
       },
       quantity: 1,
     });
-    if (!sub.stripeSubscriptionId) {
-      return res.status(400).json({
-        error: "missing_stripe_subscription",
-        message: "Cannot attach a recurring add-on without a Stripe subscription id.",
-      });
-    }
-    const interval = addonStripeRecurringInterval(item, sub.billingCycle ?? "monthly");
-    attachRecurringAddonJson = JSON.stringify({
-      code: item.code,
-      recurringAmountCents: recurring,
-      interval,
-    });
+    attachEntries.push(buildRecurringAttachEntry(item, plan, recurringChosenCycle));
   }
 
   for (const code of requested) {
-    if (recurringSetupCode && code === recurringSetupCode) continue;
+    if (recurringCode && code === recurringCode) continue;
     const item = addonByCode.get(code);
-    const unit = isPlanPricedExtraEditAddonCode(code)
-      ? resolveExtraEditAddonPriceCents(plan, item)
-      : item.priceCents ?? 0;
-    if (isPlanPricedExtraEditAddonCode(code) && unit <= 0) {
+    const unit = resolveAddonPlanPriceCents(plan, item, subBillingCycle);
+    if (unit <= 0) {
       return res.status(400).json({ error: "invalid_addon_price", code });
     }
     const qty =
@@ -1205,6 +1256,10 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
     });
   }
 
+  if (attachEntries.length > 0) {
+    attachRecurringAddonJson = JSON.stringify(attachEntries);
+  }
+
   const checkoutMetadata = {
     userId: req.auth.userId,
     projectId,
@@ -1218,7 +1273,7 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
   };
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
-    customer: sub.stripeCustomerId,
+    customer: stripeCustomerId,
     line_items: lineItems,
     success_url: checkoutSuccessUrl,
     cancel_url: cancelUrl,
@@ -1276,7 +1331,12 @@ router.post("/confirm-addon-checkout", validate(confirmAddonCheckoutSchema), asy
     subscriptionDebug(req, "addon_checkout_confirm.idempotent", { userId: req.auth.userId, projectId, sessionId });
     const ls = await prisma.subscription.findFirst({
       where: { userId: req.auth.userId, projectId },
-      select: { id: true, stripeSubscriptionId: true },
+      select: {
+        id: true,
+        stripeSubscriptionId: true,
+        currentPeriodStart: true,
+        plan: true,
+      },
     });
     const attachRes = await attachRecurringAddonIfNeeded(meta, ls, addonCatalogRows, session);
     if (!attachRes.ok) {
@@ -1327,16 +1387,6 @@ router.post("/confirm-addon-checkout", validate(confirmAddonCheckoutSchema), asy
       error: "subscription_required_for_credit_pack",
       message: "Credit packs require an active project subscription row.",
     });
-  }
-  if (purchasedDelta > 0 && localSub?.plan) {
-    const capCheck = assertWebsiteEditPurchaseAllowed({
-      plan: localSub.plan,
-      subscriptionRow: localSub,
-      purchasedDelta,
-    });
-    if (!capCheck.ok) {
-      return res.status(400).json({ error: capCheck.error, message: capCheck.message });
-    }
   }
   if (meta.attachRecurringAddonJson && !localSub?.stripeSubscriptionId) {
     return res.status(409).json({
@@ -1438,7 +1488,9 @@ router.post("/billing-portal", validate(billingPortalSchema), async (req, res) =
   const sub = projectId
     ? await findUserProjectSubscription(req.auth.userId, projectId)
     : await findPrimaryUserSubscription(req.auth.userId);
-  if (!sub?.stripeCustomerId) return res.status(400).json({ error: "missing_stripe_customer" });
+  if (!sub) return res.status(404).json({ error: "subscription_not_found" });
+  const portalCustomerId = await resolveStripeCustomerIdForSubscription(req.auth.userId, sub);
+  if (!portalCustomerId) return res.status(400).json({ error: "missing_stripe_customer" });
   const returnUrl = req.validatedBody.returnUrl ?? `${env.appUrl}/billing`;
   if (!isAllowedRedirect(returnUrl)) {
     return res.status(400).json({
@@ -1447,7 +1499,7 @@ router.post("/billing-portal", validate(billingPortalSchema), async (req, res) =
     });
   }
   const session = await stripe.billingPortal.sessions.create({
-    customer: sub.stripeCustomerId,
+    customer: portalCustomerId,
     return_url: returnUrl,
   });
   subscriptionDebug(req, "billing_portal.success", { userId: req.auth.userId, sessionId: session.id });

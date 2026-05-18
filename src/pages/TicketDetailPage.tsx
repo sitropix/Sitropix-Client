@@ -1,14 +1,31 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { ButtonLoader } from "@/components/ButtonLoader";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { RichTextContent } from "@/components/RichTextContent";
 import { Skeleton } from "@/components/Skeleton";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useToast } from "@/components/Toast";
 import { ApiRequestError } from "@/services/http";
-import { downloadTicketAttachment, fetchTicketById, postTicketReply } from "@/services/supportApi";
+import { useTickets } from "@/hooks/useTickets";
+import {
+  canUserCloseTicket,
+  canUserDeleteTicket,
+  canUserReopenTicket,
+  isTicketReplyable,
+} from "@/lib/supportTicketLifecycle";
+import {
+  closeSupportTicket,
+  deleteSupportTicket,
+  downloadTicketAttachment,
+  fetchTicketById,
+  postTicketReply,
+  reopenSupportTicket,
+} from "@/services/supportApi";
 import type { SupportTicketDetail } from "@/types/support";
+
+type PendingAction = "close" | "delete" | "reopen" | null;
 
 function formatWhen(iso: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
@@ -16,6 +33,8 @@ function formatWhen(iso: string) {
 
 export function TicketDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { reload: reloadTickets } = useTickets();
   const { showSuccess, showError } = useToast();
   const [detail, setDetail] = useState<SupportTicketDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -24,6 +43,8 @@ export function TicketDetailPage() {
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [retryBusy, setRetryBusy] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   useEffect(() => {
     if (id === undefined) return;
@@ -54,6 +75,68 @@ export function TicketDetailPage() {
     };
   }, [id]);
 
+  async function refreshTicketAndList() {
+    if (!id) return;
+    const [d] = await Promise.all([fetchTicketById(id), reloadTickets()]);
+    setDetail(d);
+  }
+
+  async function confirmCloseTicket() {
+    if (!id || !detail || !canUserCloseTicket(detail)) return;
+    setActionBusy(true);
+    try {
+      const result = await closeSupportTicket(id);
+      await refreshTicketAndList();
+      if (result.creditsRefunded) {
+        showSuccess("Request closed. Reserved edit credits were returned to your project.");
+      } else {
+        showSuccess("Request closed.");
+      }
+      setPendingAction(null);
+    } catch {
+      showError("Could not close this request. Please try again.");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function confirmDeleteTicket() {
+    if (!id || !detail || !canUserDeleteTicket(detail)) return;
+    setActionBusy(true);
+    try {
+      await deleteSupportTicket(id);
+      await reloadTickets();
+      showSuccess("Request deleted.");
+      setPendingAction(null);
+      navigate("/requests", { replace: true });
+    } catch {
+      showError("Could not delete this request. Please try again.");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function confirmReopenTicket() {
+    if (!id || !detail || !canUserReopenTicket(detail)) return;
+    setActionBusy(true);
+    try {
+      await reopenSupportTicket(id);
+      await refreshTicketAndList();
+      showSuccess("Request reopened. You can add replies again.");
+      setPendingAction(null);
+    } catch (e) {
+      if (e instanceof ApiRequestError && e.code === "insufficient_credits") {
+        showError(
+          "Not enough website edit credits on this project to reopen this edit request. Buy more credits from your project dashboard.",
+        );
+      } else {
+        showError("Could not reopen this request. Please try again.");
+      }
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!id || !body.trim()) return;
@@ -61,8 +144,7 @@ export function TicketDetailPage() {
     try {
       await postTicketReply(id, body.trim());
       setBody("");
-      const d = await fetchTicketById(id);
-      setDetail(d);
+      await refreshTicketAndList();
       showSuccess("Reply sent successfully.");
     } catch {
       showError("Could not send your message. Please try again.");
@@ -169,7 +251,92 @@ export function TicketDetailPage() {
         <p className="text-xs text-ink-muted">
           Opened {formatWhen(detail.createdAt)} — last update {formatWhen(detail.updatedAt)}
         </p>
+        {(canUserCloseTicket(detail) || canUserDeleteTicket(detail) || canUserReopenTicket(detail)) && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {canUserReopenTicket(detail) ? (
+              <button
+                type="button"
+                disabled={actionBusy}
+                onClick={() => setPendingAction("reopen")}
+                className="rounded-lg border border-brand-lime/35 bg-brand-lime/10 px-4 py-2 text-sm font-semibold text-brand-lime transition hover:bg-brand-lime/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Reopen request
+              </button>
+            ) : null}
+            {canUserCloseTicket(detail) ? (
+              <button
+                type="button"
+                disabled={actionBusy}
+                onClick={() => setPendingAction("close")}
+                className="rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-zinc-200 transition hover:border-white/30 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Close request
+              </button>
+            ) : null}
+            {canUserDeleteTicket(detail) ? (
+              <button
+                type="button"
+                disabled={actionBusy}
+                onClick={() => setPendingAction("delete")}
+                className="rounded-lg border border-rose-500/35 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Delete request
+              </button>
+            ) : null}
+          </div>
+        )}
       </header>
+
+      <ConfirmDialog
+        open={pendingAction === "close"}
+        title="Close this request?"
+        variant="warning"
+        confirmLabel="Close request"
+        loading={actionBusy}
+        description={
+          <>
+            You will not be able to add more replies after closing.
+            {(detail.creditsCharged ?? 0) > 0 && !detail.creditsRefunded ? (
+              <span className="mt-2 block">
+                Any website edit credits reserved for this request will be returned to your project.
+              </span>
+            ) : null}
+          </>
+        }
+        onConfirm={() => void confirmCloseTicket()}
+        onCancel={() => !actionBusy && setPendingAction(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingAction === "delete"}
+        title="Delete this request?"
+        variant="danger"
+        confirmLabel="Delete permanently"
+        loading={actionBusy}
+        description="This removes the conversation from your requests list. This cannot be undone."
+        onConfirm={() => void confirmDeleteTicket()}
+        onCancel={() => !actionBusy && setPendingAction(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingAction === "reopen"}
+        title="Reopen this request?"
+        confirmLabel="Reopen"
+        loading={actionBusy}
+        description={
+          (detail.creditsCharged ?? 0) > 0 && detail.creditsRefunded ? (
+            <>
+              Reopening will reserve{" "}
+              <span className="font-semibold text-white">{detail.creditsCharged}</span> website edit credits on your
+              project again.
+            </>
+          ) : (
+            "You can continue the conversation and add new replies."
+          )
+        }
+        onConfirm={() => void confirmReopenTicket()}
+        onCancel={() => !actionBusy && setPendingAction(null)}
+      />
 
       <section className="space-y-4" aria-label="Conversation">
         {detail.messages.map((m) => (
@@ -216,6 +383,7 @@ export function TicketDetailPage() {
         ))}
       </section>
 
+      {isTicketReplyable(detail) ? (
       <form onSubmit={onSubmit} className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
         <label htmlFor="reply" className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">
           Add a reply
@@ -237,6 +405,13 @@ export function TicketDetailPage() {
           {sending ? "Sending…" : "Send reply"}
         </button>
       </form>
+      ) : (
+        <p className="rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-4 text-sm text-ink-muted">
+          {detail.status === "closed"
+            ? "This request is closed. Reopen it to add more replies."
+            : "This request is resolved and cannot receive new replies."}
+        </p>
+      )}
     </div>
   );
 }

@@ -1,16 +1,35 @@
-import { readAddonEffectKind, readCreditPackGrant, totalCreditsAvailable } from "./subscriptionCredits.mjs";
+import { readAddonEffectKind, readCreditPackGrant } from "./subscriptionCredits.mjs";
+import {
+  readExtraEditAddonOffer,
+  resolveAddonPlanPriceCents,
+} from "./addonPlanPricing.mjs";
 
 export const EXTRA_EDIT_SINGLE_CODE = "addon_extra_edit_single";
 export const EXTRA_EDIT_BUNDLE_CODE = "addon_extra_edit_bundle";
 
-export function isPlanPricedExtraEditAddonCode(code) {
+export function isOfficialExtraEditAddonCode(code) {
   return code === EXTRA_EDIT_SINGLE_CODE || code === EXTRA_EDIT_BUNDLE_CODE;
 }
 
-/** Extra edit / credit-pack add-ons may be purchased multiple times (capped by plan limits). */
+/** @deprecated Use isOfficialExtraEditAddonCode */
+export const isPlanPricedExtraEditAddonCode = isOfficialExtraEditAddonCode;
+
+export { readExtraEditAddonOffer };
+
+function readExtraEditTier(addonRow) {
+  const j =
+    addonRow?.catalogJson && typeof addonRow.catalogJson === "object" ? addonRow.catalogJson : {};
+  const t = j.extraEditTier ?? j.extra_edit_tier;
+  if (t === "single" || t === "bundle") return t;
+  if (addonRow?.code === EXTRA_EDIT_SINGLE_CODE) return "single";
+  if (addonRow?.code === EXTRA_EDIT_BUNDLE_CODE) return "bundle";
+  return null;
+}
+
+/** Extra edit / credit-pack add-ons may be purchased multiple times. */
 export function isRepeatableExtraEditPurchase(addonRow) {
   if (!addonRow?.code) return false;
-  if (isPlanPricedExtraEditAddonCode(addonRow.code)) return true;
+  if (isOfficialExtraEditAddonCode(addonRow.code)) return true;
   return readAddonEffectKind(addonRow.catalogJson) === "credit_pack";
 }
 
@@ -41,16 +60,12 @@ function intNonNeg(value, fallback = 0) {
 
 /**
  * Ceiling for rolled purchased website-edit credits (from plan `catalog_json`).
- * Seeded per tier so bundles like 5×$49 remain purchasable while still capping stock.
  */
 export function readMaxPurchasedEditCreditsBalance(plan) {
   const j = planCatalogObj(plan);
   const explicit = j.maxPurchasedEditCreditsBalance ?? j.max_purchased_edit_credits_balance;
   const fromCatalog = intNonNeg(explicit, -1);
   if (fromCatalog >= 0) return fromCatalog;
-
-  const packCount = intNonNeg(j.extraEditPackCount ?? j.extra_edit_pack_count);
-  if (packCount > 0) return packCount;
 
   const inc = intNonNeg(plan?.includedEditCreditsPerPeriod);
   return Math.max(50, inc * 5);
@@ -62,93 +77,47 @@ export function readPlanTotalWebsiteEditCreditsLimit(plan) {
   return inc + readMaxPurchasedEditCreditsBalance(plan);
 }
 
-export function readExtraEditSingleOffer(plan) {
-  const j = planCatalogObj(plan);
-  const cents = j.extraEditSingleCents ?? j.extra_edit_single_cents;
-  const c = typeof cents === "number" ? cents : parseInt(String(cents ?? "0"), 10);
-  return { credits: 1, priceCents: Math.max(0, Math.floor(c || 0)) };
-}
-
-export function readExtraEditBundleOffer(plan) {
-  const j = planCatalogObj(plan);
-  const countRaw = j.extraEditPackCount ?? j.extra_edit_pack_count;
-  const centsRaw = j.extraEditPackCents ?? j.extra_edit_pack_cents;
-  const count = typeof countRaw === "number" ? countRaw : parseInt(String(countRaw ?? "0"), 10);
-  const cents = typeof centsRaw === "number" ? centsRaw : parseInt(String(centsRaw ?? "0"), 10);
-  return { credits: Math.max(0, Math.floor(count || 0)), priceCents: Math.max(0, Math.floor(cents || 0)) };
-}
-
 export function resolveCreditPackGrantForAddon(plan, addonRow) {
   if (!addonRow?.code) return 0;
-  if (addonRow.code === EXTRA_EDIT_SINGLE_CODE) return readExtraEditSingleOffer(plan).credits;
-  if (addonRow.code === EXTRA_EDIT_BUNDLE_CODE) return readExtraEditBundleOffer(plan).credits;
+  const tier = readExtraEditTier(addonRow);
+  if (tier === "single" || tier === "bundle" || isOfficialExtraEditAddonCode(addonRow.code)) {
+    return readExtraEditAddonOffer(plan, addonRow).creditsGranted;
+  }
   return readCreditPackGrant(addonRow.catalogJson);
 }
 
 export function resolveExtraEditAddonPriceCents(plan, addonRow) {
-  if (addonRow.code === EXTRA_EDIT_SINGLE_CODE) return readExtraEditSingleOffer(plan).priceCents;
-  if (addonRow.code === EXTRA_EDIT_BUNDLE_CODE) return readExtraEditBundleOffer(plan).priceCents;
-  return addonRow.priceCents ?? 0;
+  return resolveAddonPlanPriceCents(plan, addonRow, null);
 }
 
 export function validateExtraEditAddonAgainstPlan(plan, addonRow) {
-  if (!isPlanPricedExtraEditAddonCode(addonRow.code)) return { ok: true };
-  const single = readExtraEditSingleOffer(plan);
-  const bundle = readExtraEditBundleOffer(plan);
-  if (addonRow.code === EXTRA_EDIT_SINGLE_CODE && single.priceCents <= 0) {
+  const tier = readExtraEditTier(addonRow);
+  if (!tier && !isOfficialExtraEditAddonCode(addonRow?.code)) return { ok: true };
+
+  const offer = readExtraEditAddonOffer(plan, addonRow);
+  if (offer.priceCents <= 0) {
     return {
       ok: false,
       error: "extra_edit_pricing_not_configured",
-      message: "Plan is missing extra edit single pricing in catalog.",
+      message: "Add-on is missing extra edit pricing for this plan.",
     };
   }
-  if (addonRow.code === EXTRA_EDIT_BUNDLE_CODE && (bundle.credits <= 0 || bundle.priceCents <= 0)) {
+  if (tier === "bundle" && offer.creditsGranted <= 0) {
     return {
       ok: false,
       error: "extra_edit_pricing_not_configured",
-      message: "Plan is missing extra edit bundle pricing in catalog.",
+      message: "Add-on bundle is missing credits for this plan.",
     };
   }
   return { ok: true };
 }
 
-export function assertCreditPurchaseUnderCap({ plan, subscriptionRow, purchasedDelta }) {
-  if (purchasedDelta <= 0) return { ok: true };
-  const cap = readMaxPurchasedEditCreditsBalance(plan);
-  const current = Math.max(0, subscriptionRow?.purchasedCreditsBalance ?? 0);
-  const next = current + purchasedDelta;
-  if (next > cap) {
-    return {
-      ok: false,
-      error: "purchased_credits_cap_exceeded",
-      message: `Purchased edit credits cannot exceed ${cap} for your plan (you have ${current}; this purchase would add ${purchasedDelta}).`,
-    };
-  }
+/** Extra edit purchases are not capped by plan balance — any quantity is allowed. */
+export function assertCreditPurchaseUnderCap() {
   return { ok: true };
 }
 
-/**
- * Enforces purchased-balance ceiling and plan-wide total (included remaining + purchased)
- * after the purchase.
- */
-export function assertWebsiteEditPurchaseAllowed({ plan, subscriptionRow, purchasedDelta }) {
-  if (purchasedDelta <= 0) return { ok: true };
-  const purchasedOnly = assertCreditPurchaseUnderCap({ plan, subscriptionRow, purchasedDelta });
-  if (!purchasedOnly.ok) return purchasedOnly;
-  const subLike = {
-    includedCreditsPerPeriod: subscriptionRow?.includedCreditsPerPeriod ?? 0,
-    includedCreditsUsedThisPeriod: subscriptionRow?.includedCreditsUsedThisPeriod ?? 0,
-    purchasedCreditsBalance: subscriptionRow?.purchasedCreditsBalance ?? 0,
-  };
-  const currentTotal = totalCreditsAvailable(subLike);
-  const limit = readPlanTotalWebsiteEditCreditsLimit(plan);
-  const nextTotal = currentTotal + purchasedDelta;
-  if (nextTotal > limit) {
-    return {
-      ok: false,
-      error: "website_edit_credits_plan_limit_exceeded",
-      message: `You currently have ${currentTotal} website edit credits available. Adding ${purchasedDelta} would exceed your plan limit of ${limit} credits (included allowance plus purchased cap).`,
-    };
-  }
+/** Extra edit purchases are not capped by plan balance — any quantity is allowed. */
+export function assertWebsiteEditPurchaseAllowed() {
   return { ok: true };
 }

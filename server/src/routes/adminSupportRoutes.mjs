@@ -16,7 +16,7 @@ router.use(requireAuth, requireRole("admin", "master_admin"), requireModuleAcces
 router.get("/tickets", async (req, res) => {
   const { status, userId, priority, limit = "50", offset = "0" } = req.query;
   const where = {};
-  if (status && ["open", "in_progress", "hold", "resolved"].includes(String(status))) {
+  if (status && ["open", "in_progress", "hold", "resolved", "closed"].includes(String(status))) {
     where.status = String(status);
   }
   if (userId) where.userId = String(userId);
@@ -143,6 +143,12 @@ router.patch("/tickets/:id", validate(updateTicketStatusSchema), async (req, res
   const { status, workCompleted } = req.validatedBody;
   const existing = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
   if (!existing) return res.status(404).json({ error: "not_found" });
+  if (existing.status === "closed") {
+    return res.status(400).json({
+      error: "ticket_closed",
+      message: "This request was closed by the customer. Only the customer can reopen it.",
+    });
+  }
 
   const becomingResolved = status === "resolved" && existing.status !== "resolved";
   const treatAsCompleted = workCompleted !== false;

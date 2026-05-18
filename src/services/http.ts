@@ -99,6 +99,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       { needed: body.needed, available: body.available },
     );
   }
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 

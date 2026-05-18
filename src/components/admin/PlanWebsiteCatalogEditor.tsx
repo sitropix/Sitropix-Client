@@ -37,12 +37,6 @@ export type PlanWebsiteCatalogValues = {
   uptimeMonitoringAlerts: boolean;
   cookieGdprComplianceBanner: boolean;
   monthlySecurityScan: boolean;
-  /** USD per extra website edit (maps to `extraEditSingleCents`). */
-  extraEditPerEditUsd: number;
-  /** Number of edits in the fixed-price pack (maps to `extraEditPackCount`). */
-  extraEditPackEditCount: number;
-  /** Total USD for the edit pack (maps to `extraEditPackCents`). */
-  extraEditPackTotalUsd: number;
   supportChannel: SupportChannelCode;
   dedicatedAccountContact: boolean;
 };
@@ -92,28 +86,6 @@ function normalizeSupportChannel(raw: string): SupportChannelCode {
   }
   const hit = SUPPORT_CHANNEL_OPTIONS.find((o) => o.value === s);
   return hit ? hit.value : "email_48h";
-}
-
-function extraEditPerEditUsdFromCatalog(j: Record<string, unknown>): number {
-  const direct = num(j.extraEditPerEditUsd, NaN);
-  if (Number.isFinite(direct) && direct > 0) return direct;
-  const singleC = intNonNeg(j.extraEditSingleCents ?? j.extra_edit_single_cents, 0);
-  return singleC > 0 ? Math.max(0.01, singleC / 100) : 12;
-}
-
-function extraEditPackEditCountFromCatalog(j: Record<string, unknown>): number {
-  if (typeof j.extraEditPackEditCount === "number" && Number.isFinite(j.extraEditPackEditCount)) {
-    const n = Math.floor(j.extraEditPackEditCount);
-    if (n > 0) return n;
-  }
-  return intPos(j.extraEditPackCount ?? j.extra_edit_pack_count, 5);
-}
-
-function extraEditPackTotalUsdFromCatalog(j: Record<string, unknown>): number {
-  const direct = num(j.extraEditPackTotalUsd, NaN);
-  if (Number.isFinite(direct) && direct > 0) return direct;
-  const packC = intNonNeg(j.extraEditPackCents ?? j.extra_edit_pack_cents, 0);
-  return packC > 0 ? Math.max(0.01, packC / 100) : 49;
 }
 
 function defaultProductCatalog(j: Record<string, unknown>): string {
@@ -217,9 +189,6 @@ export function planWebsiteCatalogValuesFromPlan(
       true,
     ),
     monthlySecurityScan: bool(j.monthlySecurityScan, false),
-    extraEditPerEditUsd: extraEditPerEditUsdFromCatalog(j),
-    extraEditPackEditCount: extraEditPackEditCountFromCatalog(j),
-    extraEditPackTotalUsd: extraEditPackTotalUsdFromCatalog(j),
     supportChannel: normalizeSupportChannel(str(j.supportChannel, "")),
     dedicatedAccountContact: bool(j.dedicatedAccountContact, false),
   };
@@ -256,9 +225,6 @@ export function planWebsiteCatalogValuesToPayload(
     uptimeMonitoringAlerts: v.uptimeMonitoringAlerts,
     cookieGdprComplianceBanner: v.cookieGdprComplianceBanner,
     monthlySecurityScan: v.monthlySecurityScan,
-    extraEditPerEditUsd: v.extraEditPerEditUsd,
-    extraEditPackEditCount: v.extraEditPackEditCount,
-    extraEditPackTotalUsd: v.extraEditPackTotalUsd,
     supportChannel: v.supportChannel,
     dedicatedAccountContact: v.dedicatedAccountContact,
   };
@@ -458,66 +424,6 @@ export function PlanWebsiteCatalogEditor({ value, onChange }: Props) {
           </select>
         </label>
       </div>
-      <div className={`${rowCls()} mt-1`}>
-        <label className="flex flex-col gap-1">
-          <FieldLabel>Extra edits — price per edit ($/edit)</FieldLabel>
-          <input
-            type="number"
-            min={0.01}
-            step="0.01"
-            value={value.extraEditPerEditUsd}
-            onChange={(e) =>
-              patch({
-                extraEditPerEditUsd: Math.max(
-                  0.01,
-                  parseFloat(e.target.value) || 0.01,
-                ),
-              })
-            }
-            className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <FieldLabel>Extra edits — pack size (# of edits)</FieldLabel>
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={value.extraEditPackEditCount}
-            onChange={(e) =>
-              patch({
-                extraEditPackEditCount: Math.max(
-                  1,
-                  parseInt(e.target.value, 10) || 1,
-                ),
-              })
-            }
-            className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
-          />
-        </label>
-        <label className="flex flex-col gap-1 sm:col-span-2">
-          <FieldLabel>Extra edits — pack total price ($)</FieldLabel>
-          <input
-            type="number"
-            min={0.01}
-            step="0.01"
-            value={value.extraEditPackTotalUsd}
-            onChange={(e) =>
-              patch({
-                extraEditPackTotalUsd: Math.max(
-                  0.01,
-                  parseFloat(e.target.value) || 0.01,
-                ),
-              })
-            }
-            className="rounded border border-[#2A3037] bg-[#15191C] px-2 py-1.5 text-[11px] text-white"
-          />
-        </label>
-      </div>
-      <p className="text-[10px] text-zinc-500">
-        Per-edit and pack prices sync to Stripe extra-edit add-ons on save. Customers buying per-edit
-        pay (count × per-edit price); the pack is one checkout at the pack total.
-      </p>
     </div>
   );
 }

@@ -184,6 +184,80 @@ export async function syncSubscriptionFromStripeForUserId(userId, options = {}) 
   return { ok: true, planCode: plan.code, stripeSubscriptionId: full.id, projectId: resolvedProjectId };
 }
 
+/**
+ * Resolve Stripe customer id for billing flows (add-on checkout, portal).
+ * Prefers subscription row, then user, then Stripe subscription / customer list; backfills DB.
+ * @param {string} userId
+ * @param {{ id: string; stripeCustomerId?: string | null; stripeSubscriptionId?: string | null }} subscriptionRow
+ */
+export async function resolveStripeCustomerIdForSubscription(userId, subscriptionRow) {
+  if (!subscriptionRow?.id) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { stripeCustomerId: true, email: true },
+  });
+
+  let customerId = subscriptionRow.stripeCustomerId ?? user?.stripeCustomerId ?? null;
+
+  async function persistCustomerId(cid) {
+    if (!cid) return;
+    if (subscriptionRow.stripeCustomerId !== cid) {
+      await prisma.subscription.update({
+        where: { id: subscriptionRow.id },
+        data: { stripeCustomerId: cid },
+      });
+    }
+    if (user && user.stripeCustomerId !== cid) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { stripeCustomerId: cid },
+      });
+    }
+    customerId = cid;
+  }
+
+  if (customerId) {
+    await persistCustomerId(customerId);
+    return customerId;
+  }
+
+  if (subscriptionRow.stripeSubscriptionId && stripe) {
+    try {
+      const stripeSub = await stripe.subscriptions.retrieve(subscriptionRow.stripeSubscriptionId);
+      const raw = stripeSub.customer;
+      const cid = typeof raw === "string" ? raw : raw?.id ?? null;
+      if (cid) {
+        await persistCustomerId(cid);
+        return customerId;
+      }
+    } catch (e) {
+      log.warn("subscription.resolve_customer.stripe_sub_failed", {
+        userId,
+        subscriptionId: subscriptionRow.id,
+        error: e?.message,
+      });
+    }
+  }
+
+  if (user?.email && stripe) {
+    try {
+      const { data: customers } = await stripe.customers.list({ email: user.email, limit: 8 });
+      const lower = user.email.toLowerCase();
+      const match =
+        customers.find((c) => c.email?.toLowerCase() === lower) ?? (customers.length > 0 ? customers[0] : null);
+      if (match?.id) {
+        await persistCustomerId(match.id);
+        return customerId;
+      }
+    } catch (e) {
+      log.warn("subscription.resolve_customer.list_failed", { userId, error: e?.message });
+    }
+  }
+
+  return null;
+}
+
 function stripeSubscriptionIdOnInvoice(invoice) {
   // Try the direct subscription field (older API versions)
   const sub = invoice.subscription;

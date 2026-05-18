@@ -19,6 +19,7 @@ const filters: { label: string; value: "all" | TicketStatus }[] = [
   { label: "In progress", value: "in_progress" },
   { label: "Hold", value: "hold" },
   { label: "Resolved", value: "resolved" },
+  { label: "Closed", value: "closed" },
 ];
 
 const priorityFilters: { label: string; value: "all" | TicketPriority }[] = [

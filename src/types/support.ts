@@ -1,4 +1,4 @@
-export type TicketStatus = "open" | "in_progress" | "hold" | "resolved";
+export type TicketStatus = "open" | "in_progress" | "hold" | "resolved" | "closed";
 export type TicketPriority = "low" | "medium" | "high" | "urgent";
 
 export interface SupportTicket {

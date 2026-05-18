@@ -7,6 +7,24 @@ import {
   rowsToCatalog,
   type CatalogEditRow,
 } from "@/components/admin/CatalogObjectEditor";
+import { AddonPlanPricingEditor } from "@/components/admin/AddonPlanPricingEditor";
+import {
+  AdminAddonFieldLabel,
+  AdminAddonLabeledInput,
+  AdminAddonLabeledSelect,
+} from "@/components/admin/AdminAddonField";
+import {
+  EXTRA_EDIT_BUNDLE_CODE,
+  EXTRA_EDIT_SINGLE_CODE,
+  LEGACY_EXTRA_EDIT_PACK_CODE,
+} from "@/constants/extraEditAddons";
+import {
+  addonUsesPlanWisePricing,
+  firstPlanPriceCents,
+  readExtraEditTier,
+  seedPlanPricingFromAddon,
+  type AddonPlanPricing,
+} from "@/lib/addonPlanPricing";
 import {
   PlanWebsiteCatalogEditor,
   planWebsiteCatalogValuesFromPlan,
@@ -92,6 +110,7 @@ export function PlanManagementPage() {
   const [eAddonCatalogRows, setEAddonCatalogRows] = useState<CatalogEditRow[]>(
     [],
   );
+  const [eAddonPlanPricing, setEAddonPlanPricing] = useState<AddonPlanPricing>({});
   const [eAddonSetupFee, setEAddonSetupFee] = useState("0");
   const [eAddonPriceMin, setEAddonPriceMin] = useState("");
   const [eAddonPriceMax, setEAddonPriceMax] = useState("");
@@ -112,8 +131,9 @@ export function PlanManagementPage() {
   async function load() {
     setNoModuleAccess(false);
     const [next, addonRows] = await Promise.all([fetchAdminPlans(), fetchAdminAddons()]);
+    const visibleAddons = addonRows.filter((a) => a.code !== LEGACY_EXTRA_EDIT_PACK_CODE);
     setPlans(next);
-    setAddons(addonRows);
+    setAddons(visibleAddons);
     updateCache({ plans: next });
   }
 
@@ -301,9 +321,34 @@ export function PlanManagementPage() {
     }
   }
 
+  function extraEditTierForAddon(addon: SubscriptionAddon): "single" | "bundle" | null {
+    const tier = readExtraEditTier(addon.catalogJson);
+    if (tier) return tier;
+    if (addon.code === EXTRA_EDIT_SINGLE_CODE) return "single";
+    if (addon.code === EXTRA_EDIT_BUNDLE_CODE) return "bundle";
+    return null;
+  }
+
+  function catalogRowsWithoutPricingKeys(catalog: Record<string, unknown>): CatalogEditRow[] {
+    const skip = new Set([
+      "planPricing",
+      "plan_pricing",
+      "effectKind",
+      "effect_kind",
+      "extraEditTier",
+      "extra_edit_tier",
+    ]);
+    const filtered: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(catalog)) {
+      if (!skip.has(k)) filtered[k] = v;
+    }
+    return catalogToRows(filtered);
+  }
+
   function startAddonEdit(addon: SubscriptionAddon) {
     setEditingAddonId(String(addon.id));
     setEAddonDesc(addon.desc);
+    setEAddonPlanPricing(seedPlanPricingFromAddon(addon, plans));
     setEAddonPrice((addon.priceCents / 100).toFixed(2));
     setEAddonBillMonthly(addon.billingMonthlyEnabled !== false);
     setEAddonBillYearly(addon.billingYearlyEnabled !== false);
@@ -317,10 +362,14 @@ export function PlanManagementPage() {
     );
     setEAddonDelivery(addon.deliveryMode ?? "");
     setEAddonEligible((addon.eligiblePlanCodes ?? []).join(", "));
-    setEAddonCatalogRows(catalogToRows(addon.catalogJson));
+    setEAddonCatalogRows(
+      addonUsesPlanWisePricing(addon)
+        ? catalogRowsWithoutPricingKeys((addon.catalogJson ?? {}) as Record<string, unknown>)
+        : catalogToRows(addon.catalogJson),
+    );
   }
 
-  async function saveAddonEdit(addonId: string) {
+  async function saveAddonEdit(addonId: string, addon: SubscriptionAddon) {
     try {
       let catalogJson: Record<string, unknown> = {};
       try {
@@ -331,6 +380,17 @@ export function PlanManagementPage() {
         );
         return;
       }
+      const extraTier = extraEditTierForAddon(addon);
+      const usesPlanPricing = addonUsesPlanWisePricing(addon);
+      if (usesPlanPricing || extraTier) {
+        catalogJson = {
+          ...catalogJson,
+          planPricing: eAddonPlanPricing,
+          ...(extraTier
+            ? { effectKind: "credit_pack", extraEditTier: extraTier }
+            : {}),
+        };
+      }
       const eligible = eAddonEligible
         .split(/[,;\n]/)
         .map((s) => s.trim())
@@ -338,26 +398,41 @@ export function PlanManagementPage() {
       const setupCents = Math.round(
         Math.max(0, Number(eAddonSetupFee) || 0) * 100,
       );
+      const pricingFallback = firstPlanPriceCents(eAddonPlanPricing);
+      const priceCents =
+        usesPlanPricing && pricingFallback != null && pricingFallback > 0
+          ? pricingFallback
+          : Math.round(Number(eAddonPrice) * 100);
       await updateAdminAddon(addonId, {
         desc: eAddonDesc.trim(),
-        priceCents: Math.round(Number(eAddonPrice) * 100),
+        priceCents,
         billingMonthlyEnabled: eAddonBillMonthly,
         billingYearlyEnabled: eAddonBillYearly,
         billingKind: eAddonBillingKind,
         setupFeeCents: setupCents,
-        priceMinCents: moneyInputToNullableCents(eAddonPriceMin),
-        priceMaxCents: moneyInputToNullableCents(eAddonPriceMax),
+        priceMinCents: usesPlanPricing ? null : moneyInputToNullableCents(eAddonPriceMin),
+        priceMaxCents: usesPlanPricing ? null : moneyInputToNullableCents(eAddonPriceMax),
         deliveryMode: eAddonDelivery.trim(),
         eligiblePlanCodes: eligible,
         catalogJson,
       });
       setEditingAddonId(null);
+      setEAddonPlanPricing({});
       showSuccess("Add-on updated successfully.");
       await load();
     } catch {
       showError("Could not update add-on.");
     }
   }
+
+  const editingAddon = addons.find((a) => String(a.id) === editingAddonId);
+  const editingExtraEditTier = editingAddon
+    ? extraEditTierForAddon(editingAddon)
+    : null;
+  const editingUsesPlanPricing = editingAddon
+    ? addonUsesPlanWisePricing(editingAddon)
+    : false;
+  const activePlans = plans.filter((p) => p.isActive !== false);
 
   return (
     <div className="space-y-8">
@@ -839,98 +914,108 @@ export function PlanManagementPage() {
                       Name, code, and currency cannot be changed here.
                     </span>
                   </div>
-                  <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
-                    <input
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    <AdminAddonLabeledInput
+                      label="Description"
                       value={eAddonDesc}
                       onChange={(e) => setEAddonDesc(e.target.value)}
-                      placeholder="Description"
-                      className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white"
+                      className="md:col-span-2 lg:col-span-3"
                     />
-                    <input
-                      value={eAddonPrice}
-                      onChange={(e) => setEAddonPrice(e.target.value)}
-                      placeholder="Base price"
-                      className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white"
-                    />
-                    <input
+                    {!editingUsesPlanPricing ? (
+                      <AdminAddonLabeledInput
+                        label="Default price (USD)"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={eAddonPrice}
+                        onChange={(e) => setEAddonPrice(e.target.value)}
+                        hint="Used when plan-wise pricing is not configured."
+                      />
+                    ) : null}
+                    <AdminAddonLabeledInput
+                      label="Setup fee (USD)"
+                      type="number"
+                      min={0}
+                      step="0.01"
                       value={eAddonSetupFee}
                       onChange={(e) => setEAddonSetupFee(e.target.value)}
-                      placeholder="Setup fee"
-                      className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white"
                     />
-                    <input
-                      value={eAddonPriceMin}
-                      onChange={(e) => setEAddonPriceMin(e.target.value)}
-                      placeholder="Min price"
-                      className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white"
-                    />
-                    <input
-                      value={eAddonPriceMax}
-                      onChange={(e) => setEAddonPriceMax(e.target.value)}
-                      placeholder="Max price"
-                      className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white"
-                    />
-                    <input
+                    <AdminAddonLabeledInput
+                      label="Delivery mode"
                       value={eAddonDelivery}
                       onChange={(e) => setEAddonDelivery(e.target.value)}
-                      placeholder="Delivery mode"
-                      className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white"
+                      placeholder="manual, semi_auto, automated"
+                    />
+                    <AdminAddonLabeledSelect
+                      label="Billing kind"
+                      value={eAddonBillingKind}
+                      onChange={(e) =>
+                        setEAddonBillingKind(
+                          e.target.value as "recurring" | "one_time" | "per_use",
+                        )
+                      }
+                    >
+                      <option value="recurring">Recurring</option>
+                      <option value="one_time">One time</option>
+                      <option value="per_use">Per use</option>
+                    </AdminAddonLabeledSelect>
+                    <AdminAddonLabeledInput
+                      label="Eligible plan codes"
+                      value={eAddonEligible}
+                      onChange={(e) => setEAddonEligible(e.target.value)}
+                      hint="Comma-separated. Plan pricing rows below use these plans when set."
+                      className="md:col-span-2 lg:col-span-3"
                     />
                   </div>
-                  <input
-                    value={eAddonEligible}
-                    onChange={(e) => setEAddonEligible(e.target.value)}
-                    placeholder="Eligible plan codes (comma-separated)"
-                    className="w-full rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-xs text-white"
-                  />
-                  <div className="flex flex-wrap items-center gap-4 text-[10px] text-zinc-400">
-                    <label className="flex items-center gap-1">
-                      <input
-                        type="checkbox"
-                        checked={eAddonBillMonthly}
-                        onChange={(e) => setEAddonBillMonthly(e.target.checked)}
-                        className="accent-brand-lime"
-                      />
-                      With monthly plan
-                    </label>
-                    <label className="flex items-center gap-1">
-                      <input
-                        type="checkbox"
-                        checked={eAddonBillYearly}
-                        onChange={(e) => setEAddonBillYearly(e.target.checked)}
-                        className="accent-brand-lime"
-                      />
-                      With yearly plan
-                    </label>
-                    <label className="flex items-center gap-1 text-zinc-300">
-                      Kind
-                      <select
-                        value={eAddonBillingKind}
-                        onChange={(e) =>
-                          setEAddonBillingKind(
-                            e.target.value as
-                              | "recurring"
-                              | "one_time"
-                              | "per_use",
-                          )
-                        }
-                        className="rounded border border-[#24292E] bg-[#15191C] px-2 py-1 text-[10px] text-white"
-                      >
-                        <option value="recurring">Recurring</option>
-                        <option value="one_time">One time</option>
-                        <option value="per_use">Per use</option>
-                      </select>
-                    </label>
+                  <div className="rounded border border-[#2A3037]/60 bg-[#15191C]/80 px-3 py-2">
+                    <AdminAddonFieldLabel>Available with billing cycle</AdminAddonFieldLabel>
+                    <div className="mt-2 flex flex-wrap gap-6 text-xs text-zinc-300">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={eAddonBillMonthly}
+                          onChange={(e) => setEAddonBillMonthly(e.target.checked)}
+                          className="accent-brand-lime"
+                        />
+                        Monthly subscriptions
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={eAddonBillYearly}
+                          onChange={(e) => setEAddonBillYearly(e.target.checked)}
+                          className="accent-brand-lime"
+                        />
+                        Yearly subscriptions
+                      </label>
+                    </div>
+                    <p className="mt-1.5 text-[10px] text-zinc-500">
+                      Uncheck both for one-time-style add-ons (purchase allowed on one-time
+                      plans only).
+                    </p>
                   </div>
+                  {editingUsesPlanPricing && editingAddon ? (
+                    <AddonPlanPricingEditor
+                      addon={editingAddon}
+                      plans={activePlans}
+                      pricing={eAddonPlanPricing}
+                      onChange={setEAddonPlanPricing}
+                      showCredits={editingExtraEditTier === "bundle"}
+                    />
+                  ) : null}
                   <CatalogObjectEditor
                     rows={eAddonCatalogRows}
                     onChange={setEAddonCatalogRows}
-                    title="Add-on catalog fields"
+                    title={
+                      editingUsesPlanPricing
+                        ? "Other add-on catalog fields"
+                        : "Add-on catalog fields"
+                    }
                   />
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => void saveAddonEdit(String(addon.id))}
+                      onClick={() => void saveAddonEdit(String(addon.id), addon)}
                       className="rounded-md bg-brand-lime px-3 py-1 text-xs font-semibold text-canvas"
                     >
                       Save
@@ -954,17 +1039,15 @@ export function PlanManagementPage() {
                       </span>
                     </p>
                     <p className="text-xs text-zinc-400">
-                      {(addon.currency || "USD").toUpperCase()} $
-                      {(addon.priceCents / 100).toFixed(2)}
+                      {(addon.currency || "USD").toUpperCase()}{" "}
+                      {addonUsesPlanWisePricing(addon)
+                        ? "per-plan pricing (see edit)"
+                        : `$${(addon.priceCents / 100).toFixed(2)}`}
                       {(addon.setupFeeCents ?? 0) > 0
                         ? ` + $${((addon.setupFeeCents ?? 0) / 100).toFixed(2)} setup`
                         : ""}
                       {" · "}
                       {addon.billingKind ?? "recurring"}
-                      {addon.priceMinCents != null ||
-                      addon.priceMaxCents != null
-                        ? ` · range ${addon.priceMinCents != null ? `$${(addon.priceMinCents / 100).toFixed(0)}` : "—"}–${addon.priceMaxCents != null ? `$${(addon.priceMaxCents / 100).toFixed(0)}` : "—"}`
-                        : ""}
                       {addon.eligiblePlanCodes &&
                       addon.eligiblePlanCodes.length > 0
                         ? ` · plans: ${addon.eligiblePlanCodes.join(", ")}`

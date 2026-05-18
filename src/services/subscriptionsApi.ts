@@ -687,6 +687,8 @@ export function createAddonCheckoutSession(
     successUrl?: string;
     cancelUrl?: string;
     extraEditCheckout?: ExtraEditCheckoutPayload;
+    /** Recurring add-on billing interval (required when subscription is yearly and both intervals are offered). */
+    addonRecurringCycle?: "monthly" | "yearly";
   },
 ) {
   logSubscriptionDebug("frontend.addon_checkout_session.start", {
@@ -702,6 +704,7 @@ export function createAddonCheckoutSession(
       ...(opts?.successUrl ? { successUrl: opts.successUrl } : {}),
       ...(opts?.cancelUrl ? { cancelUrl: opts.cancelUrl } : {}),
       ...(opts?.extraEditCheckout ? { extraEditCheckout: opts.extraEditCheckout } : {}),
+      ...(opts?.addonRecurringCycle ? { addonRecurringCycle: opts.addonRecurringCycle } : {}),
     }),
   });
 }

@@ -7,12 +7,15 @@ import { RichTextContent } from "@/components/RichTextContent";
 import { Skeleton } from "@/components/Skeleton";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useToast } from "@/components/Toast";
-import { isModuleForbiddenError } from "@/services/http";
+import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
+import { isTicketClosedByUser } from "@/lib/supportTicketLifecycle";
+import { ApiRequestError, isModuleForbiddenError } from "@/services/http";
 import {
   downloadTicketAttachment,
   fetchAdminTicketById,
   patchAdminTicketStatus,
   postAdminTicketReply,
+  refreshAdminTicketsList,
 } from "@/services/supportApi";
 import type { SupportTicketDetail, TicketStatus } from "@/types/support";
 
@@ -24,6 +27,7 @@ function formatWhen(iso: string) {
 
 export function AdminTicketDetailPage() {
   const { id } = useParams();
+  const { updateCache } = useAdminPrefetch();
   const { showSuccess, showError } = useToast();
   const [detail, setDetail] = useState<AdminDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,6 +45,16 @@ export function AdminTicketDetailPage() {
     setDetail(d);
     setStatusChoice(d.status);
     setWorkCompletedChoice(d.workCompleted !== false);
+  }
+
+  async function reloadTicketAndList() {
+    await reload();
+    try {
+      const r = await refreshAdminTicketsList();
+      updateCache({ tickets: r.items });
+    } catch {
+      /* list refresh is best-effort */
+    }
   }
 
   useEffect(() => {
@@ -84,7 +98,7 @@ export function AdminTicketDetailPage() {
     try {
       const r = await postAdminTicketReply(id, body.trim());
       setBody("");
-      await reload();
+      await reloadTicketAndList();
       if (r.status && detail) {
         setStatusChoice(r.status as TicketStatus);
       }
@@ -105,10 +119,14 @@ export function AdminTicketDetailPage() {
         statusChoice,
         statusChoice === "resolved" ? workCompletedChoice : undefined,
       );
-      await reload();
+      await reloadTicketAndList();
       showSuccess(`Ticket status updated to "${statusChoice.replace("_", " ")}".`);
-    } catch {
-      showError("Could not update status. Please try again.");
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.code === "ticket_closed") {
+        showError("This ticket was closed by the customer. Only they can reopen it.");
+      } else {
+        showError("Could not update status. Please try again.");
+      }
     } finally {
       setStatusSaving(false);
     }
@@ -168,6 +186,12 @@ export function AdminTicketDetailPage() {
             {detail.workCompleted === false ? " — marked not completed" : ""}
           </p>
         )}
+        {isTicketClosedByUser(detail) ? (
+          <p className="mt-4 max-w-xl rounded-lg border border-zinc-500/30 bg-zinc-500/10 px-4 py-3 text-sm text-ink-muted">
+            This request was <span className="font-semibold text-white">closed by the customer</span>. Status cannot be
+            changed here — only the customer can reopen it.
+          </p>
+        ) : (
         <div className="mt-4 flex flex-wrap items-end gap-4">
           <div>
             <label htmlFor="t-status" className="text-xs text-ink-subtle">
@@ -212,6 +236,7 @@ export function AdminTicketDetailPage() {
             {statusSaving ? "Saving…" : "Save status"}
           </button>
         </div>
+        )}
       </header>
 
       <section className="space-y-4" aria-label="Thread">

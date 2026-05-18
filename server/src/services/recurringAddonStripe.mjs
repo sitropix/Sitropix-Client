@@ -50,3 +50,20 @@ export function buildSubscriptionCheckoutAddonLineItems(planCurrency, planBillin
     },
   ];
 }
+
+/**
+ * Subscription items require a Price id — inline `price_data.product_data` is not supported on
+ * `subscriptionItems.create` (unlike Checkout Sessions). Create a Price, then attach by id.
+ */
+export async function createStripeRecurringPriceForAddon(
+  stripeClient,
+  { currency, unitAmountCents, interval, label, addonCode },
+) {
+  return stripeClient.prices.create({
+    currency: String(currency ?? "usd").toLowerCase(),
+    unit_amount: Math.max(0, Math.floor(unitAmountCents)),
+    recurring: { interval: interval === "year" ? "year" : "month" },
+    product_data: { name: String(label ?? "Add-on").slice(0, 250) },
+    metadata: addonCode ? { sitropixAddonCode: String(addonCode) } : undefined,
+  });
+}
