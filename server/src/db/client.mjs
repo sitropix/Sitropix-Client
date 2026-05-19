@@ -22,11 +22,28 @@ function withPrismaPoolOptions(databaseUrl) {
   }
 }
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
+function createPrismaClient() {
+  return new PrismaClient({
     datasources: { db: { url: withPrismaPoolOptions(env.databaseUrl) } },
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
+}
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+/** Dev hot-reload can keep an old PrismaClient without newly generated models. */
+function prismaClientHasRecurringAddonStore(client) {
+  return typeof client?.projectRecurringAddonStripe?.findUnique === "function";
+}
+
+function resolvePrismaClient() {
+  const cached = globalForPrisma.prisma;
+  if (cached && prismaClientHasRecurringAddonStore(cached)) {
+    return cached;
+  }
+  const next = createPrismaClient();
+  if (process.env.NODE_ENV !== "production") {
+    globalForPrisma.prisma = next;
+  }
+  return next;
+}
+
+export const prisma = resolvePrismaClient();

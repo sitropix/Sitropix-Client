@@ -348,6 +348,23 @@ model ProjectAddonEntitlement {
   @@map("project_addon_entitlements")
 }
 
+/// Stripe subscription for a recurring add-on billed on its own cadence (e.g. monthly add-on on a yearly plan).
+model ProjectRecurringAddonStripe {
+  id                   String       @id @default(cuid())
+  projectId            String       @map("project_id")
+  addonCode            String       @map("addon_code")
+  stripeSubscriptionId String       @unique @map("stripe_subscription_id")
+  billingCycle         BillingCycle @map("billing_cycle")
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, addonCode])
+  @@index([projectId])
+  @@map("project_recurring_addon_stripe")
+}
+
 model TicketMessage {
   id        String   @id @default(cuid())
   ticketId  String   @map("ticket_id")
@@ -523,6 +540,7 @@ model Project {
   subscriptions Subscription[]
   supportTickets SupportTicket[]
   addonEntitlements ProjectAddonEntitlement[]
+  recurringAddonStripe ProjectRecurringAddonStripe[]
 
   @@index([ownerUserId, createdAt(sort: Desc)])
   @@index([subscriptionStatus])

@@ -11,6 +11,20 @@ import {
 } from "./stripeSyncHelpers.mjs";
 import { isPlanOneTimeOnly } from "./billingProration.mjs";
 import { buildExistingSubscriptionPatchFromStripe } from "./stripeSubscriptionReconcile.mjs";
+import { STRIPE_RECURRING_ADDON_SUB_KIND } from "./recurringAddonStripe.mjs";
+import {
+  deleteRecurringAddonStripeRow,
+  findRecurringAddonStripeByStripeSubscriptionId,
+} from "./recurringAddonStripeStore.mjs";
+import {
+  resolveRecurringAddonInvoiceTarget,
+  upsertRecurringAddonFailedInvoicePayment,
+  upsertRecurringAddonInvoicePayment,
+} from "./recurringAddonInvoiceSync.mjs";
+
+function isRecurringAddonOnlyStripeSubscription(stripeSub) {
+  return stripeSub?.metadata?.sitropixKind === STRIPE_RECURRING_ADDON_SUB_KIND;
+}
 
 function logCheckout(phase, fields = {}) {
   log.info("billing.stripe_checkout", { phase, ...fields });
@@ -377,15 +391,33 @@ export async function handleInvoicePaid(invoice) {
   if (!invoice.subscription || !invoice.customer) return;
 
   const stripeSubId = typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription.id;
+  const paidAmount = invoice.amount_paid ?? 0;
+  if (paidAmount <= 0) return;
 
   let sub = await prisma.subscription.findFirst({
     where: { stripeSubscriptionId: stripeSubId },
   });
+
   if (!sub) {
+    const addonTarget = await resolveRecurringAddonInvoiceTarget(stripeSubId);
+    if (addonTarget) {
+      const { invoiceNumber } = await upsertRecurringAddonInvoicePayment(invoice, addonTarget);
+      logCheckout("invoice_paid_synced_addon", {
+        invoiceId: invoice.id,
+        stripeSubId,
+        amountPaid: paidAmount,
+        addonCode: addonTarget.addonCode,
+        invoiceNumber,
+      });
+      return;
+    }
+
     try {
       const stripeSub = await stripe.subscriptions.retrieve(stripeSubId);
-      await handleSubscriptionUpdated(stripeSub);
-      sub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: stripeSubId } });
+      if (!isRecurringAddonOnlyStripeSubscription(stripeSub)) {
+        await handleSubscriptionUpdated(stripeSub);
+        sub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: stripeSubId } });
+      }
     } catch (e) {
       logCheckout("invoice_paid_subscription_recover_failed", {
         invoiceId: invoice.id,
@@ -408,7 +440,7 @@ export async function handleInvoicePaid(invoice) {
       userId: sub.userId,
       subscriptionId: sub.id,
       invoiceNumber: invNum,
-      amountCents: invoice.amount_paid ?? 0,
+      amountCents: paidAmount,
       currency: (invoice.currency ?? "usd").toUpperCase(),
       status: "succeeded",
       paidAt,
@@ -416,13 +448,13 @@ export async function handleInvoicePaid(invoice) {
       invoicePdfUrl: pdfUrl,
     },
     update: {
-      amountCents: invoice.amount_paid ?? 0,
+      amountCents: paidAmount,
       status: "succeeded",
       paidAt,
       invoicePdfUrl: pdfUrl,
     },
   });
-  logCheckout("invoice_paid_synced", { invoiceId: invoice.id, stripeSubId, amountPaid: invoice.amount_paid ?? 0 });
+  logCheckout("invoice_paid_synced", { invoiceId: invoice.id, stripeSubId, amountPaid: paidAmount });
 }
 
 export async function handleInvoicePaymentFailed(invoice) {
@@ -432,62 +464,99 @@ export async function handleInvoicePaymentFailed(invoice) {
   if (!stripeSubId) return;
 
   let sub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: stripeSubId } });
+  let addonTarget = null;
+
   if (!sub) {
-    try {
-      const stripeSub = await stripe.subscriptions.retrieve(stripeSubId);
-      await handleSubscriptionUpdated(stripeSub);
-      sub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: stripeSubId } });
-    } catch (e) {
-      logCheckout("invoice_failed_subscription_recover_failed", {
-        invoiceId: invoice.id,
-        stripeSubId,
-        error: e?.message,
-      });
+    addonTarget = await resolveRecurringAddonInvoiceTarget(stripeSubId);
+    if (addonTarget) {
+      sub = addonTarget.localSubscription;
+    } else {
+      try {
+        const stripeSub = await stripe.subscriptions.retrieve(stripeSubId);
+        if (!isRecurringAddonOnlyStripeSubscription(stripeSub)) {
+          await handleSubscriptionUpdated(stripeSub);
+          sub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: stripeSubId } });
+        }
+      } catch (e) {
+        logCheckout("invoice_failed_subscription_recover_failed", {
+          invoiceId: invoice.id,
+          stripeSubId,
+          error: e?.message,
+        });
+      }
     }
   }
   if (!sub) return;
 
-  await prisma.subscription.update({
-    where: { id: sub.id },
-    data: { status: "past_due" },
-  });
+  const isAddonOnlyFailure = Boolean(addonTarget);
 
-  const invNum = invoice.number ?? `failed_${invoice.id}`;
-  await prisma.payment.upsert({
-    where: { stripeInvoiceId: invoice.id },
-    create: {
-      userId: sub.userId,
-      subscriptionId: sub.id,
-      invoiceNumber: invNum,
-      amountCents: invoice.amount_due ?? 0,
-      currency: (invoice.currency ?? "usd").toUpperCase(),
-      status: "failed",
-      failureReason: invoice.last_finalization_error?.message ?? "payment_failed",
-      stripeInvoiceId: invoice.id,
-    },
-    update: {
-      amountCents: invoice.amount_due ?? 0,
-      currency: (invoice.currency ?? "usd").toUpperCase(),
-      status: "failed",
-      failureReason: invoice.last_finalization_error?.message ?? "payment_failed",
-    },
-  });
+  if (!isAddonOnlyFailure) {
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { status: "past_due" },
+    });
+  }
+
+  if (isAddonOnlyFailure) {
+    await upsertRecurringAddonFailedInvoicePayment(invoice, addonTarget);
+  } else {
+    const invNum = invoice.number ?? `failed_${invoice.id}`;
+    await prisma.payment.upsert({
+      where: { stripeInvoiceId: invoice.id },
+      create: {
+        userId: sub.userId,
+        subscriptionId: sub.id,
+        invoiceNumber: invNum,
+        amountCents: invoice.amount_due ?? 0,
+        currency: (invoice.currency ?? "usd").toUpperCase(),
+        status: "failed",
+        failureReason: invoice.last_finalization_error?.message ?? "payment_failed",
+        stripeInvoiceId: invoice.id,
+      },
+      update: {
+        amountCents: invoice.amount_due ?? 0,
+        currency: (invoice.currency ?? "usd").toUpperCase(),
+        status: "failed",
+        failureReason: invoice.last_finalization_error?.message ?? "payment_failed",
+      },
+    });
+  }
 
   const user = await prisma.user.findUnique({ where: { id: sub.userId } });
   if (user) {
+    const subject = isAddonOnlyFailure
+      ? "Add-on payment failed — action required"
+      : "Payment failed — action required";
+    const body = isAddonOnlyFailure
+      ? `<p>Hi ${user.name},</p><p>We could not process your recurring add-on payment (${addonTarget.addonLabel}). Please update your payment method.</p><p><a href="${env.appUrl}/billing">Update billing</a></p>`
+      : `<p>Hi ${user.name},</p><p>We could not process your payment. Please update your payment method.</p><p><a href="${env.appUrl}/billing">Update billing</a></p>`;
     await sendTransactionalEmail({
       to: user.email,
       template: "payment_failed",
       idempotencyKey: `pay_fail_${invoice.id}`,
-      subject: "Payment failed — action required",
-      html: `<p>Hi ${user.name},</p><p>We could not process your payment. Please update your payment method.</p><p><a href="${env.appUrl}/billing">Update billing</a></p>`,
+      subject,
+      html: body,
     });
   }
-  logCheckout("invoice_payment_failed_synced", { invoiceId: invoice.id, stripeSubId });
+  logCheckout("invoice_payment_failed_synced", {
+    invoiceId: invoice.id,
+    stripeSubId,
+    addonOnly: isAddonOnlyFailure,
+  });
 }
 
 export async function handleSubscriptionUpdated(stripeSub) {
   logCheckout("subscription_updated_received", { stripeSubId: stripeSub.id, status: stripeSub.status });
+
+  if (isRecurringAddonOnlyStripeSubscription(stripeSub)) {
+    logCheckout("recurring_addon_subscription_updated", {
+      stripeSubId: stripeSub.id,
+      status: stripeSub.status,
+      addonCode: stripeSub.metadata?.sitropixAddon ?? null,
+    });
+    return;
+  }
+
   const existing = await prisma.subscription.findFirst({
     where: { stripeSubscriptionId: stripeSub.id },
   });
@@ -615,6 +684,33 @@ export async function handleSubscriptionUpdated(stripeSub) {
 
 export async function handleSubscriptionDeleted(stripeSub) {
   logCheckout("subscription_deleted_received", { stripeSubId: stripeSub.id });
+
+  if (isRecurringAddonOnlyStripeSubscription(stripeSub)) {
+    const { row: addonRow } = await findRecurringAddonStripeByStripeSubscriptionId(stripeSub.id);
+    if (!addonRow) return;
+
+    const project = await prisma.project.findUnique({
+      where: { id: addonRow.projectId },
+      select: { addonsJson: true },
+    });
+    if (project) {
+      const codes = Array.isArray(project.addonsJson)
+        ? project.addonsJson.filter((c) => typeof c === "string" && c !== addonRow.addonCode)
+        : [];
+      await prisma.project.update({
+        where: { id: addonRow.projectId },
+        data: { addonsJson: codes },
+      });
+    }
+    await deleteRecurringAddonStripeRow(addonRow.id);
+    logCheckout("recurring_addon_subscription_deleted", {
+      stripeSubId: stripeSub.id,
+      projectId: addonRow.projectId,
+      addonCode: addonRow.addonCode,
+    });
+    return;
+  }
+
   const sub = await prisma.subscription.findFirst({
     where: { stripeSubscriptionId: stripeSub.id },
   });

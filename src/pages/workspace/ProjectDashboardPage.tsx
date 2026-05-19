@@ -922,13 +922,17 @@ export function ProjectDashboardPage() {
                     </button>
                   ))}
                 </div>
-                {addonBillingContext?.periodStartIso ? (
+                {addonRecurringCycle === "yearly" && addonBillingContext?.periodStartIso ? (
                   <p className="text-[11px] text-zinc-500">
-                    Renews on the same day as your plan (
+                    Yearly add-ons renew on the same day as your plan (
                     {new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(
                       new Date(addonBillingContext.periodStartIso),
                     )}
-                    )
+                    ).
+                  </p>
+                ) : addonRecurringCycle === "monthly" ? (
+                  <p className="text-[11px] text-zinc-500">
+                    Monthly add-ons bill on their own cycle (separate from your yearly plan renewal).
                   </p>
                 ) : null}
               </div>

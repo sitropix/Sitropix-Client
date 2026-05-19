@@ -2,6 +2,28 @@ import { addonStripeRecurringInterval } from "./recurringAddonStripe.mjs";
 import { resolveAddonPlanPriceCents } from "./addonPlanPricing.mjs";
 
 /**
+ * Stripe requires one billing interval per subscription. Same interval as the plan → attach as a
+ * subscription item; otherwise create a dedicated add-on subscription.
+ */
+export function resolveRecurringAddonAttachStrategy(subscriptionBillingCycle, chosenCycle) {
+  const sub = subscriptionBillingCycle === "yearly" ? "yearly" : "monthly";
+  const chosen = chosenCycle === "yearly" ? "yearly" : "monthly";
+  if (sub === chosen) return "same_subscription";
+  return "separate_subscription";
+}
+
+/** Unix timestamp when the first prepaid period ends (trial on the Stripe add-on subscription). */
+export function prepaidPeriodTrialEndUnix(chosenCycle) {
+  const d = new Date();
+  if (chosenCycle === "yearly") {
+    d.setUTCFullYear(d.getUTCFullYear() + 1);
+  } else {
+    d.setUTCMonth(d.getUTCMonth() + 1);
+  }
+  return Math.floor(d.getTime() / 1000);
+}
+
+/**
  * Which interval the customer chose for a recurring add-on at checkout.
  * Yearly subscriptions may pick monthly or yearly add-on billing; monthly subs use monthly only.
  */
@@ -47,14 +69,19 @@ export function subscriptionBillingAnchorUnix(localSub, stripeSubscription) {
   return Math.floor(Date.now() / 1000);
 }
 
-export function buildRecurringAttachEntry(addonRow, plan, chosenCycle) {
+export function buildRecurringAttachEntry(addonRow, plan, chosenCycle, subscriptionBillingCycle) {
   const recurringAmountCents = resolveAddonPlanPriceCents(plan, addonRow, chosenCycle);
   const interval = addonStripeRecurringInterval(addonRow, chosenCycle);
+  const attachStrategy = resolveRecurringAddonAttachStrategy(
+    subscriptionBillingCycle,
+    chosenCycle,
+  );
   return {
     code: addonRow.code,
     recurringAmountCents,
     interval,
     chosenCycle,
+    attachStrategy,
   };
 }
 

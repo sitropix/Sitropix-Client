@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n vite,api -c cyan,magenta \"vite --host 127.0.0.1 --port 5173\" \"node server/src/index.mjs\"",
+    "dev": "npm run prisma:generate && concurrently -n vite,api -c cyan,magenta \"vite --host 127.0.0.1 --port 5173\" \"node server/src/index.mjs\"",
+    "postinstall": "prisma generate",
     "dev:vite": "vite --host 127.0.0.1 --port 5173",
     "dev:api": "nodemon server/src/index.mjs",
     "stripe:listen": "node scripts/stripe-listen.mjs",

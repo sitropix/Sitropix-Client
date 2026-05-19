@@ -8,6 +8,11 @@ import {
   subscriptionPeriodDates,
 } from "./stripeSyncHelpers.mjs";
 import { log } from "../observability/logger.mjs";
+import { STRIPE_RECURRING_ADDON_SUB_KIND } from "./recurringAddonStripe.mjs";
+
+function isPlanStripeSubscription(stripeSub) {
+  return stripeSub?.metadata?.sitropixKind !== STRIPE_RECURRING_ADDON_SUB_KIND;
+}
 
 /**
  * Reconcile the DB from Stripe (REST pull). Use when webhooks are not received
@@ -55,7 +60,7 @@ export async function syncSubscriptionFromStripeForUserId(userId, options = {}) 
 
   const isLive = (s) => s.status === "active" || s.status === "trialing" || s.status === "past_due";
   const matchProject = (s) => (s.metadata?.projectId ?? null) === targetProjectId;
-  const candidates = subRows ?? [];
+  const candidates = (subRows ?? []).filter(isPlanStripeSubscription);
 
   let best = null;
   if (targetProjectId) {
@@ -258,7 +263,7 @@ export async function resolveStripeCustomerIdForSubscription(userId, subscriptio
   return null;
 }
 
-function stripeSubscriptionIdOnInvoice(invoice) {
+export function stripeSubscriptionIdOnInvoice(invoice) {
   // Try the direct subscription field (older API versions)
   const sub = invoice.subscription;
   if (typeof sub === "string") return sub;

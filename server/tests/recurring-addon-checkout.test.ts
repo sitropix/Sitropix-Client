@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildRecurringAttachEntry,
+  prepaidPeriodTrialEndUnix,
   recurringAddonFirstCheckoutCents,
   resolveChosenAddonRecurringCycle,
+  resolveRecurringAddonAttachStrategy,
 } from "../src/services/recurringAddonCheckout.mjs";
 
 const addonRow = (overrides: Record<string, unknown> = {}) => ({
@@ -39,10 +41,28 @@ describe("recurringAddonCheckout", () => {
   });
 
   it("builds attach metadata for Stripe subscription item", () => {
-    const entry = buildRecurringAttachEntry(addonRow(), plan, "monthly");
+    const entry = buildRecurringAttachEntry(addonRow(), plan, "monthly", "monthly");
     expect(entry.code).toBe("addon_analytics_dashboard");
     expect(entry.recurringAmountCents).toBe(2500);
     expect(entry.interval).toBe("month");
     expect(entry.chosenCycle).toBe("monthly");
+    expect(entry.attachStrategy).toBe("same_subscription");
+  });
+
+  it("uses same_subscription when plan and add-on intervals match", () => {
+    expect(resolveRecurringAddonAttachStrategy("monthly", "monthly")).toBe("same_subscription");
+    expect(resolveRecurringAddonAttachStrategy("yearly", "yearly")).toBe("same_subscription");
+  });
+
+  it("uses separate_subscription for monthly add-on on yearly plan", () => {
+    expect(resolveRecurringAddonAttachStrategy("yearly", "monthly")).toBe("separate_subscription");
+    const entry = buildRecurringAttachEntry(addonRow(), plan, "monthly", "yearly");
+    expect(entry.attachStrategy).toBe("separate_subscription");
+  });
+
+  it("computes prepaid trial end in the future", () => {
+    const now = Math.floor(Date.now() / 1000);
+    expect(prepaidPeriodTrialEndUnix("monthly")).toBeGreaterThan(now);
+    expect(prepaidPeriodTrialEndUnix("yearly")).toBeGreaterThan(now + 28 * 24 * 3600);
   });
 });

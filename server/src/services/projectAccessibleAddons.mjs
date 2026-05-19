@@ -194,6 +194,8 @@ export function resolveProjectAccessibleAddons({
       subscriptionBillingCycle,
       periodStartIso,
       canChooseRecurringAddonCycle: subscriptionBillingCycle === "yearly",
+      /** Yearly plan + monthly recurring add-on uses a dedicated Stripe subscription. */
+      supportsSeparateRecurringAddonSubscription: subscriptionBillingCycle === "yearly",
     },
   };
 }

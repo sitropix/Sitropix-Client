@@ -1,3 +1,6 @@
+/** Stripe metadata.kind for add-on-only subscriptions (interval differs from the project plan). */
+export const STRIPE_RECURRING_ADDON_SUB_KIND = "project_recurring_addon";
+
 /**
  * Stripe Checkout (subscription mode) line items for add-ons.
  * Recurring add-on with a setup fee: first invoice includes setup (one-time line) + recurring unit;
@@ -65,5 +68,49 @@ export async function createStripeRecurringPriceForAddon(
     recurring: { interval: interval === "year" ? "year" : "month" },
     product_data: { name: String(label ?? "Add-on").slice(0, 250) },
     metadata: addonCode ? { sitropixAddonCode: String(addonCode) } : undefined,
+  });
+}
+
+/**
+ * Dedicated Stripe subscription when add-on interval ≠ plan interval (e.g. monthly add-on on yearly plan).
+ * First period is collected in Checkout; `trial_end` defers the first Stripe renewal invoice.
+ */
+export async function createSeparateRecurringAddonSubscription(
+  stripeClient,
+  {
+    customerId,
+    currency,
+    unitAmountCents,
+    interval,
+    label,
+    addonCode,
+    projectId,
+    userId,
+    trialEndUnix,
+  },
+) {
+  const price = await createStripeRecurringPriceForAddon(stripeClient, {
+    currency,
+    unitAmountCents,
+    interval,
+    label,
+    addonCode,
+  });
+  return stripeClient.subscriptions.create({
+    customer: customerId,
+    items: [
+      {
+        price: price.id,
+        metadata: { sitropixAddon: String(addonCode) },
+      },
+    ],
+    metadata: {
+      sitropixKind: STRIPE_RECURRING_ADDON_SUB_KIND,
+      sitropixProjectId: String(projectId),
+      sitropixAddon: String(addonCode),
+      userId: String(userId),
+    },
+    trial_end: trialEndUnix,
+    proration_behavior: "none",
   });
 }
