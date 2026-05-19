@@ -1,5 +1,5 @@
-import { MaterialIcon } from "@/components/MaterialIcon";
 import { EmptyState } from "@/components/EmptyState";
+import { MaterialIcon } from "@/components/MaterialIcon";
 import { Skeleton } from "@/components/Skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/context/UserContext";
@@ -97,7 +97,7 @@ function DashboardInvoicesTable({ invoices }: { invoices: Invoice[] }) {
   const recent = invoices.slice(0, 3);
 
   return (
-    <div className="overflow-hidden rounded-lg border ink-border-8 bg-surface-container-lowest soft-shadow-xl">
+    <div className="overflow-x-auto rounded-lg border ink-border-8 bg-surface-container-lowest soft-shadow-xl">
       <table className="w-full border-collapse">
         <thead>
           <tr className="border-b ink-border-10 bg-surface-container-low">
@@ -334,7 +334,8 @@ export function CustomerDashboardPage() {
                             <>
                               <span className="h-1 w-1 rounded-full bg-outline-variant" />
                               <span className="font-body-sm text-body-sm text-on-surface-variant">
-                                Renews {formatDate(primaryProject.planValidUntil)}
+                                Renews{" "}
+                                {formatDate(primaryProject.planValidUntil)}
                               </span>
                             </>
                           ) : null}
@@ -449,4 +450,3 @@ export function CustomerDashboardPage() {
     </div>
   );
 }
-

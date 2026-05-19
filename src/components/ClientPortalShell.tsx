@@ -1,5 +1,5 @@
-import { MaterialIcon } from "@/components/MaterialIcon";
 import type { MaterialIconName } from "@/components/MaterialIcon";
+import { MaterialIcon } from "@/components/MaterialIcon";
 import { SmartSearch } from "@/components/SmartSearch";
 import { PortalOverlay } from "@/components/ui/PortalOverlay";
 import { ProjectCreateForm } from "@/components/workspace/ProjectCreateForm";
@@ -9,20 +9,13 @@ import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
 import { fetchUiPreferences, patchUiPreferences } from "@/services/authApi";
 import { getOnboardingStatusFromProjects } from "@/services/onboardingStore";
+import { PROJECTS_LIST_INVALIDATE_EVENT } from "@/services/projectsInvalidate";
 import {
   hasValidProjectPlan,
   listProjectsByUser,
 } from "@/services/projectsStore";
-import { PROJECTS_LIST_INVALIDATE_EVENT } from "@/services/projectsInvalidate";
-import type { Plan } from "@/types/subscription";
 import type { ProjectRecord } from "@/types/project";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 
 const SIDEBAR_LINKS: Array<{
@@ -286,28 +279,28 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
 
   const resolvedUserId = user?.id ?? portal?.user?.id ?? null;
 
-  const sortedPlans: Plan[] = useMemo(() => {
-    const raw = portal?.plans ?? [];
-    return [...raw].sort((a, b) => a.priceMonthlyCents - b.priceMonthlyCents);
-  }, [portal?.plans]);
+  // const sortedPlans: Plan[] = useMemo(() => {
+  //   const raw = portal?.plans ?? [];
+  //   return [...raw].sort((a, b) => a.priceMonthlyCents - b.priceMonthlyCents);
+  // }, [portal?.plans]);
 
-  const highestPlanTier = useMemo(() => {
-    const owned = projects.filter(hasValidProjectPlan);
-    if (owned.length === 0) return -1;
-    let max = -1;
-    for (const p of owned) {
-      const idx = sortedPlans.findIndex((pl) => pl.id === p.planId);
-      if (idx > max) max = idx;
-    }
-    return max;
-  }, [projects, sortedPlans]);
+  // const highestPlanTier = useMemo(() => {
+  //   const owned = projects.filter(hasValidProjectPlan);
+  //   if (owned.length === 0) return -1;
+  //   let max = -1;
+  //   for (const p of owned) {
+  //     const idx = sortedPlans.findIndex((pl) => pl.id === p.planId);
+  //     if (idx > max) max = idx;
+  //   }
+  //   return max;
+  // }, [projects, sortedPlans]);
 
-  const nextPlan = useMemo((): Plan | null => {
-    if (sortedPlans.length === 0) return null;
-    if (highestPlanTier < 0) return sortedPlans[0] ?? null;
-    if (highestPlanTier >= sortedPlans.length - 1) return null;
-    return sortedPlans[highestPlanTier + 1] ?? null;
-  }, [highestPlanTier, sortedPlans]);
+  // const nextPlan = useMemo((): Plan | null => {
+  //   if (sortedPlans.length === 0) return null;
+  //   if (highestPlanTier < 0) return sortedPlans[0] ?? null;
+  //   if (highestPlanTier >= sortedPlans.length - 1) return null;
+  //   return sortedPlans[highestPlanTier + 1] ?? null;
+  // }, [highestPlanTier, sortedPlans]);
 
   const projectsKey = useMemo(
     () =>
@@ -338,9 +331,8 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
     "/subscription",
     "/ticket",
   ];
-  const shouldHideOnboardingPopupForCurrentPath = hideOnboardingPopupOnPaths.some(
-    (p) => matchesAllowedPath(pathname, p),
-  );
+  const shouldHideOnboardingPopupForCurrentPath =
+    hideOnboardingPopupOnPaths.some((p) => matchesAllowedPath(pathname, p));
   const onboardingPopupVisible =
     projectsReady &&
     shouldRestrictNav &&
@@ -465,7 +457,7 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
         />
       </nav>
       <div className="mt-auto space-y-4 border-t border-white/10 pt-6">
-        {nextPlan ? (
+        {/* {nextPlan ? (
           <Link
             to="/subscription"
             onClick={closeMobileNav}
@@ -473,7 +465,7 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
           >
             Upgrade Plan
           </Link>
-        ) : null}
+        ) : null} */}
         <div className="space-y-1">
           <Link
             to="/profile"
@@ -516,9 +508,7 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
         />
       ) : null}
 
-      <aside className={sidebarClassName}>
-        {sidebarNav}
-      </aside>
+      <aside className={sidebarClassName}>{sidebarNav}</aside>
 
       <div className="client-portal-canvas flex min-h-screen flex-col bg-background md:ml-64">
         <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-outline-variant/10 bg-surface/85 px-gutter shadow-sm backdrop-blur-md">
@@ -554,7 +544,9 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
 
             <button
               type="button"
-              aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
+              aria-label={
+                isDark ? "Switch to light theme" : "Switch to dark theme"
+              }
               className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-transparent text-on-surface-variant outline-none hover:bg-surface-container"
               onClick={() => toggleTheme()}
             >
@@ -607,37 +599,42 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                 ? undefined
                 : () => {
                     setShowOnboardingPopup(false);
-                    void patchUiPreferences({ dismissedOnboardingPopup: true }).catch(() => {});
+                    void patchUiPreferences({
+                      dismissedOnboardingPopup: true,
+                    }).catch(() => {});
                   }
             }
             className="fixed inset-0 grid place-items-center bg-black/70 p-4 backdrop-blur-[2px]"
           >
-              <div
-                role="dialog"
-                aria-modal
-                aria-labelledby="onboarding-dialog-title"
-                className="flex max-h-[min(90dvh,640px)] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-on-surface/10 bg-surface-container-lowest text-on-surface shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex shrink-0 justify-end px-5 pb-0 pt-4">
-                  {!requiresProjectCreation ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowOnboardingPopup(false);
-                        void patchUiPreferences({
-                          dismissedOnboardingPopup: true,
-                        }).catch(() => {});
-                      }}
-                      className="grid h-7 w-7 place-items-center rounded-full border border-outline-variant text-on-surface-variant hover:bg-surface-container"
-                      aria-label="Close popup"
-                    >
-                      ×
-                    </button>
-                  ) : null}
-                </div>
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-2">
-                <h3 id="onboarding-dialog-title" className="font-h3 text-h3 font-bold text-on-surface">
+            <div
+              role="dialog"
+              aria-modal
+              aria-labelledby="onboarding-dialog-title"
+              className="flex max-h-[min(90dvh,640px)] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-on-surface/10 bg-surface-container-lowest text-on-surface shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex shrink-0 justify-end px-5 pb-0 pt-4">
+                {!requiresProjectCreation ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowOnboardingPopup(false);
+                      void patchUiPreferences({
+                        dismissedOnboardingPopup: true,
+                      }).catch(() => {});
+                    }}
+                    className="grid h-7 w-7 place-items-center rounded-full border border-outline-variant text-on-surface-variant hover:bg-surface-container"
+                    aria-label="Close popup"
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-2">
+                <h3
+                  id="onboarding-dialog-title"
+                  className="font-h3 text-h3 font-bold text-on-surface"
+                >
                   {requiresProjectCreation
                     ? "Create your first project"
                     : "Complete onboarding to unlock all pages"}
@@ -661,41 +658,43 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                 ) : null}
                 <ul className="mt-4 space-y-2 font-body-sm text-body-sm">
                   <li className="rounded-xl border border-on-surface/10 bg-surface-container-lowest px-3 py-2">
-                    {onboarding.hasProject ? "Done" : "Pending"} — Create your first project
+                    {onboarding.hasProject ? "Done" : "Pending"} — Create your
+                    first project
                   </li>
                   <li className="rounded-xl border border-on-surface/10 bg-surface-container-lowest px-3 py-2">
-                    {onboarding.hasAssetsReady ? "Done" : "Pending"} — Upload required project assets
+                    {onboarding.hasAssetsReady ? "Done" : "Pending"} — Upload
+                    required project assets
                   </li>
                   <li className="rounded-xl border border-on-surface/10 bg-surface-container-lowest px-3 py-2">
-                    {onboarding.hasActiveSubscription ? "Done" : "Pending"} — Choose plan/add-on and complete payment
+                    {onboarding.hasActiveSubscription ? "Done" : "Pending"} —
+                    Choose plan/add-on and complete payment
                   </li>
                 </ul>
-                </div>
-                <div className="flex shrink-0 flex-wrap gap-2 border-t border-on-surface/10 bg-surface-container-lowest px-5 py-4">
-                  <Link
-                    to="/projects"
-                    className="rounded-lg border border-outline-variant bg-surface-container px-3 py-2 font-body text-body font-semibold text-on-surface"
-                    onClick={closeMobileNav}
-                  >
-                    Open My Projects
-                  </Link>
-                  <Link
-                    to="/subscription"
-                    className={`rounded-lg px-3 py-2 font-body text-body font-semibold ${
-                      requiresProjectCreation
-                        ? "pointer-events-none bg-surface-container text-on-surface-variant"
-                        : "bg-on-surface text-surface"
-                    }`}
-                    onClick={closeMobileNav}
-                  >
-                    Continue to Subscription
-                  </Link>
-                </div>
               </div>
+              <div className="flex shrink-0 flex-wrap gap-2 border-t border-on-surface/10 bg-surface-container-lowest px-5 py-4">
+                <Link
+                  to="/projects"
+                  className="rounded-lg border border-outline-variant bg-surface-container px-3 py-2 font-body text-body font-semibold text-on-surface"
+                  onClick={closeMobileNav}
+                >
+                  Open My Projects
+                </Link>
+                <Link
+                  to="/subscription"
+                  className={`rounded-lg px-3 py-2 font-body text-body font-semibold ${
+                    requiresProjectCreation
+                      ? "pointer-events-none bg-surface-container text-on-surface-variant"
+                      : "bg-on-surface text-surface"
+                  }`}
+                  onClick={closeMobileNav}
+                >
+                  Continue to Subscription
+                </Link>
+              </div>
+            </div>
           </PortalOverlay>
         </main>
       </div>
     </div>
   );
 }
-

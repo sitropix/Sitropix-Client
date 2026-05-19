@@ -26,7 +26,7 @@ function parseCents(value) {
   return undefined;
 }
 
-function readPlanPricingMap(catalogJson) {
+export function readPlanPricingMap(catalogJson) {
   const j = catalogJson && typeof catalogJson === "object" ? catalogJson : {};
   const raw = j.planPricing ?? j.plan_pricing;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};

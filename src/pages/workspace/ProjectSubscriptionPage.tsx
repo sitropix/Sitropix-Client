@@ -1,19 +1,40 @@
+import { AddonOfferCard } from "@/components/billing/addonDisplay";
+import { AddonNotAvailableModal } from "@/components/billing/AddonNotAvailableModal";
+import { ExtraEditPurchaseModal } from "@/components/billing/ExtraEditPurchaseModal";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { portal as portalUi } from "@/components/portal/portalStyles";
+import {
+  canOfferExtraEditPurchases,
+  EXTRA_EDIT_BUNDLE_CODE,
+  EXTRA_EDIT_SINGLE_CODE,
+  isCreditPackAddon,
+  readExtraEditPricingForPlan,
+  resolveExtraEditPurchaseAddons,
+} from "@/constants/extraEditAddons";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/context/UserContext";
 import {
-  getProjectById,
-  CORE_REQUIRED_PROJECT_ASSETS,
-  listProjectsByUser,
-  hasValidProjectPlan,
-} from "@/services/projectsStore";
+  addonCheckoutDisplayCents,
+  addonPriceCycleSuffix,
+} from "@/lib/addonDisplayHelpers";
+import {
+  addonEligibleForPlan,
+  planForAddonPurchaseGate,
+} from "@/lib/addonPlanEligibility";
+import { formatBillingApiError } from "@/lib/billingErrors";
+import { ApiRequestError } from "@/services/http";
 import {
   finalizeProjectCheckoutOnce,
   PROJECT_CHECKOUT_INTENT_KEY,
   type ProjectCheckoutIntent,
 } from "@/services/projectCheckoutFinalize";
 import { dispatchProjectsListInvalidate } from "@/services/projectsInvalidate";
-import { formatBillingApiError } from "@/lib/billingErrors";
+import {
+  CORE_REQUIRED_PROJECT_ASSETS,
+  getProjectById,
+  hasValidProjectPlan,
+  listProjectsByUser,
+} from "@/services/projectsStore";
 import {
   changePlan,
   createAddonCheckoutSession,
@@ -21,24 +42,20 @@ import {
   fetchCustomerPortal,
   fetchProjectAssets,
 } from "@/services/subscriptionsApi";
-import { AddonNotAvailableModal } from "@/components/billing/AddonNotAvailableModal";
-import { AddonOfferCard } from "@/components/billing/addonDisplay";
-import { ExtraEditPurchaseModal } from "@/components/billing/ExtraEditPurchaseModal";
-import { portal as portalUi } from "@/components/portal/portalStyles";
-import { addonEligibleForPlan, planForAddonPurchaseGate } from "@/lib/addonPlanEligibility";
-import { ApiRequestError } from "@/services/http";
-import {
-  EXTRA_EDIT_BUNDLE_CODE,
-  EXTRA_EDIT_SINGLE_CODE,
-  canOfferExtraEditPurchases,
-  isCreditPackAddon,
-  readExtraEditPricingForPlan,
-  resolveExtraEditPurchaseAddons,
-} from "@/constants/extraEditAddons";
-import type { BillingCycle, Plan, SubscriptionAddon } from "@/types/subscription";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ProjectRecord } from "@/types/project";
+import type {
+  BillingCycle,
+  Plan,
+  SubscriptionAddon,
+} from "@/types/subscription";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Link,
+  Navigate,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 
 function money(cents: number, currency = "USD") {
   return new Intl.NumberFormat(undefined, {
@@ -54,8 +71,13 @@ type ProjectCheckoutReturnBanner =
   | { phase: "success" }
   | { phase: "error"; message: string };
 
-function planIsOneTimeOnly(plan: { billingMonthlyEnabled?: boolean; billingYearlyEnabled?: boolean }) {
-  return plan.billingMonthlyEnabled === false && plan.billingYearlyEnabled === false;
+function planIsOneTimeOnly(plan: {
+  billingMonthlyEnabled?: boolean;
+  billingYearlyEnabled?: boolean;
+}) {
+  return (
+    plan.billingMonthlyEnabled === false && plan.billingYearlyEnabled === false
+  );
 }
 
 function planDisplayAmount(plan: Plan, cycle: BillingCycle) {
@@ -65,7 +87,10 @@ function planDisplayAmount(plan: Plan, cycle: BillingCycle) {
   return cycle === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
 }
 
-function resolveBillingCycleForPlan(plan: Plan, preferred: BillingCycle): BillingCycle {
+function resolveBillingCycleForPlan(
+  plan: Plan,
+  preferred: BillingCycle,
+): BillingCycle {
   const m = plan.billingMonthlyEnabled !== false;
   const y = plan.billingYearlyEnabled !== false;
   if (m && y) return preferred;
@@ -74,10 +99,17 @@ function resolveBillingCycleForPlan(plan: Plan, preferred: BillingCycle): Billin
   return "monthly";
 }
 
-function addonEligibleForCheckout(addon: SubscriptionAddon, cycle: BillingCycle, plan: Plan | null) {
+function addonEligibleForCheckout(
+  addon: SubscriptionAddon,
+  cycle: BillingCycle,
+  plan: Plan | null,
+) {
   if (!plan) return false;
   if (planIsOneTimeOnly(plan)) {
-    return addon.billingMonthlyEnabled === false && addon.billingYearlyEnabled === false;
+    return (
+      addon.billingMonthlyEnabled === false &&
+      addon.billingYearlyEnabled === false
+    );
   }
   const am = addon.billingMonthlyEnabled !== false;
   const ay = addon.billingYearlyEnabled !== false;
@@ -99,7 +131,9 @@ export function ProjectSubscriptionPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [extraEditModalOpen, setExtraEditModalOpen] = useState(false);
   const [addonNotAvailableOpen, setAddonNotAvailableOpen] = useState(false);
-  const [extraEditCompanionCodes, setExtraEditCompanionCodes] = useState<string[]>([]);
+  const [extraEditCompanionCodes, setExtraEditCompanionCodes] = useState<
+    string[]
+  >([]);
   const [plans, setPlans] = useState(() => portal?.plans ?? []);
   const [addonCatalog, setAddonCatalog] = useState(() => portal?.addons ?? []);
   const [ready, setReady] = useState(false);
@@ -110,17 +144,23 @@ export function ProjectSubscriptionPage() {
   const checkoutFinalizeInProgressRef = useRef<string | null>(null);
   const [checkoutReturnBanner, setCheckoutReturnBanner] =
     useState<ProjectCheckoutReturnBanner>(null);
-  const ownedProject = project && project.ownerUserId === userId ? project : null;
+  const ownedProject =
+    project && project.ownerUserId === userId ? project : null;
   const selectedPlan = useMemo(
     () => plans.find((p) => p.id === selectedPlanId) ?? null,
     [plans, selectedPlanId],
   );
-  const addonByCode = useMemo(() => new Map(addonCatalog.map((addon) => [addon.code, addon])), [addonCatalog]);
+  const addonByCode = useMemo(
+    () => new Map(addonCatalog.map((addon) => [addon.code, addon])),
+    [addonCatalog],
+  );
   const sortedPlans = useMemo(
     () => [...plans].sort((a, b) => a.priceMonthlyCents - b.priceMonthlyCents),
     [plans],
   );
-  const hasLiveProjectPlan = Boolean(ownedProject && hasValidProjectPlan(ownedProject));
+  const hasLiveProjectPlan = Boolean(
+    ownedProject && hasValidProjectPlan(ownedProject),
+  );
   const currentTier = useMemo(() => {
     if (!hasLiveProjectPlan || !ownedProject?.planId) return -1;
     return sortedPlans.findIndex((p) => p.id === ownedProject.planId);
@@ -134,10 +174,19 @@ export function ProjectSubscriptionPage() {
     currentTier >= 0 &&
     selectedTier >= 0 &&
     selectedTier < currentTier;
-  const ownedAddonCodes = useMemo(() => new Set(ownedProject?.addons ?? []), [ownedProject?.addons]);
+  const ownedAddonCodes = useMemo(
+    () => new Set(ownedProject?.addons ?? []),
+    [ownedProject?.addons],
+  );
 
-  const anyMonthly = useMemo(() => plans.some((p) => p.billingMonthlyEnabled !== false), [plans]);
-  const anyYearly = useMemo(() => plans.some((p) => p.billingYearlyEnabled !== false), [plans]);
+  const anyMonthly = useMemo(
+    () => plans.some((p) => p.billingMonthlyEnabled !== false),
+    [plans],
+  );
+  const anyYearly = useMemo(
+    () => plans.some((p) => p.billingYearlyEnabled !== false),
+    [plans],
+  );
   const showBillingCycleToggle = anyMonthly || anyYearly;
 
   const addonGatePlan = useMemo(
@@ -168,7 +217,9 @@ export function ProjectSubscriptionPage() {
   }, [selectedPlan]);
 
   useEffect(() => {
-    setAddons((prev) => prev.filter((code) => eligibleAddons.some((a) => a.code === code)));
+    setAddons((prev) =>
+      prev.filter((code) => eligibleAddons.some((a) => a.code === code)),
+    );
   }, [eligibleAddons]);
 
   useEffect(() => {
@@ -252,9 +303,11 @@ export function ProjectSubscriptionPage() {
     if (!selectedPlan || !ownedProject) return;
     if (!hasValidProjectPlan(ownedProject)) return;
     const newAddonCodes = addons.filter((c) => !ownedAddonCodes.has(c));
-    const effectiveOwnedCycle: BillingCycle = ownedProject.billingCycle ?? "monthly";
+    const effectiveOwnedCycle: BillingCycle =
+      ownedProject.billingCycle ?? "monthly";
     const planOrCycleChanged =
-      selectedPlanId !== ownedProject.planId || billingCycle !== effectiveOwnedCycle;
+      selectedPlanId !== ownedProject.planId ||
+      billingCycle !== effectiveOwnedCycle;
     const gatePlan = planForAddonPurchaseGate(
       hasLiveProjectPlan,
       ownedProject.planId,
@@ -272,15 +325,21 @@ export function ProjectSubscriptionPage() {
     setNotice(null);
     try {
       if (planOrCycleChanged) {
-        await changePlan(selectedPlanId, billingCycle, { projectId: ownedProject.id });
+        await changePlan(selectedPlanId, billingCycle, {
+          projectId: ownedProject.id,
+        });
       }
       if (newAddonCodes.length > 0) {
         const editSelected: string[] = newAddonCodes.filter(
           (c) => c === EXTRA_EDIT_SINGLE_CODE || c === EXTRA_EDIT_BUNDLE_CODE,
         );
-        const companion = newAddonCodes.filter((c) => !editSelected.includes(c));
+        const companion = newAddonCodes.filter(
+          (c) => !editSelected.includes(c),
+        );
         if (editSelected.length > 1) {
-          setNotice("Choose only one extra-edits add-on (per-edit or bundle) per checkout.");
+          setNotice(
+            "Choose only one extra-edits add-on (per-edit or bundle) per checkout.",
+          );
           return;
         }
         if (editSelected.length === 1) {
@@ -289,10 +348,14 @@ export function ProjectSubscriptionPage() {
           return;
         }
         const base = `${window.location.origin}/projects/${ownedProject.id}`;
-        const { url } = await createAddonCheckoutSession(ownedProject.id, newAddonCodes, {
-          successUrl: base,
-          cancelUrl: `${window.location.origin}/projects/${ownedProject.id}/subscription`,
-        });
+        const { url } = await createAddonCheckoutSession(
+          ownedProject.id,
+          newAddonCodes,
+          {
+            successUrl: base,
+            cancelUrl: `${window.location.origin}/projects/${ownedProject.id}/subscription`,
+          },
+        );
         if (!url) {
           setNotice("Could not start add-on checkout.");
           return;
@@ -304,7 +367,10 @@ export function ProjectSubscriptionPage() {
       await refreshUser();
       navigate({ pathname: `/projects/${ownedProject.id}` }, { replace: true });
     } catch (err) {
-      if (err instanceof ApiRequestError && err.code === "addon_not_eligible_for_plan") {
+      if (
+        err instanceof ApiRequestError &&
+        err.code === "addon_not_eligible_for_plan"
+      ) {
         setAddonNotAvailableOpen(true);
         return;
       }
@@ -337,13 +403,20 @@ export function ProjectSubscriptionPage() {
         startedAt: Date.now(),
         oneTimePlan: planIsOneTimeOnly(selectedPlan),
       };
-      window.localStorage.setItem(PROJECT_CHECKOUT_INTENT_KEY, JSON.stringify(intent));
-      const { url } = await createCheckoutSession(selectedPlan.id, billingCycle, {
-        addons,
-        projectId: ownedProject.id,
-        successUrl: returnUrl.toString(),
-        cancelUrl: returnUrl.toString(),
-      });
+      window.localStorage.setItem(
+        PROJECT_CHECKOUT_INTENT_KEY,
+        JSON.stringify(intent),
+      );
+      const { url } = await createCheckoutSession(
+        selectedPlan.id,
+        billingCycle,
+        {
+          addons,
+          projectId: ownedProject.id,
+          successUrl: returnUrl.toString(),
+          cancelUrl: returnUrl.toString(),
+        },
+      );
       if (!url) {
         setNotice("Could not start Stripe checkout session.");
         return;
@@ -356,17 +429,25 @@ export function ProjectSubscriptionPage() {
     }
   }
 
-  const selectedPlanAmount = selectedPlan ? planDisplayAmount(selectedPlan, billingCycle) : 0;
-  const effectiveOwnedBilling: BillingCycle = ownedProject?.billingCycle ?? "monthly";
+  const selectedPlanAmount = selectedPlan
+    ? planDisplayAmount(selectedPlan, billingCycle)
+    : 0;
+  const effectiveOwnedBilling: BillingCycle =
+    ownedProject?.billingCycle ?? "monthly";
   const planOrCycleDirty =
     hasLiveProjectPlan &&
     Boolean(ownedProject) &&
-    (selectedPlanId !== ownedProject?.planId || billingCycle !== effectiveOwnedBilling);
+    (selectedPlanId !== ownedProject?.planId ||
+      billingCycle !== effectiveOwnedBilling);
   const newAddonsDirty = addons.some((code) => !ownedAddonCodes.has(code));
-  const nothingToApplyLive = hasLiveProjectPlan && !planOrCycleDirty && !newAddonsDirty;
+  const nothingToApplyLive =
+    hasLiveProjectPlan && !planOrCycleDirty && !newAddonsDirty;
   const addonsTotal = addons.reduce((sum, code) => {
     const item = addonByCode.get(code);
-    return sum + (item?.priceCents ?? 0);
+    if (!item) return sum;
+    return (
+      sum + addonCheckoutDisplayCents(item, addonGatePlan, billingCycle)
+    );
   }, 0);
   const funnelState = searchParams.get("subscriptionFunnel");
 
@@ -393,11 +474,16 @@ export function ProjectSubscriptionPage() {
       return;
     }
     checkoutFinalizeInProgressRef.current = runKey;
-    setSelectedPlanId((prev) => (prev === intent.planId ? prev : intent.planId));
-    setBillingCycle((prev) => (prev === intent.billingCycle ? prev : intent.billingCycle));
+    setSelectedPlanId((prev) =>
+      prev === intent.planId ? prev : intent.planId,
+    );
+    setBillingCycle((prev) =>
+      prev === intent.billingCycle ? prev : intent.billingCycle,
+    );
     setAddons((prev) => {
       const next = intent?.addons ?? [];
-      if (prev.length === next.length && prev.every((v, i) => v === next[i])) return prev;
+      if (prev.length === next.length && prev.every((v, i) => v === next[i]))
+        return prev;
       return next;
     });
     let cancelled = false;
@@ -441,14 +527,22 @@ export function ProjectSubscriptionPage() {
       checkoutFinalizeInProgressRef.current = null;
       setCheckoutReturnBanner((b) => (b?.phase === "confirming" ? null : b));
     };
-  }, [funnelState, ownedProject?.id, navigate, refreshUser, setSearchParams, userId]);
+  }, [
+    funnelState,
+    ownedProject?.id,
+    navigate,
+    refreshUser,
+    setSearchParams,
+    userId,
+  ]);
 
   const checkoutReturnLocksUI =
     checkoutReturnBanner?.phase === "confirming" ||
     checkoutReturnBanner?.phase === "success";
 
   if (!project && !projectLoading) return <Navigate to="/projects" replace />;
-  if (!project) return <div className="p-6 text-sm text-zinc-300">Loading project...</div>;
+  if (!project)
+    return <div className="p-6 text-sm text-zinc-300">Loading project...</div>;
   if (!ownedProject) return <Navigate to="/projects" replace />;
 
   const planForExtraEditModal =
@@ -461,9 +555,14 @@ export function ProjectSubscriptionPage() {
     perEditCents: subModalPerEditCents,
     bundleCredits: subModalBundleCredits,
     bundleCents: subModalBundleCents,
-  } = readExtraEditPricingForPlan(planForExtraEditModal, subExtraEditSingle, subExtraEditBundle);
+  } = readExtraEditPricingForPlan(
+    planForExtraEditModal,
+    subExtraEditSingle,
+    subExtraEditBundle,
+  );
   const canBuyExtraEditsOnSub =
-    hasLiveProjectPlan && canOfferExtraEditPurchases(planForExtraEditModal, addonCatalog);
+    hasLiveProjectPlan &&
+    canOfferExtraEditPurchases(planForExtraEditModal, addonCatalog);
 
   return (
     <div className="client-workspace-view space-y-6 text-zinc-900">
@@ -483,7 +582,8 @@ export function ProjectSubscriptionPage() {
           Choose the right plan for your project
         </h1>
         <p className="mt-3 text-sm text-zinc-400">
-          Unlock all features and activate your workspace by selecting a subscription. Cancel or upgrade anytime.
+          Unlock all features and activate your workspace by selecting a
+          subscription. Cancel or upgrade anytime.
         </p>
       </header>
       {checkoutReturnBanner?.phase === "confirming" ? (
@@ -513,7 +613,9 @@ export function ProjectSubscriptionPage() {
               d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
             />
           </svg>
-          <p className="min-w-0 flex-1 leading-snug">Payment completed successfully.</p>
+          <p className="min-w-0 flex-1 leading-snug">
+            Payment completed successfully.
+          </p>
         </div>
       ) : checkoutReturnBanner?.phase === "error" ? (
         <div
@@ -534,7 +636,9 @@ export function ProjectSubscriptionPage() {
               d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
             />
           </svg>
-          <p className="min-w-0 flex-1 leading-snug">{checkoutReturnBanner.message}</p>
+          <p className="min-w-0 flex-1 leading-snug">
+            {checkoutReturnBanner.message}
+          </p>
         </div>
       ) : null}
       {notice ? (
@@ -570,7 +674,7 @@ export function ProjectSubscriptionPage() {
         </section>
       ) : (
         <div aria-busy={checkoutReturnLocksUI ? true : undefined}>
-          <div className="mx-auto inline-flex rounded-full border border-on-surface/10 bg-surface-container-low p-1">
+          <div className="mx-auto inline-flex rounded-full border border-on-surface/10 bg-surface-container-low p-1 mb-4">
             {showBillingCycleToggle ? (
               <>
                 {anyMonthly ? (
@@ -634,10 +738,14 @@ export function ProjectSubscriptionPage() {
                     {plan.code}
                   </p>
                   <h2 className="mt-1 text-xl font-bold">{plan.name}</h2>
-                  <p className={`mt-2 text-4xl font-black ${active ? "text-white" : ""}`}>
+                  <p
+                    className={`mt-2 text-4xl font-black ${active ? "text-white" : ""}`}
+                  >
                     {money(amount, plan.currency)}
                   </p>
-                  <p className="mt-2 text-sm text-zinc-400">{plan.description}</p>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    {plan.description}
+                  </p>
                   <ul className="mt-3 space-y-1 text-sm text-zinc-300">
                     {plan.features.slice(0, 5).map((feature) => (
                       <li key={feature}>• {feature}</li>
@@ -647,7 +755,8 @@ export function ProjectSubscriptionPage() {
                     type="button"
                     disabled={locked || checkoutReturnLocksUI}
                     onClick={() => {
-                      if (!locked && !checkoutReturnLocksUI) setSelectedPlanId(plan.id);
+                      if (!locked && !checkoutReturnLocksUI)
+                        setSelectedPlanId(plan.id);
                     }}
                     className={`mt-4 w-full rounded-lg px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                       locked
@@ -657,16 +766,22 @@ export function ProjectSubscriptionPage() {
                           : portalUi.btnSecondary + " !w-full"
                     }`}
                   >
-                    {locked ? "Lower tier" : active ? "Selected" : "Select plan"}
+                    {locked
+                      ? "Lower tier"
+                      : active
+                        ? "Selected"
+                        : "Select plan"}
                   </button>
                 </article>
               );
             })}
           </section>
 
-          <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <section className="grid gap-4 mt-4 xl:grid-cols-[minmax(0,1fr)_320px]">
             <div className={portalUi.panel}>
-              <h3 className="font-body text-body-lg font-semibold text-on-surface">Enhance your plan</h3>
+              <h3 className="font-body text-body-lg font-semibold text-on-surface">
+                Enhance your plan
+              </h3>
               <p className="mt-1 font-body-sm text-body-sm text-on-surface-variant">
                 {hasLiveProjectPlan
                   ? "One-time add-ons can only be purchased once. Extra website edit credits can be bought again until you reach your plan limit."
@@ -675,12 +790,16 @@ export function ProjectSubscriptionPage() {
               {canBuyExtraEditsOnSub ? (
                 <div className={`${portalUi.addonCard} mt-4`}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="font-body-sm text-body-sm text-on-surface">Need more website edits this billing cycle?</p>
+                    <p className="font-body-sm text-body-sm text-on-surface">
+                      Need more website edits this billing cycle?
+                    </p>
                     <button
                       type="button"
                       disabled={busy}
                       onClick={() => setExtraEditModalOpen(true)}
-                      className={portalUi.btnPrimary + " !px-3 !py-1.5 !text-xs"}
+                      className={
+                        portalUi.btnPrimary + " !px-3 !py-1.5 !text-xs"
+                      }
                     >
                       Buy edit credits
                     </button>
@@ -691,7 +810,8 @@ export function ProjectSubscriptionPage() {
                 {addonCatalog.filter(
                   (a) =>
                     !isCreditPackAddon(a) &&
-                    (ownedAddonCodes.has(a.code) || eligibleAddons.some((e) => e.code === a.code)),
+                    (ownedAddonCodes.has(a.code) ||
+                      eligibleAddons.some((e) => e.code === a.code)),
                 ).length === 0 ? (
                   <p className="font-body-sm text-body-sm text-on-surface-variant">
                     No add-ons are available for this plan and billing choice.
@@ -701,11 +821,26 @@ export function ProjectSubscriptionPage() {
                   .filter(
                     (a) =>
                       !isCreditPackAddon(a) &&
-                      (ownedAddonCodes.has(a.code) || eligibleAddons.some((e) => e.code === a.code)),
+                      (ownedAddonCodes.has(a.code) ||
+                        eligibleAddons.some((e) => e.code === a.code)),
                   )
                   .map((addon) => {
                     const owned = ownedAddonCodes.has(addon.code);
                     const selected = addons.includes(addon.code);
+                    const displayCents = addonCheckoutDisplayCents(
+                      addon,
+                      addonGatePlan,
+                      billingCycle,
+                    );
+                    const cycleSuffix = addonPriceCycleSuffix(
+                      addon,
+                      billingCycle,
+                    );
+                    const priceLabel =
+                      money(displayCents, addon.currency || "USD") +
+                      (cycleSuffix && cycleSuffix !== "one-time"
+                        ? ` ${cycleSuffix}`
+                        : "");
                     if (owned) {
                       return (
                         <AddonOfferCard
@@ -713,7 +848,7 @@ export function ProjectSubscriptionPage() {
                           mode="owned"
                           label={addon.label}
                           description={addon.desc}
-                          priceLabel={money(addon.priceCents, addon.currency || "USD")}
+                          priceLabel={priceLabel}
                           ownedLabel="Existing add-on"
                         />
                       );
@@ -724,7 +859,7 @@ export function ProjectSubscriptionPage() {
                         mode="select"
                         label={addon.label}
                         description={addon.desc}
-                        priceLabel={money(addon.priceCents, addon.currency || "USD")}
+                        priceLabel={priceLabel}
                         selected={selected}
                         disabled={checkoutReturnLocksUI}
                         onPress={() =>
@@ -740,17 +875,25 @@ export function ProjectSubscriptionPage() {
               </div>
             </div>
             <div className={portalUi.panel}>
-              <h3 className="font-body text-body-lg font-semibold text-on-surface">Order summary</h3>
+              <h3 className="font-body text-body-lg font-semibold text-on-surface">
+                Order summary
+              </h3>
               <div className="mt-4 space-y-2 font-body-sm text-body-sm">
                 {selectedPlan ? (
                   <div className="flex items-center justify-between text-on-surface">
                     <span className="font-medium">
                       {selectedPlan.name}{" "}
                       <span className="text-on-surface-variant">
-                        ({planIsOneTimeOnly(selectedPlan) ? "one-time" : billingCycle})
+                        (
+                        {planIsOneTimeOnly(selectedPlan)
+                          ? "one-time"
+                          : billingCycle}
+                        )
                       </span>
                     </span>
-                    <span className="font-semibold">{money(selectedPlanAmount, selectedPlan.currency)}</span>
+                    <span className="font-semibold">
+                      {money(selectedPlanAmount, selectedPlan.currency)}
+                    </span>
                   </div>
                 ) : (
                   <div className="rounded-lg border border-dashed border-on-surface/15 bg-surface-container-low px-3 py-2 text-on-surface-variant">
@@ -758,22 +901,41 @@ export function ProjectSubscriptionPage() {
                   </div>
                 )}
                 {addons.length > 0 ? (
-                  <p className={portalUi.addonSectionEyebrow + " pt-2"}>Add-ons</p>
+                  <p className={portalUi.addonSectionEyebrow + " pt-2"}>
+                    Add-ons
+                  </p>
                 ) : null}
                 {addons.map((code) => {
                   const item = addonByCode.get(code);
                   if (!item) return null;
                   return (
-                    <div key={code} className="flex items-center justify-between text-on-surface">
+                    <div
+                      key={code}
+                      className="flex items-center justify-between text-on-surface"
+                    >
                       <span>{item.label}</span>
-                      <span className="font-medium">{money(item.priceCents, item.currency || "USD")}</span>
+                      <span className="font-medium">
+                        {money(
+                          addonCheckoutDisplayCents(
+                            item,
+                            addonGatePlan,
+                            billingCycle,
+                          ),
+                          item.currency || "USD",
+                        )}
+                      </span>
                     </div>
                   );
                 })}
                 <div className="mt-3 border-t border-on-surface/10 pt-3">
                   <div className="flex items-center justify-between font-body text-body-lg font-semibold text-on-surface">
                     <span>Total due today</span>
-                    <span>{money(selectedPlanAmount + addonsTotal, selectedPlan?.currency)}</span>
+                    <span>
+                      {money(
+                        selectedPlanAmount + addonsTotal,
+                        selectedPlan?.currency,
+                      )}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -783,11 +945,14 @@ export function ProjectSubscriptionPage() {
                   !selectedPlan ||
                   busy ||
                   checkoutReturnLocksUI ||
-                  (hasLiveProjectPlan && (isDowngradeSelection || nothingToApplyLive))
+                  (hasLiveProjectPlan &&
+                    (isDowngradeSelection || nothingToApplyLive))
                 }
                 onClick={() => {
                   if (checkoutReturnLocksUI) return;
-                  void (hasLiveProjectPlan ? onApplySubscriptionChanges() : onSecureCheckout());
+                  void (hasLiveProjectPlan
+                    ? onApplySubscriptionChanges()
+                    : onSecureCheckout());
                 }}
                 className={portalUi.btnPrimary + " mt-6 w-full !py-3 !text-sm"}
               >
@@ -827,7 +992,9 @@ export function ProjectSubscriptionPage() {
         singleAddon={subExtraEditSingle}
         bundleAddon={subExtraEditBundle}
         companionAddonCodes={extraEditCompanionCodes}
-        currency={subExtraEditSingle?.currency || subExtraEditBundle?.currency || "USD"}
+        currency={
+          subExtraEditSingle?.currency || subExtraEditBundle?.currency || "USD"
+        }
         perEditCents={subModalPerEditCents}
         bundleCredits={subModalBundleCredits}
         bundleCents={subModalBundleCents}

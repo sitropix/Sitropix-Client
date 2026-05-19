@@ -4,15 +4,13 @@ import { Breadcrumb } from "@/components/Breadcrumb";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
 import { PricingCard } from "@/components/subscription/PricingCard";
+import {
+  addonCatalogDisplayCents,
+  addonPriceCycleSuffix,
+  formatAddonMoney,
+} from "@/lib/addonDisplayHelpers";
 import type { BillingCycle, SubscriptionAddon } from "@/types/subscription";
 import { useSubscriptionPortal } from "@/hooks/useSubscriptionPortal";
-
-function money(cents: number, currency = "USD") {
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency,
-  }).format(cents / 100);
-}
 
 export function SubscriptionPage() {
   const navigate = useNavigate();
@@ -31,6 +29,15 @@ export function SubscriptionPage() {
     [visiblePlans],
   );
   const showBillingToggle = anyMonthly || anyYearly;
+
+  const anyAddonMonthly = useMemo(
+    () => addons.some((a) => a.billingMonthlyEnabled !== false),
+    [addons],
+  );
+  const anyAddonYearly = useMemo(
+    () => addons.some((a) => a.billingYearlyEnabled !== false),
+    [addons],
+  );
 
   useEffect(() => {
     if (!anyMonthly && anyYearly) setBillingCycle("yearly");
@@ -145,12 +152,19 @@ export function SubscriptionPage() {
 
       {!loading && addons.length > 0 && (
         <section className="rounded-2xl border border-zinc-200/90 bg-white/40 p-4 shadow-sm ring-1 ring-zinc-100/80 sm:p-6">
-          <div className="mb-4 border-b border-zinc-200/80 pb-4">
-            <h2 className="text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Add-ons</h2>
-            <p className="mt-1 text-sm font-medium text-zinc-800">Optional extras you can add at checkout</p>
-            <p className="mt-1 text-xs text-zinc-600">
-              Add-ons are attached per subscription when you pay for a project. Your admin team can also adjust entitlements
-              where applicable.
+          <div className="mb-4 flex flex-col gap-2 border-b border-zinc-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Add-ons</h2>
+              <p className="mt-1 text-sm font-medium text-zinc-800">Optional extras you can add at checkout</p>
+              <p className="mt-1 text-xs text-zinc-600">
+                Add-ons are attached per subscription when you pay for a project. Your admin team can also adjust entitlements
+                where applicable.
+              </p>
+            </div>
+            <p className="text-xs text-zinc-600">
+              {showBillingToggle && (anyAddonMonthly || anyAddonYearly)
+                ? "Prices reflect your selected billing cycle above."
+                : "One-time add-ons show the purchase price."}
             </p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -162,7 +176,21 @@ export function SubscriptionPage() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{addon.code}</p>
                 <h3 className="mt-1 text-lg font-semibold text-zinc-900">{addon.label}</h3>
                 <p className="mt-2 flex-1 text-sm leading-relaxed text-zinc-600">{addon.desc}</p>
-                <p className="mt-3 text-lg font-bold text-zinc-900">{money(addon.priceCents, addon.currency || "USD")}</p>
+                <p className="mt-3 text-lg font-bold text-zinc-900">
+                  {formatAddonMoney(
+                    addonCatalogDisplayCents(addon, billingCycle, visiblePlans),
+                    addon.currency || "USD",
+                  )}
+                  {(() => {
+                    const suffix = addonPriceCycleSuffix(addon, billingCycle);
+                    if (!suffix || suffix === "one-time") {
+                      return suffix === "one-time" ? (
+                        <span className="ml-1 text-sm font-medium text-zinc-500">one-time</span>
+                      ) : null;
+                    }
+                    return <span className="ml-1 text-sm font-medium text-zinc-500">{suffix}</span>;
+                  })()}
+                </p>
               </article>
             ))}
           </div>

@@ -1,10 +1,82 @@
-import type { SubscriptionAddon } from "@/types/subscription";
+import {
+  addonPlanPricingMode,
+  readPlanPricingMap,
+  resolveAddonPlanPriceCents,
+} from "@/lib/addonPlanPricing";
+import type { BillingCycle, Plan, SubscriptionAddon } from "@/types/subscription";
 
 export function formatAddonMoney(cents: number, currency = "USD") {
   return new Intl.NumberFormat(undefined, {
     style: "currency",
     currency,
   }).format(cents / 100);
+}
+
+function addonIsOneTimeStyle(addon: SubscriptionAddon) {
+  return addon.billingMonthlyEnabled === false && addon.billingYearlyEnabled === false;
+}
+
+/** Recurring unit or one-time price for a plan + billing cycle (excludes setup fee). */
+export function addonRecurringUnitCents(
+  addon: SubscriptionAddon,
+  plan: Plan | null | undefined,
+  billingCycle: BillingCycle,
+) {
+  return resolveAddonPlanPriceCents(addon, plan, billingCycle);
+}
+
+/** Price shown at checkout / on subscription cards (includes setup + first period when applicable). */
+export function addonCheckoutDisplayCents(
+  addon: SubscriptionAddon,
+  plan: Plan | null | undefined,
+  billingCycle: BillingCycle,
+) {
+  const unit = addonRecurringUnitCents(addon, plan, billingCycle);
+  if (addon.billingKind === "recurring" && (addon.setupFeeCents ?? 0) > 0) {
+    return (addon.setupFeeCents ?? 0) + unit;
+  }
+  return unit > 0 ? unit : addon.priceCents ?? 0;
+}
+
+/** Catalog reference price when no project plan is selected (lowest active-plan price for the cycle). */
+export function addonCatalogDisplayCents(
+  addon: SubscriptionAddon,
+  billingCycle: BillingCycle,
+  plans: Plan[],
+) {
+  const planMap = readPlanPricingMap(addon.catalogJson);
+  if (Object.keys(planMap).length > 0 && plans.length > 0) {
+    const prices = plans
+      .filter((p) => p.isActive !== false)
+      .map((p) => resolveAddonPlanPriceCents(addon, p, billingCycle))
+      .filter((c) => c > 0);
+    if (prices.length > 0) return Math.min(...prices);
+  }
+
+  const mode = addonPlanPricingMode(addon);
+  if (mode === "one_time" || addonIsOneTimeStyle(addon)) {
+    return resolveAddonPlanPriceCents(addon, null, null);
+  }
+
+  if (billingCycle === "yearly" && addon.billingYearlyEnabled !== false) {
+    if (addon.priceMaxCents != null && addon.priceMaxCents > 0) return addon.priceMaxCents;
+  }
+  if (billingCycle === "monthly" && addon.billingMonthlyEnabled !== false) {
+    if (addon.priceMinCents != null && addon.priceMinCents > 0) return addon.priceMinCents;
+  }
+  return addon.priceCents ?? 0;
+}
+
+export function addonPriceCycleSuffix(
+  addon: SubscriptionAddon,
+  billingCycle: BillingCycle,
+): string | null {
+  if (addonPlanPricingMode(addon) === "one_time" || addonIsOneTimeStyle(addon)) {
+    return "one-time";
+  }
+  if (billingCycle === "yearly" && addon.billingYearlyEnabled !== false) return "/yr";
+  if (billingCycle === "monthly" && addon.billingMonthlyEnabled !== false) return "/mo";
+  return null;
 }
 
 export function resolveExtraEditAddonDisplayCents(

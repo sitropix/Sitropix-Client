@@ -1,4 +1,5 @@
 import { prisma } from "../db/client.mjs";
+import { readPlanPricingMap } from "./addonPlanPricing.mjs";
 import { isCreditPackAddon } from "./projectAccessibleAddons.mjs";
 
 function mapAddon(row) {
@@ -22,8 +23,10 @@ function mapAddon(row) {
   };
 }
 
-/** Slim add-on row for customer portal / subscription UI (catalogJson only for credit-pack SKUs). */
+/** Slim add-on row for customer portal / subscription UI. */
 export function mapAddonForPortal(row) {
+  const catalogJson =
+    row.catalogJson && typeof row.catalogJson === "object" ? row.catalogJson : {};
   const mapped = {
     code: row.code,
     label: row.label,
@@ -35,11 +38,16 @@ export function mapAddonForPortal(row) {
     billingYearlyEnabled: row.billingYearlyEnabled ?? true,
     billingKind: row.billingKind ?? "recurring",
     setupFeeCents: row.setupFeeCents ?? 0,
+    priceMinCents: row.priceMinCents ?? null,
+    priceMaxCents: row.priceMaxCents ?? null,
     eligiblePlanCodes: Array.isArray(row.eligiblePlanCodes) ? row.eligiblePlanCodes : [],
   };
   if (isCreditPackAddon(row)) {
-    mapped.catalogJson =
-      row.catalogJson && typeof row.catalogJson === "object" ? row.catalogJson : {};
+    mapped.catalogJson = catalogJson;
+  } else if (Object.keys(readPlanPricingMap(catalogJson)).length > 0) {
+    mapped.catalogJson = {
+      planPricing: catalogJson.planPricing ?? catalogJson.plan_pricing,
+    };
   }
   return mapped;
 }
