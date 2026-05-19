@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { userFacingApiError } from "@/services/http";
 import { createTicket, fetchTickets } from "@/services/supportApi";
 import type { CreateTicketInput, SupportTicket } from "@/types/support";
 
@@ -44,8 +45,8 @@ export function TicketsProvider({ children }: { children: ReactNode }) {
     try {
       const data = await fetchTickets();
       setTickets(normalizeTickets(data));
-    } catch {
-      setError("Unable to load tickets.");
+    } catch (err) {
+      setError(userFacingApiError(err, "Unable to load tickets."));
       setTickets([]);
     } finally {
       setLoading(false);

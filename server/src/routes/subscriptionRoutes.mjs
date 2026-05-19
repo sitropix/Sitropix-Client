@@ -78,10 +78,10 @@ import {
   subscriptionBillingAnchorUnix,
 } from "../services/recurringAddonCheckout.mjs";
 import {
-  resolveStripeCustomerIdForSubscription,
   syncPaidInvoicesFromStripe,
   syncSubscriptionFromStripeForUserId,
 } from "../services/stripeSubscriptionSync.mjs";
+import { resolveOrCreateStripeCustomerId } from "../services/stripeCustomerResolve.mjs";
 import {
   findPrimaryUserSubscription,
   findUserProjectSubscription,
@@ -1072,12 +1072,31 @@ router.post("/addon-checkout-session", validate(addonCheckoutSessionSchema), asy
   if (!sub || !["active", "trialing"].includes(sub.status)) {
     return res.status(409).json({ error: "subscription_not_active" });
   }
-  const stripeCustomerId = await resolveStripeCustomerIdForSubscription(req.auth.userId, sub);
+  let stripeCustomerId = sub.stripeCustomerId?.trim() || null;
   if (!stripeCustomerId) {
-    return res.status(400).json({
-      error: "missing_stripe_customer",
-      message: "Billing profile is incomplete. Open subscription checkout once, then retry add-ons.",
-    });
+    let resolved;
+    try {
+      resolved = await resolveOrCreateStripeCustomerId(req.auth.userId, sub);
+    } catch (e) {
+      log.error("addon_checkout_session.customer_resolve_failed", {
+        userId: req.auth.userId,
+        projectId,
+        error: e?.message,
+      });
+      return res.status(503).json({
+        error: "billing_setup_failed",
+        message: "Could not prepare billing for checkout. Please try again.",
+      });
+    }
+    if (!resolved.ok) {
+      return res.status(400).json({
+        error: resolved.reason ?? "missing_stripe_customer",
+        message:
+          resolved.message ??
+          "Billing profile could not be set up. Complete subscription checkout or contact support.",
+      });
+    }
+    stripeCustomerId = resolved.customerId;
   }
   const existing = Array.isArray(project.addonsJson) ? project.addonsJson.filter((v) => typeof v === "string") : [];
   const addonCatalogRows = await fetchSubscriptionAddonCatalog();
@@ -1481,6 +1500,48 @@ router.post("/confirm-addon-checkout", validate(confirmAddonCheckoutSchema), asy
   return res.json({ ok: true });
 });
 
+/** Ensures a Stripe customer exists for add-on checkout / billing portal (idempotent). */
+router.post("/ensure-billing-customer", validate(projectSubscriptionActionSchema), async (req, res) => {
+  assertStripeConfigured();
+  const projectId = req.validatedBody.projectId;
+  subscriptionDebug(req, "ensure_billing_customer.start", { userId: req.auth.userId, projectId });
+  const project = await prisma.project.findFirst({ where: { id: projectId, ownerUserId: req.auth.userId } });
+  if (!project) return res.status(404).json({ error: "project_not_found" });
+  const sub = await findUserProjectSubscription(req.auth.userId, projectId);
+  if (!sub || !["active", "trialing"].includes(sub.status)) {
+    return res.status(409).json({ error: "subscription_not_active" });
+  }
+  if (sub.stripeCustomerId?.trim()) {
+    return res.json({ ok: true, customerId: sub.stripeCustomerId.trim() });
+  }
+  let resolved;
+  try {
+    resolved = await resolveOrCreateStripeCustomerId(req.auth.userId, sub);
+  } catch (e) {
+    log.error("ensure_billing_customer.resolve_failed", {
+      userId: req.auth.userId,
+      projectId,
+      error: e?.message,
+    });
+    return res.status(503).json({
+      error: "billing_setup_failed",
+      message: "Could not prepare billing. Please try again.",
+    });
+  }
+  if (!resolved.ok) {
+    return res.status(400).json({
+      error: resolved.reason ?? "missing_stripe_customer",
+      message: resolved.message ?? "Could not set up billing for this project.",
+    });
+  }
+  subscriptionDebug(req, "ensure_billing_customer.success", {
+    userId: req.auth.userId,
+    projectId,
+    customerId: resolved.customerId,
+  });
+  return res.json({ ok: true, customerId: resolved.customerId });
+});
+
 router.post("/billing-portal", validate(billingPortalSchema), async (req, res) => {
   assertStripeConfigured();
   const projectId = req.validatedBody.projectId ?? null;
@@ -1489,8 +1550,19 @@ router.post("/billing-portal", validate(billingPortalSchema), async (req, res) =
     ? await findUserProjectSubscription(req.auth.userId, projectId)
     : await findPrimaryUserSubscription(req.auth.userId);
   if (!sub) return res.status(404).json({ error: "subscription_not_found" });
-  const portalCustomerId = await resolveStripeCustomerIdForSubscription(req.auth.userId, sub);
-  if (!portalCustomerId) return res.status(400).json({ error: "missing_stripe_customer" });
+  let portalCustomerId = sub.stripeCustomerId?.trim() || null;
+  if (!portalCustomerId) {
+    const resolved = await resolveOrCreateStripeCustomerId(req.auth.userId, sub);
+    if (!resolved.ok) {
+      return res.status(400).json({
+        error: "missing_stripe_customer",
+        message:
+          resolved.message ??
+          "Billing profile could not be set up. Complete subscription checkout or contact support.",
+      });
+    }
+    portalCustomerId = resolved.customerId;
+  }
   const returnUrl = req.validatedBody.returnUrl ?? `${env.appUrl}/billing`;
   if (!isAllowedRedirect(returnUrl)) {
     return res.status(400).json({

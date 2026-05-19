@@ -1,3 +1,5 @@
+@import "./styles/client-portal-theme.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -129,49 +131,7 @@
     border-color: #2b3137 !important;
   }
 
-  html:not([data-theme="dark"]) .client-portal-main .client-workspace-view {
-    color: #0f172a;
-  }
-
-  html[data-theme="dark"] .client-portal-main .client-workspace-view {
-    color: #f4f4f5;
-  }
-
-  /* Light mode: headings on remapped light-gray #15191C cards */
-  html:not([data-theme="dark"])
-    .client-portal-main
-    .bg-\[\#15191C\]
-    :is(h1, h2, h3, h4, h5, h6) {
-    color: #0a0a0a !important;
-  }
-
-  html[data-theme="dark"] .client-portal-main .subscription-hero-title {
-    color: #fafafa !important;
-  }
-
-  html[data-theme="dark"]
-    .client-portal-main
-    .client-workspace-view
-    > header
-    :is(h1, h2) {
-    color: #fafafa !important;
-  }
-
-  .client-ink-on-panel {
-    color: #0a0a0a;
-  }
-
-  html[data-theme="dark"] .client-portal-main .client-ink-on-panel {
-    color: #fafafa !important;
-  }
-
-  html:not([data-theme="dark"]) .client-portal-main .client-plan-card-inactive {
-    color: #0f172a !important;
-  }
-
-  html[data-theme="dark"] .client-portal-main .client-plan-card-inactive {
-    color: #fafafa !important;
-  }
+  /* Portal workspace colors: client-portal-theme.css (CSS variables per theme) */
 
   /* Light-mode depth for dashboard inner plan cards. */
   html:not([data-theme="dark"]) .plan-highlight-card {
@@ -345,7 +305,7 @@
     background-color: rgba(19, 19, 19, 0.9) !important;
   }
 
-  html[data-theme="dark"] [class*="bg-white"] {
+  html[data-theme="dark"] :not(.client-portal-root) [class*="bg-white"] {
     background-color: rgba(18, 18, 18, 0.92) !important;
   }
 
@@ -376,18 +336,18 @@
     --tw-gradient-to: rgba(16, 16, 16, 0.96) var(--tw-gradient-to-position) !important;
   }
 
-  html[data-theme="dark"] [class*="text-zinc-9"],
-  html[data-theme="dark"] [class*="text-zinc-8"] {
+  html[data-theme="dark"] :not(.client-portal-root) [class*="text-zinc-9"],
+  html[data-theme="dark"] :not(.client-portal-root) [class*="text-zinc-8"] {
     color: #f3f4f6 !important;
   }
 
-  html[data-theme="dark"] [class*="text-zinc-7"],
-  html[data-theme="dark"] [class*="text-zinc-6"],
-  html[data-theme="dark"] [class*="text-zinc-5"] {
+  html[data-theme="dark"] :not(.client-portal-root) [class*="text-zinc-7"],
+  html[data-theme="dark"] :not(.client-portal-root) [class*="text-zinc-6"],
+  html[data-theme="dark"] :not(.client-portal-root) [class*="text-zinc-5"] {
     color: #b8b8b8 !important;
   }
 
-  html[data-theme="dark"] [class*="text-zinc-4"] {
+  html[data-theme="dark"] :not(.client-portal-root) [class*="text-zinc-4"] {
     color: #909090 !important;
   }
 
@@ -973,4 +933,14 @@
 /* Links and interactive elements - keep readable but not harsh */
 .admin-theme a:not([class*="text-brand"]) {
   color: #d4d4d8;
+}
+
+.client-portal-root {
+  @apply font-body;
+}
+
+.client-portal-root .material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  font-size: 24px;
+  line-height: 1;
 }

@@ -1,5 +1,8 @@
-import { Logo } from "@/components/Logo";
+import { MaterialIcon } from "@/components/MaterialIcon";
+import type { MaterialIconName } from "@/components/MaterialIcon";
 import { SmartSearch } from "@/components/SmartSearch";
+import { PortalOverlay } from "@/components/ui/PortalOverlay";
+import { ProjectCreateForm } from "@/components/workspace/ProjectCreateForm";
 import { useAuth } from "@/context/AuthContext";
 import { useAuthz } from "@/context/AuthzContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -11,115 +14,185 @@ import {
   listProjectsByUser,
 } from "@/services/projectsStore";
 import { PROJECTS_LIST_INVALIDATE_EVENT } from "@/services/projectsInvalidate";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import type { Plan } from "@/types/subscription";
+import type { ProjectRecord } from "@/types/project";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 
-const portalLinkClass = ({ isActive }: { isActive: boolean }) =>
-  [
-    "portal-nav-link flex items-center justify-between gap-2 rounded-lg border-l-2 py-2.5 pl-2.5 pr-3 text-sm font-medium transition",
+const SIDEBAR_LINKS: Array<{
+  to: string;
+  label: string;
+  icon: MaterialIconName;
+}> = [
+  { to: "/dashboard", label: "Home", icon: "home" },
+  { to: "/projects", label: "My Projects", icon: "account_tree" },
+  { to: "/subscription-management", label: "Payments", icon: "payments" },
+  { to: "/subscription", label: "Plan Catalog", icon: "grid_view" },
+  { to: "/requests", label: "Support", icon: "support_agent" },
+  { to: "/workspace", label: "Files", icon: "folder" },
+  { to: "/kb", label: "Knowledge Base", icon: "menu_book" },
+];
+
+const ALLOWED_DURING_ONBOARDING = [
+  "/dashboard",
+  "/subscription",
+  "/projects",
+  "/projects/",
+];
+
+const PAGE_TITLES: Record<string, string> = {
+  "/dashboard": "Dashboard",
+  "/projects": "My Projects",
+  "/subscription-management": "Payments",
+  "/subscription": "Plan Catalog",
+  "/requests": "Support",
+  "/workspace": "Files",
+  "/kb": "Knowledge Base",
+  "/profile": "Settings",
+  "/search": "Search",
+  "/billing": "Billing",
+  "/client-dashboard": "Dashboard",
+  "/ticket": "Ticket",
+};
+
+function sidebarNavClass({ isActive }: { isActive: boolean }) {
+  return [
+    "portal-nav-link flex items-center gap-4 bg-transparent py-3 px-4 font-body text-body text-white transition-colors duration-200 ease-in-out",
     isActive
-      ? "border-l-brand-lime bg-white text-zinc-900 shadow-[inset_0_0_0_1px_rgba(112,111,112,0.2)]"
-      : "border-l-transparent text-zinc-600 hover:border-l-zinc-300 hover:bg-white/70 hover:text-zinc-900",
+      ? "portal-nav-link--active border-l-2 border-accent-gold font-semibold"
+      : "border-l-2 border-transparent",
   ].join(" ");
+}
 
-const lockedPortalLinkClass =
-  "portal-nav-link flex cursor-not-allowed items-center justify-between gap-2 rounded-lg border-l-2 border-l-transparent bg-zinc-100/80 py-2.5 pl-2.5 pr-3 text-sm font-medium text-zinc-500 opacity-80";
+function lockedSidebarClass() {
+  return "flex w-full cursor-not-allowed items-center gap-4 border-l-2 border-transparent py-3 px-4 text-left font-body text-body text-white/40";
+}
 
-function ChevronDown({ className }: { className?: string }) {
+function pageTitleForPath(pathname: string) {
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length === 0) return "Dashboard";
+  const key = `/${segments[0]}`;
+  if (PAGE_TITLES[key]) return PAGE_TITLES[key];
+  if (pathname.includes("/add-ons")) return "Manage Add-ons";
+  if (pathname.startsWith("/projects/")) return "My Projects";
+  if (pathname.startsWith("/workspace/")) return "Files";
+  if (pathname.startsWith("/support/tickets")) return "Support";
+  if (pathname.startsWith("/ticket")) return "Ticket";
+  return "Client Portal";
+}
+
+function matchesAllowedPath(target: string, candidate: string): boolean {
+  return candidate.endsWith("/")
+    ? target.startsWith(candidate)
+    : target === candidate || target.startsWith(`${candidate}/`);
+}
+
+function PortalSidebarBrand({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
+    <Link
+      to="/dashboard"
+      onClick={onNavigate}
+      className="mb-10 block px-2 outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/50"
     >
-      <path d="M6 9l6 6 6-6" />
-    </svg>
+      <h1 className="flex items-center gap-1 font-h1 text-h2 font-bold leading-none text-accent-gold">
+        Sitropix
+        <span
+          className="inline-block h-2 w-2 translate-y-1 rounded-full bg-accent-gold"
+          aria-hidden
+        />
+      </h1>
+      <p className="mt-1 font-caption text-caption uppercase tracking-wider text-white/55">
+        Client Portal
+      </p>
+    </Link>
   );
 }
 
-function LockIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <rect x="4" y="11" width="16" height="10" rx="2" />
-      <path d="M8 11V8a4 4 0 118 0v3" />
-    </svg>
-  );
-}
-
-function ThemeToggleIcon({ dark }: { dark: boolean }) {
-  if (dark) {
-    return (
-      <svg
-        viewBox="0 0 24 24"
-        className="h-4 w-4"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        aria-hidden
-      >
-        <path d="M12 3v1.5M12 19.5V21M4.5 12H3m18 0h-1.5M6.22 6.22l-1.06-1.06m13.62 13.62-1.06-1.06M17.78 6.22l1.06-1.06M6.22 17.78l-1.06 1.06" />
-        <circle cx="12" cy="12" r="4.25" />
-      </svg>
-    );
-  }
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      aria-hidden
-    >
-      <path d="M21 12.79A9 9 0 1111.21 3c-.01.1-.01.2-.01.3A7.5 7.5 0 0018.7 10.8c.1 0 .2 0 .3-.01z" />
-    </svg>
-  );
-}
-
-function HeaderProfileMenu({
+function SidebarNavItems({
+  shouldRestrictNav,
+  matchesAllowedPath: pathMatches,
   onNavigate,
-  workspacePlanSummary,
 }: {
+  shouldRestrictNav: boolean;
+  matchesAllowedPath: (target: string, candidate: string) => boolean;
   onNavigate?: () => void;
-  /** Short label for multi-project billing (e.g. plan name or "2 active plans"). */
-  workspacePlanSummary?: string | null;
 }) {
+  const { isAdmin } = useAuthz();
+
+  return (
+    <>
+      {SIDEBAR_LINKS.map((item) => {
+        const locked =
+          shouldRestrictNav &&
+          !ALLOWED_DURING_ONBOARDING.some((p) => pathMatches(item.to, p));
+        if (locked) {
+          return (
+            <button
+              key={item.to}
+              type="button"
+              disabled
+              aria-disabled="true"
+              title={`${item.label} is locked until onboarding is complete`}
+              className={lockedSidebarClass()}
+            >
+              <MaterialIcon
+                name={item.icon}
+                className="!text-[22px] text-white/40"
+              />
+              <span>{item.label}</span>
+              <MaterialIcon name="lock" className="ml-auto !text-[18px]" />
+            </button>
+          );
+        }
+        return (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={sidebarNavClass}
+            end={item.to === "/dashboard"}
+            title={item.label}
+            onClick={onNavigate}
+          >
+            <MaterialIcon name={item.icon} className="!text-[22px]" />
+            <span className="font-body text-body">{item.label}</span>
+          </NavLink>
+        );
+      })}
+      {isAdmin ? (
+        <NavLink to="/admin" className={sidebarNavClass} onClick={onNavigate}>
+          <MaterialIcon name="settings" className="!text-[22px]" />
+          <span className="font-body text-body">Admin</span>
+        </NavLink>
+      ) : null}
+    </>
+  );
+}
+
+function HeaderProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
   const { logout } = useAuth();
   const { isDark, toggleTheme } = useTheme();
-  const { contact, subscription } = useUser();
-  const [open, setOpen] = useState(false);
+  const { contact } = useUser();
+  const [profileOpen, setProfileOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!profileOpen) return;
     function onDoc(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(e.target as Node)) setProfileOpen(false);
     }
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
+  }, [profileOpen]);
 
   const displayName = contact
     ? `${contact.firstName} ${contact.lastName}`.trim()
     : "Customer";
-  const planLabel =
-    workspacePlanSummary?.trim() ||
-    subscription?.planName?.trim() ||
-    "Workspace";
   const initials = (
     contact?.firstName?.trim().charAt(0) ||
     contact?.lastName?.trim().charAt(0) ||
@@ -131,53 +204,28 @@ function HeaderProfileMenu({
     <div className="relative" ref={rootRef}>
       <button
         type="button"
-        aria-expanded={open}
+        aria-expanded={profileOpen}
         aria-haspopup="menu"
-        onClick={() => setOpen((v) => !v)}
-        className={[
-          "profile-liquid-card flex max-w-[min(100vw-6.5rem,10.5rem)] items-center gap-1.5 rounded-full border border-zinc-300 bg-white/85 py-0.5 pl-1 pr-1.5 outline-none transition sm:max-w-[11.5rem] sm:gap-2 sm:pr-2",
-          "hover:bg-white",
-          "focus-visible:ring-2 focus-visible:ring-brand-lime/35 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas",
-          open ? "bg-white profile-liquid-open" : "",
-        ].join(" ")}
+        onClick={() => setProfileOpen((v) => !v)}
+        className="flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container-low font-body text-xs font-bold text-on-surface shadow-sm outline-none transition hover:border-accent-gold/40 focus-visible:ring-2 focus-visible:ring-accent-gold/35"
       >
         <span className="sr-only">Open account menu</span>
-        <span className="profile-liquid-avatar grid h-8 w-8 shrink-0 place-items-center rounded-full bg-zinc-700 text-[11px] font-bold tracking-tight text-white shadow-sm">
-          {initials}
-        </span>
-        <span className="hidden min-w-0 flex-1 items-center py-0.5 text-left sm:flex">
-          <span className="inline-flex w-fit max-w-full">
-            <span className="profile-liquid-plan truncate rounded-full bg-zinc-200 px-1.5 py-px text-[9px] font-bold uppercase tracking-[0.1em] text-zinc-700">
-              {planLabel}
-            </span>
-          </span>
-        </span>
-        <ChevronDown
-          className={[
-            "profile-liquid-chevron h-3.5 w-3.5 shrink-0 text-zinc-500 transition",
-            open ? "rotate-180 text-zinc-800" : "",
-          ].join(" ")}
-        />
+        {initials}
       </button>
-      {open && (
+      {profileOpen ? (
         <div
           role="menu"
-          className="absolute right-0 z-[60] mt-2 min-w-[200px] overflow-hidden rounded-xl border border-zinc-300 bg-white py-1 shadow-glass"
+          className="absolute right-0 z-[60] mt-2 min-w-[220px] overflow-hidden rounded-xl border border-outline-variant/40 bg-surface-container-lowest py-1.5 shadow-glass ring-1 ring-black/5"
         >
-          <div className="border-b border-zinc-200 px-4 py-3 sm:hidden">
-            <p className="truncate text-sm font-semibold text-zinc-900">
-              {displayName}
-            </p>
-            <p className="mt-1.5 inline-flex max-w-full truncate rounded-md border border-zinc-300 bg-zinc-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-700">
-              {planLabel}
-            </p>
-          </div>
+          <p className="border-b border-outline-variant/30 px-4 py-2.5 text-xs font-medium text-on-surface-variant">
+            {displayName}
+          </p>
           <Link
             role="menuitem"
             to="/profile"
-            className="block px-4 py-2.5 text-sm font-medium text-zinc-900 hover:bg-zinc-100"
+            className="block px-4 py-2.5 text-sm font-medium text-on-surface hover:bg-surface-container"
             onClick={() => {
-              setOpen(false);
+              setProfileOpen(false);
               onNavigate?.();
             }}
           >
@@ -186,21 +234,25 @@ function HeaderProfileMenu({
           <button
             type="button"
             role="menuitem"
-            className="w-full px-4 py-2.5 text-left text-sm font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium text-on-surface hover:bg-surface-container"
             onClick={() => {
-              setOpen(false);
+              setProfileOpen(false);
               onNavigate?.();
               toggleTheme();
             }}
           >
-            Switch to {isDark ? "Light" : "Dark"} mode
+            <MaterialIcon
+              name={isDark ? "light_mode" : "dark_mode"}
+              className="!text-[20px] text-on-surface-variant"
+            />
+            {isDark ? "Light mode" : "Dark mode"}
           </button>
           <button
             type="button"
             role="menuitem"
-            className="w-full px-4 py-2.5 text-left text-sm font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+            className="w-full px-4 py-2.5 text-left text-sm font-medium text-error hover:bg-error-bg"
             onClick={() => {
-              setOpen(false);
+              setProfileOpen(false);
               onNavigate?.();
               void logout();
             }}
@@ -208,32 +260,55 @@ function HeaderProfileMenu({
             Logout
           </button>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
 export function ClientPortalShell({ children }: { children: ReactNode }) {
+  const { pathname, search } = useLocation();
+  const navigate = useNavigate();
+  const { user, isFirstLogin, logout } = useAuth();
+  const { isDark, toggleTheme } = useTheme();
+  const { portal } = useUser();
+
   const [open, setOpen] = useState(false);
   const [showOnboardingPopup, setShowOnboardingPopup] = useState(true);
-  const [projects, setProjects] = useState<
-    Awaited<ReturnType<typeof listProjectsByUser>>
-  >([]);
-  /** True until the in-flight project list fetch for the current user completes (avoids onboarding UI from empty state). */
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
-  const prevResolvedUserIdRef = useRef<string | null>(null);
   const [onboarding, setOnboarding] = useState({
     hasProject: false,
     hasAssetsReady: false,
     hasActiveSubscription: false,
     completed: false,
   });
-  const { pathname, search } = useLocation();
-  const { isFirstLogin, user } = useAuth();
-  const { isAdmin } = useAuthz();
-  const { isDark, toggleTheme } = useTheme();
-  const { portal } = useUser();
+  const prevResolvedUserIdRef = useRef<string | null>(null);
+
   const resolvedUserId = user?.id ?? portal?.user?.id ?? null;
+
+  const sortedPlans: Plan[] = useMemo(() => {
+    const raw = portal?.plans ?? [];
+    return [...raw].sort((a, b) => a.priceMonthlyCents - b.priceMonthlyCents);
+  }, [portal?.plans]);
+
+  const highestPlanTier = useMemo(() => {
+    const owned = projects.filter(hasValidProjectPlan);
+    if (owned.length === 0) return -1;
+    let max = -1;
+    for (const p of owned) {
+      const idx = sortedPlans.findIndex((pl) => pl.id === p.planId);
+      if (idx > max) max = idx;
+    }
+    return max;
+  }, [projects, sortedPlans]);
+
+  const nextPlan = useMemo((): Plan | null => {
+    if (sortedPlans.length === 0) return null;
+    if (highestPlanTier < 0) return sortedPlans[0] ?? null;
+    if (highestPlanTier >= sortedPlans.length - 1) return null;
+    return sortedPlans[highestPlanTier + 1] ?? null;
+  }, [highestPlanTier, sortedPlans]);
+
   const projectsKey = useMemo(
     () =>
       projects
@@ -244,26 +319,34 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
         .join("|"),
     [projects],
   );
-  const allowedDuringOnboarding = [
-    "/dashboard",
-    "/subscription",
-    "/projects",
-    "/projects/",
-  ];
-  const matchesAllowedPath = (target: string, candidate: string) =>
-    candidate.endsWith("/")
-      ? target.startsWith(candidate)
-      : target === candidate || target.startsWith(`${candidate}/`);
+
   const userHasActiveSubscriptionAnywhere = useMemo(
     () => projects.some((project) => hasValidProjectPlan(project)),
     [projects],
   );
-  const shouldLockByFirstLogin = isFirstLogin;
+
   const projectsReady = !projectsLoading;
   const shouldRestrictNav =
     projectsReady &&
     !userHasActiveSubscriptionAnywhere &&
-    (shouldLockByFirstLogin || !onboarding.completed);
+    (isFirstLogin || !onboarding.completed);
+
+  const requiresProjectCreation = !onboarding.hasProject;
+  const hideOnboardingPopupOnPaths = [
+    "/projects",
+    "/projects/",
+    "/subscription",
+    "/ticket",
+  ];
+  const shouldHideOnboardingPopupForCurrentPath = hideOnboardingPopupOnPaths.some(
+    (p) => matchesAllowedPath(pathname, p),
+  );
+  const onboardingPopupVisible =
+    projectsReady &&
+    shouldRestrictNav &&
+    !shouldHideOnboardingPopupForCurrentPath &&
+    (requiresProjectCreation || showOnboardingPopup);
+
   useEffect(() => {
     if (!resolvedUserId) {
       prevResolvedUserIdRef.current = null;
@@ -276,7 +359,8 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
     if (userSwitched) setProjectsLoading(true);
 
     const forceList =
-      search.includes("payment_success=1") || search.includes("payment_success=true");
+      search.includes("payment_success=1") ||
+      search.includes("payment_success=true");
     let cancelled = false;
     void listProjectsByUser(resolvedUserId, { force: forceList })
       .then((rows) => {
@@ -295,33 +379,16 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!resolvedUserId) return;
-    const uid: string = resolvedUserId;
+    const uid = resolvedUserId;
     function onInvalidate() {
       void listProjectsByUser(uid, { force: true })
-        .then((rows) => {
-          setProjects(rows);
-        })
-        .catch(() => {
-          setProjects([]);
-        });
+        .then((rows) => setProjects(rows))
+        .catch(() => setProjects([]));
     }
     window.addEventListener(PROJECTS_LIST_INVALIDATE_EVENT, onInvalidate);
-    return () => window.removeEventListener(PROJECTS_LIST_INVALIDATE_EVENT, onInvalidate);
+    return () =>
+      window.removeEventListener(PROJECTS_LIST_INVALIDATE_EVENT, onInvalidate);
   }, [resolvedUserId]);
-
-  const requiresProjectCreation = !onboarding.hasProject;
-  const hideOnboardingPopupOnPaths = [
-    "/projects",
-    "/projects/",
-    "/subscription",
-  ];
-  const shouldHideOnboardingPopupForCurrentPath =
-    hideOnboardingPopupOnPaths.some((p) => matchesAllowedPath(pathname, p));
-  const onboardingPopupVisible =
-    projectsReady &&
-    shouldRestrictNav &&
-    !shouldHideOnboardingPopupForCurrentPath &&
-    (requiresProjectCreation || showOnboardingPopup);
 
   useEffect(() => {
     if (projectsLoading || !resolvedUserId) return;
@@ -381,281 +448,178 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onboardingPopupVisible, requiresProjectCreation]);
 
-  const sortedPlans = [...(portal?.plans ?? [])].sort(
-    (a, b) => a.priceMonthlyCents - b.priceMonthlyCents,
-  );
-  const subscribedProjects = useMemo(
-    () => projects.filter((project) => hasValidProjectPlan(project)),
-    [projects],
-  );
-  const workspacePlanSummary = useMemo(() => {
-    if (subscribedProjects.length === 0) return null;
-    if (subscribedProjects.length === 1) {
-      return subscribedProjects[0]?.planName?.trim() || "Active plan";
-    }
-    return `${subscribedProjects.length} active plans`;
-  }, [subscribedProjects]);
-  const primarySubscribed = subscribedProjects[0];
-  const currentPlanId = primarySubscribed?.planId ?? null;
-  const currentIdx =
-    currentPlanId != null
-      ? sortedPlans.findIndex((p) => p.id === currentPlanId)
-      : -1;
-  const nextPlan =
-    currentIdx >= 0 && currentIdx < sortedPlans.length - 1
-      ? sortedPlans[currentIdx + 1]
-      : null;
+  function closeMobileNav() {
+    setOpen(false);
+  }
 
-  const links = [
-    { to: "/dashboard", label: "Home" },
-    { to: "/projects", label: "My Projects" },
-    {
-      to: "/subscription-management",
-      label: "Payment Management",
-    },
-    { to: "/subscription", label: "Plan catalog" },
-    { to: "/requests", label: "Support" },
-    { to: "/workspace", label: "Workspace Files" },
-    { to: "/kb", label: "Knowledge Base" },
-  ];
+  const pageTitle = pageTitleForPath(pathname);
+
+  const sidebarNav = (
+    <>
+      <PortalSidebarBrand onNavigate={closeMobileNav} />
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]">
+        <SidebarNavItems
+          shouldRestrictNav={shouldRestrictNav}
+          matchesAllowedPath={matchesAllowedPath}
+          onNavigate={closeMobileNav}
+        />
+      </nav>
+      <div className="mt-auto space-y-4 border-t border-white/10 pt-6">
+        {nextPlan ? (
+          <Link
+            to="/subscription"
+            onClick={closeMobileNav}
+            className="flex w-full items-center justify-center rounded-lg bg-accent-gold py-3 font-body font-semibold text-stone-6 outline-none transition-opacity duration-200 hover:opacity-90 active:scale-95 focus-visible:ring-2 focus-visible:ring-accent-gold/40"
+          >
+            Upgrade Plan
+          </Link>
+        ) : null}
+        <div className="space-y-1">
+          <Link
+            to="/profile"
+            onClick={closeMobileNav}
+            className="flex items-center gap-4 bg-transparent py-3 px-4 font-body text-body text-white transition-colors duration-200 ease-in-out hover:text-white"
+          >
+            <MaterialIcon name="settings" className="!text-[22px]" />
+            Settings
+          </Link>
+          <button
+            type="button"
+            className="flex w-full items-center gap-4 bg-transparent py-3 px-4 text-left font-body text-body text-white transition-colors duration-200 ease-in-out hover:text-white"
+            onClick={() => {
+              closeMobileNav();
+              void logout();
+            }}
+          >
+            <MaterialIcon name="logout" className="!text-[22px]" />
+            Logout
+          </button>
+        </div>
+      </div>
+    </>
+  );
+
+  const sidebarClassName = [
+    "portal-sidebar fixed inset-y-0 left-0 z-50 flex h-screen w-64 flex-col border-r border-white/10 bg-black px-4 py-6 text-white shadow-xl",
+    "transition-transform duration-200 ease-out md:translate-x-0",
+    open ? "translate-x-0" : "-translate-x-full md:translate-x-0",
+  ].join(" ");
 
   return (
-    <div className="client-portal-root min-h-screen bg-[#ebedf1] text-zinc-900">
-      <aside className="portal-sidebar fixed left-0 top-0 z-50 hidden h-full w-[260px] flex-col border-r border-zinc-300 bg-[#d4d8df] shadow-[inset_-1px_0_0_rgba(112,111,112,0.18),6px_0_24px_rgba(53,53,54,0.15)] lg:flex">
-        <div className="shrink-0 flex h-14 items-center border-b border-zinc-300 bg-white/40 px-5">
-          <Link
-            to="/dashboard"
-            className="inline-flex rounded-xl outline-none ring-zinc-400 transition hover:bg-white/60 focus-visible:ring-2"
-          >
-            <Logo />
-          </Link>
-        </div>
+    <div className="client-portal-root min-h-screen bg-background text-on-background">
+      {open ? (
+        <button
+          type="button"
+          aria-label="Close menu"
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setOpen(false)}
+        />
+      ) : null}
 
-        <nav
-          className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-4"
-          aria-label="Portal navigation"
-        >
-          <div className="portal-sidebar-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-300 bg-white/70">
-            <div className="portal-sidebar-header shrink-0 border-b border-zinc-300 bg-white/70 px-3 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                Workspace
-              </p>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-              <div className="space-y-0.5">
-                {links.map((item) => {
-                  const locked =
-                    shouldRestrictNav &&
-                    !allowedDuringOnboarding.some((p) =>
-                      matchesAllowedPath(item.to, p),
-                    );
-                  if (locked) {
-                    return (
-                      <button
-                        key={item.to}
-                        type="button"
-                        disabled
-                        aria-disabled="true"
-                        title={`${item.label} is locked until onboarding is complete`}
-                        className={lockedPortalLinkClass}
-                      >
-                        <span className="min-w-0 truncate">{item.label}</span>
-                        <span className="inline-flex items-center gap-1 text-zinc-500">
-                          <LockIcon className="h-3.5 w-3.5 shrink-0" />
-                        </span>
-                      </button>
-                    );
-                  }
-                  return (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      className={portalLinkClass}
-                      end={item.to === "/dashboard"}
-                      title={item.label}
-                    >
-                      <span className="min-w-0 truncate">{item.label}</span>
-                    </NavLink>
-                  );
-                })}
-              </div>
-              {isAdmin ? (
-                <>
-                  <div
-                    className="my-2 border-t border-zinc-300"
-                    role="presentation"
-                  />
-                  <NavLink to="/admin" className={portalLinkClass}>
-                    <span className="min-w-0 truncate">Admin</span>
-                  </NavLink>
-                </>
-              ) : null}
-            </div>
-          </div>
-        </nav>
+      <aside className={sidebarClassName}>
+        {sidebarNav}
       </aside>
 
-      <section className="min-h-screen bg-[#ebedf1] lg:ml-[260px]">
-        <header className="sticky top-0 z-40 grid h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 border-b border-zinc-300 bg-[#ebedf1]/95 px-3 backdrop-blur sm:gap-x-3 sm:px-4 lg:grid-cols-[17rem_minmax(0,36rem)_17rem] lg:gap-x-4 lg:px-8">
-          <div className="flex min-w-0 items-center justify-self-start">
+      <div className="client-portal-canvas flex min-h-screen flex-col bg-background md:ml-64">
+        <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-outline-variant/10 bg-surface/85 px-gutter shadow-sm backdrop-blur-md">
+          <button
+            type="button"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-outline-variant/50 bg-surface-container-lowest text-on-surface outline-none transition hover:bg-surface-container md:hidden"
+            aria-label="Open navigation"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <MaterialIcon name="menu" className="!text-[24px]" />
+          </button>
+
+          <h1 className="hidden shrink-0 font-h2 text-h2 text-on-surface md:block">
+            {pageTitle}
+          </h1>
+          <h1 className="shrink-0 font-h2 text-h2 text-on-surface md:hidden">
+            {pageTitle}
+          </h1>
+
+          <div className="hidden min-w-0 flex-1 md:block lg:max-w-xl">
+            <SmartSearch compact variant="portal" />
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <button
               type="button"
-              onClick={() => setOpen((v) => !v)}
-              className="shrink-0 rounded-lg border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-800 lg:hidden"
+              aria-label="Notifications"
+              className="rounded-full p-2 text-on-surface-variant outline-none transition-colors hover:bg-on-surface/5"
             >
-              Menu
+              <MaterialIcon name="notifications" className="!text-[22px]" />
             </button>
-          </div>
-          <div className="w-full min-w-0 justify-self-center px-1 sm:px-2 lg:px-0">
-            <SmartSearch compact />
-          </div>
-          <div className="flex min-w-0 shrink-0 items-center justify-self-end gap-2">
+
             <button
               type="button"
-              onClick={toggleTheme}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-300 bg-white/85 text-zinc-700 transition hover:bg-white hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-lime/35 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-              aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
-              title={`Switch to ${isDark ? "light" : "dark"} mode`}
+              aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-transparent text-on-surface-variant outline-none hover:bg-surface-container"
+              onClick={() => toggleTheme()}
             >
-              <ThemeToggleIcon dark={isDark} />
+              <MaterialIcon
+                name={isDark ? "light_mode" : "dark_mode"}
+                className="!text-[22px]"
+              />
             </button>
-            <HeaderProfileMenu
-              onNavigate={() => setOpen(false)}
-              workspacePlanSummary={workspacePlanSummary}
-            />
+
+            <Link
+              to="/requests"
+              className="portal-btn-secondary hidden items-center gap-1 !rounded-lg !border-on-surface/15 !bg-surface-container-lowest !px-3 !py-2 !text-sm !font-semibold !text-on-surface hover:!bg-surface-container xl:inline-flex"
+              onClick={closeMobileNav}
+            >
+              <MaterialIcon name="support_agent" className="!text-[20px]" />
+              Support
+            </Link>
+
+            <Link
+              to="/projects#new-project"
+              className="portal-btn-dark hidden items-center gap-2 rounded-lg bg-on-surface px-4 py-2 font-body font-medium text-surface transition-all hover:opacity-90 active:opacity-80 sm:inline-flex"
+              onClick={closeMobileNav}
+            >
+              <MaterialIcon name="add" className="!text-[20px]" />
+              New Project
+            </Link>
+
+            <HeaderProfileMenu onNavigate={closeMobileNav} />
           </div>
         </header>
 
-        {open && (
-          <nav
-            className="border-b border-zinc-300 bg-[#ebedf1] px-4 py-4 lg:hidden"
-            aria-label="Portal navigation"
-          >
-            <div className="overflow-hidden rounded-xl border border-zinc-300 bg-white/80">
-              <div className="border-b border-zinc-300 bg-white/70 px-3 py-2.5">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                  Workspace
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-1.5 p-2">
-                {links.map((item) => {
-                  const locked =
-                    shouldRestrictNav &&
-                    !allowedDuringOnboarding.some((p) =>
-                      matchesAllowedPath(item.to, p),
-                    );
-                  if (locked) {
-                    return (
-                      <button
-                        key={item.to}
-                        type="button"
-                        disabled
-                        aria-disabled="true"
-                        title={`${item.label} is locked until onboarding is complete`}
-                        className={lockedPortalLinkClass}
-                      >
-                        <span className="min-w-0 truncate">{item.label}</span>
-                        <span className="inline-flex items-center gap-1 text-zinc-500">
-                          <LockIcon className="h-3.5 w-3.5 shrink-0" />
-                        </span>
-                      </button>
-                    );
-                  }
-                  return (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      className={portalLinkClass}
-                      end={item.to === "/dashboard"}
-                      title={item.label}
-                      onClick={(_e) => {
-                        setOpen(false);
-                      }}
-                    >
-                      <span className="min-w-0 truncate">{item.label}</span>
-                    </NavLink>
-                  );
-                })}
-                {isAdmin && (
-                  <NavLink
-                    to="/admin"
-                    className={portalLinkClass}
-                    onClick={() => setOpen(false)}
-                  >
-                    <span className="min-w-0 truncate">Admin</span>
-                  </NavLink>
-                )}
-              </div>
-            </div>
-            {nextPlan && (
-              <div className="mt-3">
-                <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                  Upgrade
-                </p>
-                <div className="rounded-xl border border-zinc-300 bg-white p-3">
-                  <p className="text-xs font-semibold text-zinc-900">
-                    Upgrade to {nextPlan.name}
-                  </p>
-                  <Link
-                    to="/subscription"
-                    className="mt-2 block rounded-lg bg-black py-2.5 text-center text-xs font-semibold text-white shadow-sm hover:bg-zinc-900"
-                    onClick={() => setOpen(false)}
-                  >
-                    View {nextPlan.name}
-                  </Link>
-                </div>
-              </div>
-            )}
-          </nav>
-        )}
+        <div className="border-b border-outline-variant/35 px-3 py-2 md:hidden">
+          <SmartSearch compact variant="portal" />
+        </div>
 
-        <main className="client-portal-main relative bg-[#ebedf1] px-4 py-6 lg:px-8 lg:py-8">
-          {/* {workspacePlanSummary ? (
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-200/90 bg-gradient-to-r from-sky-50 via-white to-white px-4 py-3 shadow-sm sm:px-5">
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-800/90">
-                  Active subscription
-                </p>
-                <p className="mt-0.5 truncate text-sm font-semibold text-zinc-900 sm:text-base">
-                  {workspacePlanSummary}
-                </p>
-                <p className="mt-0.5 text-xs text-zinc-600">
-                  Billing is per project — open Payment Management to change cards or invoices.
-                </p>
-              </div>
-              <Link
-                to="/subscription-management"
-                className="shrink-0 rounded-xl bg-zinc-900 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-zinc-800 sm:text-sm"
-              >
-                Manage billing
-              </Link>
-            </div>
-          ) : null} */}
+        <main className="client-portal-main relative flex-1 p-8">
           <div
             className={
-              onboardingPopupVisible
-                ? "pointer-events-none select-none blur-[3px]"
-                : ""
+              false ? "pointer-events-none select-none blur-[3px]" : ""
             }
           >
-            {children}
+            <div className="portal-page mx-auto w-full max-w-6xl space-y-8">
+              {children}
+            </div>
           </div>
-          {onboardingPopupVisible ? (
-            <div
-              className="fixed inset-0 z-[70] grid place-items-center bg-black/70 p-4 backdrop-blur-[2px]"
-              onClick={() => {
-                if (requiresProjectCreation) return;
-                setShowOnboardingPopup(false);
-                void patchUiPreferences({
-                  dismissedOnboardingPopup: true,
-                }).catch(() => {});
-              }}
-            >
+          <PortalOverlay
+            open={onboardingPopupVisible}
+            onClose={
+              requiresProjectCreation
+                ? undefined
+                : () => {
+                    setShowOnboardingPopup(false);
+                    void patchUiPreferences({ dismissedOnboardingPopup: true }).catch(() => {});
+                  }
+            }
+            className="fixed inset-0 grid place-items-center bg-black/70 p-4 backdrop-blur-[2px]"
+          >
               <div
-                className="w-full max-w-md rounded-3xl border border-[#2A3037] bg-[#161B22] p-5 text-white shadow-2xl"
+                role="dialog"
+                aria-modal
+                aria-labelledby="onboarding-dialog-title"
+                className="flex max-h-[min(90dvh,640px)] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-on-surface/10 bg-surface-container-lowest text-on-surface shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="mb-2 flex justify-end">
+                <div className="flex shrink-0 justify-end px-5 pb-0 pt-4">
                   {!requiresProjectCreation ? (
                     <button
                       type="button"
@@ -665,63 +629,73 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
                           dismissedOnboardingPopup: true,
                         }).catch(() => {});
                       }}
-                      className="grid h-7 w-7 place-items-center rounded-full border border-zinc-500 bg-[#2A3037] text-zinc-200 hover:border-zinc-300"
+                      className="grid h-7 w-7 place-items-center rounded-full border border-outline-variant text-on-surface-variant hover:bg-surface-container"
                       aria-label="Close popup"
                     >
                       ×
                     </button>
                   ) : null}
                 </div>
-                {/* <p className="inline-flex rounded-full bg-indigo-500/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-200">
-                  First login
-                </p> */}
-                <h3 className="mt-2 text-xl font-bold">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-2">
+                <h3 id="onboarding-dialog-title" className="font-h3 text-h3 font-bold text-on-surface">
                   {requiresProjectCreation
-                    ? "Create your first project to continue"
+                    ? "Create your first project"
                     : "Complete onboarding to unlock all pages"}
                 </h3>
-                <p className="mt-2 text-sm text-zinc-400">
+                <p className="mt-2 font-body-sm text-body-sm text-on-surface-variant">
                   {requiresProjectCreation
-                    ? "This prompt stays visible until at least one project is created."
+                    ? "Add a project below, then upload assets and choose a plan."
                     : "Finish these steps, then continue to subscription and payment."}
                 </p>
-                <ul className="mt-4 space-y-2 text-sm">
-                  <li className="rounded-xl border border-[#2A3037] bg-[#0F1318] px-3 py-2">
-                    {onboarding.hasProject ? "✅" : "⬜"} Create your first
-                    project
+                {requiresProjectCreation ? (
+                  <div className="mt-4">
+                    <ProjectCreateForm
+                      layout="stacked"
+                      autoFocusName
+                      onCreated={(created) => {
+                        closeMobileNav();
+                        navigate(`/projects/${created.id}`);
+                      }}
+                    />
+                  </div>
+                ) : null}
+                <ul className="mt-4 space-y-2 font-body-sm text-body-sm">
+                  <li className="rounded-xl border border-on-surface/10 bg-surface-container-lowest px-3 py-2">
+                    {onboarding.hasProject ? "Done" : "Pending"} — Create your first project
                   </li>
-                  <li className="rounded-xl border border-[#2A3037] bg-[#0F1318] px-3 py-2">
-                    {onboarding.hasAssetsReady ? "✅" : "⬜"} Upload required
-                    project assets
+                  <li className="rounded-xl border border-on-surface/10 bg-surface-container-lowest px-3 py-2">
+                    {onboarding.hasAssetsReady ? "Done" : "Pending"} — Upload required project assets
                   </li>
-                  <li className="rounded-xl border border-[#2A3037] bg-[#0F1318] px-3 py-2">
-                    {onboarding.hasActiveSubscription ? "✅" : "⬜"} Choose
-                    plan/add-on and complete payment
+                  <li className="rounded-xl border border-on-surface/10 bg-surface-container-lowest px-3 py-2">
+                    {onboarding.hasActiveSubscription ? "Done" : "Pending"} — Choose plan/add-on and complete payment
                   </li>
                 </ul>
-                <div className="mt-4 flex gap-2">
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2 border-t border-on-surface/10 bg-surface-container-lowest px-5 py-4">
                   <Link
                     to="/projects"
-                    className="rounded-lg border border-zinc-500 bg-[#2A3037] px-3 py-2 text-sm font-semibold text-white"
+                    className="rounded-lg border border-outline-variant bg-surface-container px-3 py-2 font-body text-body font-semibold text-on-surface"
+                    onClick={closeMobileNav}
                   >
-                    Create a Project
+                    Open My Projects
                   </Link>
                   <Link
                     to="/subscription"
-                    className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+                    className={`rounded-lg px-3 py-2 font-body text-body font-semibold ${
                       requiresProjectCreation
-                        ? "pointer-events-none bg-zinc-600 text-zinc-300"
-                        : "bg-white text-canvas"
+                        ? "pointer-events-none bg-surface-container text-on-surface-variant"
+                        : "bg-on-surface text-surface"
                     }`}
+                    onClick={closeMobileNav}
                   >
                     Continue to Subscription
                   </Link>
                 </div>
               </div>
-            </div>
-          ) : null}
+          </PortalOverlay>
         </main>
-      </section>
+      </div>
     </div>
   );
 }
+

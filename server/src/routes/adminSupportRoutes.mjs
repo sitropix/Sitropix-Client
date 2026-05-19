@@ -8,6 +8,7 @@ import { sendTransactionalEmail } from "../services/emailService.mjs";
 import { env } from "../config/env.mjs";
 import { absoluteTicketAttachmentPath } from "../services/ticketAttachmentPaths.mjs";
 import { projectNameByIdForTickets } from "../services/supportTicketProjectNames.mjs";
+import { ticketStatusForApi } from "../services/supportTicketSerialize.mjs";
 import { refundSubscriptionCreditsTx } from "../services/subscriptionCredits.mjs";
 
 const router = express.Router();
@@ -46,7 +47,7 @@ router.get("/tickets", async (req, res) => {
     items: rows.map((t) => ({
       id: t.id,
       subject: t.subject,
-      status: t.status,
+      status: ticketStatusForApi(t.status),
       priority: t.priority,
       department: t.department,
       userPlan: t.userPlan,
@@ -83,7 +84,7 @@ router.get("/tickets/:id", async (req, res) => {
     id: ticket.id,
     subject: ticket.subject,
     description: ticket.description,
-    status: ticket.status,
+    status: ticketStatusForApi(ticket.status),
     priority: ticket.priority,
     department: ticket.department,
     userPlan: ticket.userPlan,
@@ -190,7 +191,7 @@ router.patch("/tickets/:id", validate(updateTicketStatusSchema), async (req, res
   const ticket = await prisma.supportTicket.findUnique({ where: { id: existing.id } });
   return res.json({
     id: ticket.id,
-    status: ticket.status,
+    status: ticketStatusForApi(ticket.status),
     updatedAt: ticket.updatedAt,
     creditsRefunded: ticket.creditsRefunded,
     workCompleted: ticket.workCompleted,
