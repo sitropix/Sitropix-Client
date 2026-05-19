@@ -58,6 +58,11 @@ const ProjectSubscriptionPage = lazy(() =>
 const ProjectDashboardPage = lazy(() =>
   import("@/pages/workspace/ProjectDashboardPage").then((m) => ({ default: m.ProjectDashboardPage })),
 );
+const ProjectManageAddonsPage = lazy(() =>
+  import("@/pages/workspace/ProjectManageAddonsPage").then((m) => ({
+    default: m.ProjectManageAddonsPage,
+  })),
+);
 const AdminProjectsPage = lazy(() =>
   import("@/pages/admin/AdminProjectsPage").then((m) => ({ default: m.AdminProjectsPage })),
 );
@@ -174,6 +179,14 @@ export default function App() {
                       element={
                         <RequireCustomer>
                           <ProjectSubscriptionPage />
+                        </RequireCustomer>
+                      }
+                    />
+                    <Route
+                      path="/projects/:projectId/add-ons"
+                      element={
+                        <RequireCustomer>
+                          <ProjectManageAddonsPage />
                         </RequireCustomer>
                       }
                     />

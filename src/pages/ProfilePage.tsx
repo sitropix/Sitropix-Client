@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { portal } from "@/components/portal/portalStyles";
 import { Skeleton } from "@/components/Skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/context/UserContext";
@@ -77,8 +78,8 @@ export function ProfilePage() {
       <Breadcrumb items={[{ label: "Home", to: "/dashboard" }, { label: "Profile" }]} />
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">Profile</h1>
-          <p className="mt-2 max-w-xl text-sm text-ink-muted">Update the email and mobile number for this account.</p>
+          <h1 className={portal.pageTitle}>Profile</h1>
+          <p className={portal.pageSubtitle}>Update the email and mobile number for this account.</p>
         </div>
         <button
           type="button"
@@ -89,7 +90,7 @@ export function ProfilePage() {
             setRefreshBusy(true);
             void refresh().finally(() => setRefreshBusy(false));
           }}
-          className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-white transition hover:border-brand-lime/35 disabled:cursor-not-allowed disabled:opacity-50"
+          className={portal.btnSecondary + " !text-sm"}
         >
           {refreshBusy ? "Refreshing…" : "Refresh"}
         </button>
@@ -102,7 +103,9 @@ export function ProfilePage() {
         <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{formError}</div>
       )}
       {saved && !formError && (
-        <div className="rounded-xl border border-brand-lime/30 bg-brand-lime/10 px-4 py-3 text-sm text-white">Profile saved.</div>
+        <div className="rounded-xl border border-accent-gold/30 bg-gold-light px-4 py-3 font-body-sm text-body-sm text-on-secondary-container">
+          Profile saved.
+        </div>
       )}
 
       {loading && (
@@ -120,19 +123,19 @@ export function ProfilePage() {
       )}
 
       {!loading && contact && (
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-          <h2 className="text-sm font-semibold text-white">Account</h2>
+        <section className={portal.panel}>
+          <h2 className="font-body font-semibold text-on-surface">Account</h2>
           <dl className="mt-4 space-y-3 text-sm">
             <div>
-              <dt className="text-ink-subtle">Name</dt>
-              <dd className="mt-1 font-medium text-white">
+              <dt className="font-caption text-caption uppercase tracking-wide text-on-surface-variant">Name</dt>
+              <dd className="mt-1 font-medium text-on-surface">
                 {contact.firstName} {contact.lastName}
               </dd>
             </div>
           </dl>
-          <form className="mt-6 space-y-4 border-t border-white/10 pt-6" onSubmit={(e) => void onSubmit(e)}>
+          <form className="mt-6 space-y-4 border-t ink-border-10 pt-6" onSubmit={(e) => void onSubmit(e)}>
             <div>
-              <label htmlFor="profile-email" className="block text-xs font-medium uppercase tracking-wide text-ink-subtle">
+              <label htmlFor="profile-email" className="block font-caption text-caption uppercase tracking-wide text-on-surface-variant">
                 Email
               </label>
               <input
@@ -141,11 +144,11 @@ export function ProfilePage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
-                className="mt-2 w-full max-w-md rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
+                className={"mt-2 max-w-md " + portal.input}
               />
             </div>
             <div>
-              <label htmlFor="profile-phone" className="block text-xs font-medium uppercase tracking-wide text-ink-subtle">
+              <label htmlFor="profile-phone" className="block font-caption text-caption uppercase tracking-wide text-on-surface-variant">
                 Mobile number
               </label>
               <input
@@ -155,13 +158,13 @@ export function ProfilePage() {
                 onChange={(e) => setPhone(e.target.value)}
                 autoComplete="tel"
                 placeholder="+1 …"
-                className="mt-2 w-full max-w-md rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35"
+                className={"mt-2 max-w-md " + portal.input}
               />
             </div>
             <button
               type="submit"
               disabled={saving}
-              className="rounded-full bg-brand-lime px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim disabled:opacity-50"
+              className={portal.btnPrimary}
             >
               {saving ? "Saving…" : "Save changes"}
             </button>
@@ -170,8 +173,8 @@ export function ProfilePage() {
       )}
 
       {!loading && contact && (
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-          <h2 className="text-sm font-semibold text-white">Security</h2>
+        <section className={portal.panel}>
+          <h2 className="font-body font-semibold text-on-surface">Security</h2>
           <p className="mt-2 text-sm text-ink-muted">Manage your password and account security settings.</p>
 
           {resetError && (
@@ -185,10 +188,10 @@ export function ProfilePage() {
             </div>
           )}
 
-          <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-white/10 bg-black/20 p-4">
+          <div className="mt-6 flex flex-col gap-4 rounded-xl border border-on-surface/10 bg-surface-container-low p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-medium text-white">Reset Password</p>
-              <p className="mt-1 text-xs text-ink-muted">
+              <p className="font-body-sm text-body-sm font-medium text-on-surface">Reset Password</p>
+              <p className="mt-1 font-caption text-caption text-on-surface-variant">
                 We'll send a password reset link to your email address.
               </p>
             </div>
@@ -196,7 +199,7 @@ export function ProfilePage() {
               type="button"
               onClick={() => void handlePasswordReset()}
               disabled={resetLoading}
-              className="shrink-0 rounded-lg border border-white/15 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-white transition hover:border-brand-lime/35 hover:bg-white/[0.07] disabled:opacity-50"
+              className={portal.btnSecondary + " shrink-0 !text-sm"}
             >
               {resetLoading ? "Sending…" : "Send Reset Link"}
             </button>

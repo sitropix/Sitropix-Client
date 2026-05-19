@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { portal } from "@/components/portal/portalStyles";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/context/UserContext";
 import { useToast } from "@/components/Toast";
+import { ProjectCreateForm } from "@/components/workspace/ProjectCreateForm";
 import {
-  createProject,
+  hasValidProjectPlan,
   listProjectsByUser,
 } from "@/services/projectsStore";
 import { getProjectAssetReadinessForProjects } from "@/services/onboardingStore";
@@ -15,6 +17,7 @@ import {
   type ProjectCheckoutIntent,
 } from "@/services/projectCheckoutFinalize";
 import { dispatchProjectsListInvalidate } from "@/services/projectsInvalidate";
+import { ProjectSetupDialog } from "@/components/workspace/ProjectSetupDialog";
 
 const STATUS_LABEL = {
   not_started: "Not started",
@@ -23,29 +26,33 @@ const STATUS_LABEL = {
 } as const;
 
 const STATUS_PILL_CLASS = {
-  active: "bg-emerald-500/15 text-emerald-600 ring-1 ring-emerald-400/30",
-  on_hold: "bg-amber-500/15 text-amber-600 ring-1 ring-amber-400/30",
-  not_started: "bg-zinc-500/15 text-zinc-600 ring-1 ring-zinc-400/30",
+  active: "bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-400/30",
+  on_hold: "bg-amber-500/15 text-amber-800 ring-1 ring-amber-400/30",
+  not_started: "bg-stone-3/30 text-on-surface-variant ring-1 ring-stone-3/50",
 } as const;
 
 export function MyProjectsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { portal, refresh: refreshUser } = useUser();
+  const { portal: portalUser, refresh: refreshUser } = useUser();
   const { showSuccess, showError } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
-  const userId = user?.id ?? portal?.user?.id ?? "guest-user";
+  const userId = user?.id ?? portalUser?.user?.id ?? null;
   const paymentSuccess = searchParams.get("payment_success");
   const isPaymentSuccess = paymentSuccess === "1";
   const paymentSource = searchParams.get("payment_source");
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Awaited<ReturnType<typeof listProjectsByUser>>>([]);
   const [readinessByProjectId, setReadinessByProjectId] = useState<Record<string, boolean>>({});
-  const [creatingProject, setCreatingProject] = useState(false);
+  const [setupDialogProject, setSetupDialogProject] = useState<
+    Awaited<ReturnType<typeof listProjectsByUser>>[number] | null
+  >(null);
 
   useEffect(() => {
+    if (!userId) {
+      setProjects([]);
+      return;
+    }
     let cancelled = false;
     void listProjectsByUser(userId)
       .then((rows) => {
@@ -80,6 +87,7 @@ export function MyProjectsPage() {
   }, [projects]);
 
   const forceRefresh = useCallback(async () => {
+    if (!userId) return [];
     try {
       const rows = await listProjectsByUser(userId, { force: true });
       setProjects(rows);
@@ -149,140 +157,139 @@ export function MyProjectsPage() {
     navigate,
   ]);
 
-  async function onCreateProject(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim() || creatingProject) return;
-    setCreatingProject(true);
-    try {
-      const created = await createProject(userId, name, description);
-      setName("");
-      setDescription("");
-      setSelectedProjectId(created.id);
-      void forceRefresh();
-      navigate(`/projects/${created.id}`);
-    } catch (err) {
-      showError(err instanceof Error ? err.message : "Could not create project.");
-    } finally {
-      setCreatingProject(false);
-    }
-  }
-
   return (
-    <div className="client-workspace-view space-y-5 text-zinc-900">
+    <div className="client-workspace-view space-y-8">
       <Breadcrumb items={[{ label: "Home", to: "/dashboard" }, { label: "My Projects" }]} />
 
       <header>
-        <h1 className="text-3xl font-bold tracking-tight text-zinc-900">Projects</h1>
-        <p className="mt-1 text-sm text-zinc-400">Manage multiple projects, their assets, and subscriptions independently.</p>
+        <p className={portal.heroEyebrow}>Workspace</p>
+        <h1 className={portal.pageTitle}>Projects</h1>
+        <p className={portal.pageSubtitle}>
+          Manage multiple projects, their assets, and subscriptions independently.
+        </p>
       </header>
 
-      <section className="rounded-3xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass sm:p-6">
-          <div>
-            <h2 className="text-xl font-semibold text-zinc-900">Your Projects</h2>
-            <p className="text-sm text-zinc-400">Manage your existing projects and their subscriptions.</p>
-          </div>
+      <section className={`${portal.card} p-5 sm:p-6`}>
+        <div>
+          <h2 className="font-body text-body-lg font-semibold text-on-surface">Your Projects</h2>
+          <p className="font-body-sm text-body-sm text-on-surface-variant">
+            Manage your existing projects and their subscriptions.
+          </p>
+        </div>
 
-          <form className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" onSubmit={onCreateProject}>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Project name"
-              disabled={creatingProject}
-              className="rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
-            />
-            <input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Short summary"
-              disabled={creatingProject}
-              className="rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm text-white outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
-            />
-            <button
-              type="submit"
-              disabled={creatingProject}
-              aria-busy={creatingProject}
-              className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {creatingProject ? "Creating…" : "+ New Project"}
-            </button>
-          </form>
+        <div id="new-project" className="mt-4 scroll-mt-24">
+          <ProjectCreateForm
+            autoFocusName={typeof window !== "undefined" && window.location.hash === "#new-project"}
+            onCreated={(created) => {
+              setSelectedProjectId(created.id);
+              void forceRefresh();
+              navigate(`/projects/${created.id}`);
+            }}
+          />
+        </div>
 
-          <div className="mt-4 space-y-3">
-            {projects.length === 0 ? (
-              <p className="rounded-2xl border border-[#2A3037] bg-[#1C2126] p-5 text-sm text-zinc-400">
-                No projects yet. Create your first project to begin setup.
-              </p>
-            ) : (
-              projects.map((project) => {
-                const ready = readinessByProjectId[project.id] === true;
-                return (
-                  <article
-                    key={project.id}
-                    className={`rounded-2xl border p-4 transition ${
-                      selectedProjectId === project.id
-                        ? "border-zinc-500 bg-[#111418]"
-                        : "border-[#2A3037] bg-[#101317] hover:border-zinc-500"
-                    }`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => navigate(`/projects/${project.id}`)}
-                    onKeyDown={(e) => {
-                      if (e.key !== "Enter" && e.key !== " ") return;
-                      e.preventDefault();
-                      navigate(`/projects/${project.id}`);
-                    }}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedProjectId(project.id)}
-                        className="min-w-0 text-left"
-                      >
-                        <p className="truncate text-lg font-semibold text-white">{project.name}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-                          <span>{project.planName ? `${project.planName} Plan` : "No valid plan"}</span>
-                          <span aria-hidden>•</span>
-                          <span>{project.invoices.length} invoices</span>
-                        </div>
-                      </button>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${
-                          STATUS_PILL_CLASS[project.subscriptionStatus]
-                        }`}
-                      >
-                        {STATUS_LABEL[project.subscriptionStatus]}
-                      </span>
-                    </div>
+        <div className="mt-4 space-y-3">
+          {projects.length === 0 ? (
+            <p className="rounded-lg border ink-border-8 bg-surface-container-low p-5 font-body-sm text-body-sm text-on-surface-variant">
+              No projects yet. Create your first project to begin setup.
+            </p>
+          ) : (
+            projects.map((project) => {
+              const ready = readinessByProjectId[project.id] === true;
+              const selected = selectedProjectId === project.id;
+              return (
+                <article
+                  key={project.id}
+                  className={`rounded-lg border p-4 transition ${
+                    selected
+                      ? "ink-border-15 bg-surface-container ring-1 ring-accent-gold/25"
+                      : "ink-border-8 bg-surface-container-lowest hover:ink-border-15"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProjectId(project.id)}
+                      className="min-w-0 text-left"
+                    >
+                      <p className="truncate font-body text-body-lg font-semibold text-on-surface">
+                        {project.name}
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 font-caption text-caption text-on-surface-variant">
+                        <span>{project.planName ? `${project.planName} Plan` : "No valid plan"}</span>
+                        <span aria-hidden>•</span>
+                        <span>{project.invoices.length} invoices</span>
+                      </div>
+                    </button>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${
+                        STATUS_PILL_CLASS[project.subscriptionStatus]
+                      }`}
+                    >
+                      {STATUS_LABEL[project.subscriptionStatus]}
+                    </span>
+                  </div>
 
-                    <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  <div className="mt-3 flex flex-wrap justify-end gap-2">
+                    {hasValidProjectPlan(project) ? (
                       <Link
                         to={`/projects/${project.id}`}
-                        className="rounded-lg border border-zinc-500 bg-[#2A3037] px-3 py-1.5 text-xs font-semibold text-white hover:border-zinc-300"
+                        className={portal.btnSecondary + " !px-3 !py-1.5 !text-xs"}
                         onClick={(e) => e.stopPropagation()}
                       >
                         View Dashboard
                       </Link>
-                      {project.subscriptionStatus === "active" ? null : (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/projects/${project.id}/subscription`);
-                          }}
-                          disabled={!ready}
-                          className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-canvas transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          {project.subscriptionStatus === "on_hold" ? "Renew Plan" : "Choose Plan"}
-                        </button>
-                      )}
-                    </div>
-                  </article>
-                );
-              })
-            )}
-          </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className={portal.btnSecondary + " !px-3 !py-1.5 !text-xs"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSetupDialogProject(project);
+                        }}
+                      >
+                        View Dashboard
+                      </button>
+                    )}
+                    {project.subscriptionStatus === "active" ? null : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/projects/${project.id}/subscription`);
+                        }}
+                        disabled={!ready}
+                        className={portal.btnPrimary + " !px-3 !py-1.5 !text-xs disabled:opacity-40"}
+                      >
+                        {project.subscriptionStatus === "on_hold" ? "Renew Plan" : "Choose Plan"}
+                      </button>
+                    )}
+                  </div>
+                </article>
+              );
+            })
+          )}
+        </div>
       </section>
+
+      <ProjectSetupDialog
+        project={setupDialogProject}
+        open={setupDialogProject !== null}
+        onClose={() => setSetupDialogProject(null)}
+        onAssetsUpdated={async () => {
+          const rows = await forceRefresh();
+          try {
+            const value = await getProjectAssetReadinessForProjects(rows);
+            setReadinessByProjectId(value);
+          } catch {
+            setReadinessByProjectId({});
+          }
+          if (setupDialogProject) {
+            const fresh = rows.find((p) => p.id === setupDialogProject.id);
+            if (fresh) setSetupDialogProject(fresh);
+          }
+        }}
+      />
     </div>
   );
 }
-
