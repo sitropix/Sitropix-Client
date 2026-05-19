@@ -22,6 +22,8 @@ describe("addonDisplayHelpers", () => {
   it("uses plan pricing map for catalog display by billing cycle", () => {
     const addon = {
       code: "addon_analytics",
+      label: "Analytics",
+      desc: "Analytics dashboard",
       priceCents: 9900,
       priceMinCents: 9900,
       priceMaxCents: 14900,
@@ -43,6 +45,8 @@ describe("addonDisplayHelpers", () => {
   it("falls back to price min/max when no plan map", () => {
     const addon = {
       code: "addon_test",
+      label: "Test",
+      desc: "Test add-on",
       priceCents: 5000,
       priceMinCents: 2500,
       priceMaxCents: 5000,
@@ -58,6 +62,8 @@ describe("addonDisplayHelpers", () => {
   it("includes setup fee in checkout display", () => {
     const addon = {
       code: "addon_ecommerce",
+      label: "E-commerce",
+      desc: "E-commerce features",
       priceCents: 4500,
       setupFeeCents: 29900,
       billingKind: "recurring",
@@ -77,12 +83,16 @@ describe("addonDisplayHelpers", () => {
   it("formats cycle suffix for recurring add-ons", () => {
     const recurring = {
       code: "addon_r",
+      label: "Recurring",
+      desc: "Recurring add-on",
       billingKind: "recurring",
       billingMonthlyEnabled: true,
       billingYearlyEnabled: true,
     } as SubscriptionAddon;
     const oneTime = {
       code: "addon_o",
+      label: "One-time",
+      desc: "One-time add-on",
       billingKind: "one_time",
       billingMonthlyEnabled: false,
       billingYearlyEnabled: false,
