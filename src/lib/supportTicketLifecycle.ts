@@ -1,6 +1,9 @@
-import type { SupportTicket, SupportTicketDetail } from "@/types/support";
+import type { TicketStatus } from "@/types/support";
 
-type TicketLike = Pick<SupportTicket | SupportTicketDetail, "status" | "workCompleted">;
+export type TicketLike = {
+  status: TicketStatus;
+  workCompleted?: boolean | null;
+};
 
 export function isTicketResolvedAndCompleted(ticket: TicketLike): boolean {
   return ticket.status === "resolved" && ticket.workCompleted !== false;

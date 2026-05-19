@@ -74,7 +74,7 @@ function readCatalogCreditsGranted(catalogJson: Record<string, unknown> | undefi
 }
 
 export function resolveAddonPlanPriceCents(
-  addon: Pick<SubscriptionAddon, "priceCents" | "catalogJson">,
+  addon: Pick<SubscriptionAddon, "code" | "priceCents" | "catalogJson">,
   plan: Plan | null | undefined,
   billingCycle: "monthly" | "yearly" | null | undefined,
 ): number {
