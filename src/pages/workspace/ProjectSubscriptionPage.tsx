@@ -13,6 +13,7 @@ import {
   type ProjectCheckoutIntent,
 } from "@/services/projectCheckoutFinalize";
 import { dispatchProjectsListInvalidate } from "@/services/projectsInvalidate";
+import { formatBillingApiError } from "@/lib/billingErrors";
 import {
   changePlan,
   createAddonCheckoutSession,
@@ -21,7 +22,9 @@ import {
   fetchProjectAssets,
 } from "@/services/subscriptionsApi";
 import { AddonNotAvailableModal } from "@/components/billing/AddonNotAvailableModal";
+import { AddonOfferCard } from "@/components/billing/addonDisplay";
 import { ExtraEditPurchaseModal } from "@/components/billing/ExtraEditPurchaseModal";
+import { portal as portalUi } from "@/components/portal/portalStyles";
 import { addonEligibleForPlan, planForAddonPurchaseGate } from "@/lib/addonPlanEligibility";
 import { ApiRequestError } from "@/services/http";
 import {
@@ -181,6 +184,10 @@ export function ProjectSubscriptionPage() {
   }, [portal?.addons, portal?.plans]);
 
   useEffect(() => {
+    setNotice(null);
+  }, [projectId]);
+
+  useEffect(() => {
     let cancelled = false;
     setProjectLoading(true);
     void getProjectById(projectId)
@@ -301,7 +308,7 @@ export function ProjectSubscriptionPage() {
         setAddonNotAvailableOpen(true);
         return;
       }
-      setNotice(err instanceof Error ? err.message : "Could not update subscription.");
+      setNotice(formatBillingApiError(err, "Could not update subscription."));
     } finally {
       setBusy(false);
     }
@@ -343,7 +350,7 @@ export function ProjectSubscriptionPage() {
       }
       window.location.assign(url);
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : "Failed to start Stripe checkout.");
+      setNotice(formatBillingApiError(err, "Failed to start Stripe checkout."));
     } finally {
       setBusy(false);
     }
@@ -531,9 +538,20 @@ export function ProjectSubscriptionPage() {
         </div>
       ) : null}
       {notice ? (
-        <p className="rounded-xl border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          {notice}
-        </p>
+        <div
+          role="alert"
+          className="flex items-start justify-between gap-3 rounded-xl border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+        >
+          <p className="min-w-0 flex-1 leading-snug">{notice}</p>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="shrink-0 rounded-md px-2 py-0.5 text-xs font-semibold text-amber-100/90 hover:bg-amber-500/20"
+            aria-label="Dismiss message"
+          >
+            Dismiss
+          </button>
+        </div>
       ) : null}
 
       {!ready ? (
@@ -552,7 +570,7 @@ export function ProjectSubscriptionPage() {
         </section>
       ) : (
         <div aria-busy={checkoutReturnLocksUI ? true : undefined}>
-          <div className="mx-auto inline-flex rounded-full border border-[#2A3037] bg-[#1C2126] p-1">
+          <div className="mx-auto inline-flex rounded-full border border-on-surface/10 bg-surface-container-low p-1">
             {showBillingCycleToggle ? (
               <>
                 {anyMonthly ? (
@@ -561,7 +579,9 @@ export function ProjectSubscriptionPage() {
                     disabled={checkoutReturnLocksUI}
                     onClick={() => setBillingCycle("monthly")}
                     className={`rounded-full px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                      billingCycle === "monthly" ? "bg-white text-canvas" : "text-zinc-300 hover:text-white"
+                      billingCycle === "monthly"
+                        ? "bg-on-surface text-surface"
+                        : "text-on-surface-variant hover:text-on-surface"
                     }`}
                   >
                     Monthly
@@ -573,7 +593,9 @@ export function ProjectSubscriptionPage() {
                     disabled={checkoutReturnLocksUI}
                     onClick={() => setBillingCycle("yearly")}
                     className={`rounded-full px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                      billingCycle === "yearly" ? "bg-white text-canvas" : "text-zinc-300 hover:text-white"
+                      billingCycle === "yearly"
+                        ? "bg-on-surface text-surface"
+                        : "text-on-surface-variant hover:text-on-surface"
                     }`}
                   >
                     Yearly
@@ -581,7 +603,9 @@ export function ProjectSubscriptionPage() {
                 ) : null}
               </>
             ) : (
-              <p className="px-4 py-2 text-center text-xs text-zinc-400">Plans shown are one-time purchases only.</p>
+              <p className="px-4 py-2 text-center font-body-sm text-body-sm text-on-surface-variant">
+                Plans shown are one-time purchases only.
+              </p>
             )}
           </div>
 
@@ -627,10 +651,10 @@ export function ProjectSubscriptionPage() {
                     }}
                     className={`mt-4 w-full rounded-lg px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                       locked
-                        ? "cursor-not-allowed bg-[#1C2126] text-zinc-500"
+                        ? "cursor-not-allowed opacity-50"
                         : active
-                          ? "bg-white text-canvas hover:bg-zinc-100"
-                          : "bg-[#2A3037] text-white hover:bg-[#343B45]"
+                          ? portalUi.btnDark + " !w-full"
+                          : portalUi.btnSecondary + " !w-full"
                     }`}
                   >
                     {locked ? "Lower tier" : active ? "Selected" : "Select plan"}
@@ -641,22 +665,22 @@ export function ProjectSubscriptionPage() {
           </section>
 
           <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="rounded-2xl border border-[#2A3037] bg-[#15191C] p-5">
-              <h3 className="text-xl font-semibold text-white">Enhance Your Plan</h3>
-              <p className="mt-1 text-sm text-zinc-400">
+            <div className={portalUi.panel}>
+              <h3 className="font-body text-body-lg font-semibold text-on-surface">Enhance your plan</h3>
+              <p className="mt-1 font-body-sm text-body-sm text-on-surface-variant">
                 {hasLiveProjectPlan
                   ? "One-time add-ons can only be purchased once. Extra website edit credits can be bought again until you reach your plan limit."
                   : "Add powerful extras to accelerate your project."}
               </p>
               {canBuyExtraEditsOnSub ? (
-                <div className="mt-4 rounded-xl border border-[#2A3037] bg-[#101317] px-4 py-3">
+                <div className={`${portalUi.addonCard} mt-4`}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-sm text-zinc-300">Need more website edits this billing cycle?</p>
+                    <p className="font-body-sm text-body-sm text-on-surface">Need more website edits this billing cycle?</p>
                     <button
                       type="button"
                       disabled={busy}
                       onClick={() => setExtraEditModalOpen(true)}
-                      className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-zinc-200 disabled:opacity-50"
+                      className={portalUi.btnPrimary + " !px-3 !py-1.5 !text-xs"}
                     >
                       Buy edit credits
                     </button>
@@ -669,7 +693,9 @@ export function ProjectSubscriptionPage() {
                     !isCreditPackAddon(a) &&
                     (ownedAddonCodes.has(a.code) || eligibleAddons.some((e) => e.code === a.code)),
                 ).length === 0 ? (
-                  <p className="text-sm text-zinc-500">No add-ons are available for this plan and billing choice.</p>
+                  <p className="font-body-sm text-body-sm text-on-surface-variant">
+                    No add-ons are available for this plan and billing choice.
+                  </p>
                 ) : null}
                 {addonCatalog
                   .filter(
@@ -681,88 +707,72 @@ export function ProjectSubscriptionPage() {
                     const owned = ownedAddonCodes.has(addon.code);
                     const selected = addons.includes(addon.code);
                     if (owned) {
+                      return (
+                        <AddonOfferCard
+                          key={addon.code}
+                          mode="owned"
+                          label={addon.label}
+                          description={addon.desc}
+                          priceLabel={money(addon.priceCents, addon.currency || "USD")}
+                          ownedLabel="Existing add-on"
+                        />
+                      );
+                    }
                     return (
-                      <div
+                      <AddonOfferCard
                         key={addon.code}
-                        aria-disabled
-                        className="w-full cursor-not-allowed select-none rounded-xl border border-[#2A3037] bg-[#0F1318] px-4 py-3 text-left opacity-70"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="font-semibold text-zinc-400">{addon.label}</p>
-                          <p className="text-sm font-semibold text-zinc-500">{money(addon.priceCents)}</p>
-                        </div>
-                        <p className="mt-1 text-xs text-zinc-600">{addon.desc}</p>
-                        <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                          Existing add-on
-                        </p>
-                      </div>
-                    );
-                  }
-                  return (
-                    <button
-                      key={addon.code}
-                      type="button"
-                      disabled={checkoutReturnLocksUI}
-                      onClick={() => {
-                        const selecting = !addons.includes(addon.code);
-                        if (selecting && !addonEligibleForPlan(addon, addonGatePlan)) {
-                          setAddonNotAvailableOpen(true);
-                          return;
+                        mode="select"
+                        label={addon.label}
+                        description={addon.desc}
+                        priceLabel={money(addon.priceCents, addon.currency || "USD")}
+                        selected={selected}
+                        disabled={checkoutReturnLocksUI}
+                        onPress={() =>
+                          setAddons((prev) =>
+                            prev.includes(addon.code)
+                              ? prev.filter((code) => code !== addon.code)
+                              : [...prev, addon.code],
+                          )
                         }
-                        setAddons((prev) =>
-                          prev.includes(addon.code)
-                            ? prev.filter((code) => code !== addon.code)
-                            : [...prev, addon.code],
-                        );
-                      }}
-                      className={`w-full rounded-xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                        selected ? "border-white bg-[#1C2126]" : "border-[#2A3037] bg-[#101317] hover:border-zinc-400"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="font-semibold text-white">{addon.label}</p>
-                        <p className="text-sm font-semibold text-zinc-200">{money(addon.priceCents)}</p>
-                      </div>
-                      <p className="mt-1 text-xs text-zinc-400">{addon.desc}</p>
-                    </button>
-                  );
+                      />
+                    );
                   })}
               </div>
             </div>
-            <div className="rounded-2xl border border-[#2A3037] bg-[#15191C] p-5">
-              <h3 className="text-xl font-semibold text-white">Order Summary</h3>
-              <div className="mt-4 space-y-2 text-sm">
+            <div className={portalUi.panel}>
+              <h3 className="font-body text-body-lg font-semibold text-on-surface">Order summary</h3>
+              <div className="mt-4 space-y-2 font-body-sm text-body-sm">
                 {selectedPlan ? (
-                  <div className="flex items-center justify-between text-zinc-200">
+                  <div className="flex items-center justify-between text-on-surface">
                     <span className="font-medium">
                       {selectedPlan.name}{" "}
-                      <span className="text-zinc-400">
+                      <span className="text-on-surface-variant">
                         ({planIsOneTimeOnly(selectedPlan) ? "one-time" : billingCycle})
                       </span>
                     </span>
-                    <span className="font-medium">{money(selectedPlanAmount, selectedPlan.currency)}</span>
+                    <span className="font-semibold">{money(selectedPlanAmount, selectedPlan.currency)}</span>
                   </div>
                 ) : (
-                  <div className="rounded-lg border border-dashed border-[#2A3037] px-3 py-2 text-xs text-zinc-500">
+                  <div className="rounded-lg border border-dashed border-on-surface/15 bg-surface-container-low px-3 py-2 text-on-surface-variant">
                     Select a plan above to see pricing.
                   </div>
                 )}
                 {addons.length > 0 ? (
-                  <p className="pt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Add-ons</p>
+                  <p className={portalUi.addonSectionEyebrow + " pt-2"}>Add-ons</p>
                 ) : null}
                 {addons.map((code) => {
                   const item = addonByCode.get(code);
                   if (!item) return null;
                   return (
-                    <div key={code} className="flex items-center justify-between text-zinc-300">
+                    <div key={code} className="flex items-center justify-between text-on-surface">
                       <span>{item.label}</span>
-                      <span>{money(item.priceCents)}</span>
+                      <span className="font-medium">{money(item.priceCents, item.currency || "USD")}</span>
                     </div>
                   );
                 })}
-                <div className="mt-3 border-t border-[#2A3037] pt-3">
-                  <div className="client-ink-on-panel flex items-center justify-between text-lg font-semibold">
-                    <span>Total Due Today</span>
+                <div className="mt-3 border-t border-on-surface/10 pt-3">
+                  <div className="flex items-center justify-between font-body text-body-lg font-semibold text-on-surface">
+                    <span>Total due today</span>
                     <span>{money(selectedPlanAmount + addonsTotal, selectedPlan?.currency)}</span>
                   </div>
                 </div>
@@ -779,7 +789,7 @@ export function ProjectSubscriptionPage() {
                   if (checkoutReturnLocksUI) return;
                   void (hasLiveProjectPlan ? onApplySubscriptionChanges() : onSecureCheckout());
                 }}
-                className="mt-6 w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-canvas transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-45"
+                className={portalUi.btnPrimary + " mt-6 w-full !py-3 !text-sm"}
               >
                 {busy
                   ? "Processing..."
@@ -791,7 +801,9 @@ export function ProjectSubscriptionPage() {
                         ? "Apply changes"
                         : "Proceed to Pay"}
               </button>
-              <p className="mt-2 text-center text-xs text-zinc-500">Secure checkout powered by Stripe</p>
+              <p className="mt-2 text-center font-caption text-caption text-on-surface-variant">
+                Secure checkout powered by Stripe
+              </p>
             </div>
           </section>
         </div>
@@ -809,6 +821,7 @@ export function ProjectSubscriptionPage() {
           setExtraEditCompanionCodes([]);
         }}
         projectId={ownedProject.id}
+        projectName={ownedProject.name}
         plan={planForExtraEditModal}
         usage={ownedProject.usage ?? undefined}
         singleAddon={subExtraEditSingle}

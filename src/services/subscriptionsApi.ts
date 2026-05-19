@@ -680,6 +680,13 @@ export type ExtraEditCheckoutPayload = {
   perEditQuantity?: number;
 };
 
+export function ensureBillingCustomer(projectId: string) {
+  return api<{ ok: boolean; customerId?: string }>("/api/subscriptions/ensure-billing-customer", {
+    method: "POST",
+    body: JSON.stringify({ projectId }),
+  });
+}
+
 export function createAddonCheckoutSession(
   projectId: string,
   addonCodes: string[],

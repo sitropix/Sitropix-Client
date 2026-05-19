@@ -29,6 +29,7 @@ import {
   canUserReopenTicket,
   refundTicketCreditsIfNeeded,
 } from "../services/supportTicketLifecycle.mjs";
+import { mapSupportTicketListRow, ticketStatusForApi } from "../services/supportTicketSerialize.mjs";
 
 function insufficientCreditsMessage(needed, available) {
   const creditWord = needed === 1 ? "credit" : "credits";
@@ -62,32 +63,23 @@ router.get("/edit-types", async (_req, res) => {
 });
 
 router.get("/tickets", async (req, res) => {
-  const tickets = await prisma.supportTicket.findMany({
-    where: { userId: req.auth.userId },
-    orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
-    include: {
-      _count: { select: { messages: true } },
-    },
-  });
-  const projectNames = await projectNameByIdForTickets(tickets);
-  return res.json(
-    tickets.map((t) => ({
-      id: t.id,
-      subject: t.subject,
-      description: t.description,
-      status: t.status,
-      priority: t.priority,
-      department: t.department,
-      userPlan: t.userPlan,
-      projectId: t.projectId ?? null,
-      projectName: (t.projectId && projectNames.get(t.projectId)) || null,
-      editTypeId: t.editTypeId ?? null,
-      creditsCharged: t.creditsCharged ?? 0,
-      threadCount: t._count.messages,
-      createdAt: t.createdAt,
-      updatedAt: t.updatedAt,
-    })),
-  );
+  try {
+    const tickets = await prisma.supportTicket.findMany({
+      where: { userId: req.auth.userId },
+      orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
+      include: {
+        _count: { select: { messages: true } },
+      },
+    });
+    const projectNames = await projectNameByIdForTickets(tickets);
+    return res.json(tickets.map((t) => mapSupportTicketListRow(t, projectNames)));
+  } catch (e) {
+    log.error("support.tickets.list_failed", { userId: req.auth.userId, error: e?.message });
+    return res.status(500).json({
+      error: "tickets_load_failed",
+      message: "Could not load support tickets. If this persists, contact support.",
+    });
+  }
 });
 
 router.get("/tickets/:id", async (req, res) => {
@@ -104,7 +96,7 @@ router.get("/tickets/:id", async (req, res) => {
     id: ticket.id,
     subject: ticket.subject,
     description: ticket.description,
-    status: ticket.status,
+    status: ticketStatusForApi(ticket.status),
     priority: ticket.priority,
     department: ticket.department,
     userPlan: ticket.userPlan,

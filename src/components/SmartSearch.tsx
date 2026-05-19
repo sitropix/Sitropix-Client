@@ -1,7 +1,14 @@
+import { MaterialIcon } from "@/components/MaterialIcon";
 import { FormEvent, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-export function SmartSearch({ compact = false }: { compact?: boolean }) {
+export function SmartSearch({
+  compact = false,
+  variant = "default",
+}: {
+  compact?: boolean;
+  variant?: "default" | "portal";
+}) {
   const [q, setQ] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
@@ -20,6 +27,34 @@ export function SmartSearch({ compact = false }: { compact?: boolean }) {
       return;
     }
     navigate(`/search?q=${encodeURIComponent(query)}`);
+  }
+
+  if (variant === "portal" && compact) {
+    return (
+      <form
+        onSubmit={onSubmit}
+        className="group w-full max-w-md"
+        role="search"
+      >
+        <label htmlFor="portal-support-search" className="sr-only">
+          Search portal
+        </label>
+        <div className="relative w-full">
+          <MaterialIcon
+            name="search"
+            className="pointer-events-none absolute left-3 top-1/2 !text-[20px] -translate-y-1/2 text-on-surface-variant"
+          />
+          <input
+            id="portal-support-search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search projects, docs, help..."
+            className="w-full rounded-full border border-on-surface/5 bg-surface-container-low py-2 pl-10 pr-4 font-body-sm text-body-sm text-on-surface outline-none transition-all placeholder:text-on-surface-variant/80 focus:border-accent-gold group-hover:border-on-surface/10"
+            autoComplete="off"
+          />
+        </div>
+      </form>
+    );
   }
 
   return (

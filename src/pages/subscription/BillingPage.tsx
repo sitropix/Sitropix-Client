@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { portal } from "@/components/portal/portalStyles";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
 import { InvoiceTable } from "@/components/subscription/InvoiceTable";
@@ -47,20 +48,28 @@ export function BillingPage() {
     <div className="space-y-8">
       <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "Billing" }]} />
       <header>
-        <h1 className="text-2xl font-bold text-white sm:text-3xl">Billing & Payments</h1>
-        <p className="mt-2 text-sm text-ink-muted">Manage your payment method and review invoice history.</p>
+        <h1 className={portal.pageTitle}>Billing & Payments</h1>
+        <p className={portal.pageSubtitle}>Manage your payment method and review invoice history.</p>
       </header>
 
-      {error && <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</p>}
-      {notice && <p className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-ink-muted">{notice}</p>}
+      {error && (
+        <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 font-body-sm text-body-sm text-rose-800">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="rounded-xl border border-on-surface/10 bg-surface-container-low px-4 py-3 font-body-sm text-body-sm text-on-surface-variant">
+          {notice}
+        </p>
+      )}
 
-      <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-        <h2 className="text-sm font-semibold text-white">Payment method</h2>
+      <section className={portal.panel}>
+        <h2 className="font-body font-semibold text-on-surface">Payment method</h2>
         {loading ? (
           <Skeleton className="mt-3 h-10 w-64" />
         ) : defaultMethod ? (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-white/90">
+            <p className="font-body-sm text-body-sm text-on-surface">
               {defaultMethod.brand.toUpperCase()} ending in {defaultMethod.last4}
               {defaultMethod.expMonth > 0 && defaultMethod.expYear > 0
                 ? ` (exp ${defaultMethod.expMonth}/${defaultMethod.expYear})`
@@ -70,7 +79,7 @@ export function BillingPage() {
               type="button"
               onClick={() => void openBillingPortal()}
               disabled={busy}
-              className="rounded-full bg-brand-lime px-4 py-2 text-sm font-semibold text-canvas transition hover:bg-brand-lime-dim disabled:opacity-50"
+              className={portal.btnPrimary + " !text-sm"}
             >
               {busy ? "Opening…" : "Manage in Stripe portal"}
             </button>
@@ -85,7 +94,7 @@ export function BillingPage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-white">Invoices</h2>
+        <h2 className="font-body font-semibold text-on-surface">Invoices</h2>
         {loading ? (
           <Skeleton className="h-44 w-full rounded-2xl" />
         ) : data && data.invoices.length > 0 ? (

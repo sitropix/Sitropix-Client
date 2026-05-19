@@ -21,6 +21,7 @@ import { sendAlert } from "./observability/alerts.mjs";
 import { requestContext } from "./middleware/requestContext.mjs";
 import { httpMetrics } from "./middleware/httpMetrics.mjs";
 import { reloadStripeFromSystemConfig } from "./services/stripeService.mjs";
+import { normalizeLegacyClosedSupportTickets } from "./services/supportTicketMaintenance.mjs";
 
 export const app = express();
 
@@ -97,6 +98,7 @@ app.use((err, req, res, _next) => {
 
 export async function startServer() {
   await connectDb();
+  await normalizeLegacyClosedSupportTickets();
   await reloadStripeFromSystemConfig();
   await seedIfEmpty();
   if (env.stripeSecretKey && !String(env.stripeWebhookSecret || "").trim()) {

@@ -1,4 +1,5 @@
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { ProjectSetupDialog } from "@/components/workspace/ProjectSetupDialog";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/context/UserContext";
 import {
@@ -7,11 +8,21 @@ import {
   getProjectById,
   hasValidProjectPlan,
 } from "@/services/projectsStore";
+import { formatBillingApiError } from "@/lib/billingErrors";
+import {
+  addonCardDisplayCents,
+  extraEditAddonCaption,
+} from "@/lib/addonDisplayHelpers";
 import {
   confirmAddonCheckoutSession,
   createAddonCheckoutSession,
+  ensureBillingCustomer,
 } from "@/services/subscriptionsApi";
+import { AddonPurchaseDialog } from "@/components/billing/AddonPurchaseDialog";
+import { AddonOfferCard, AddonRecurringPriceBreakdown } from "@/components/billing/addonDisplay";
 import { ExtraEditPurchaseModal } from "@/components/billing/ExtraEditPurchaseModal";
+import { portal as portalUi } from "@/components/portal/portalStyles";
+import { isCreditPackAddon } from "@/constants/extraEditAddons";
 import { formatFileSize } from "@/lib/formatFileSize";
 import {
   deleteProjectAssetFile,
@@ -20,10 +31,12 @@ import {
   uploadProjectAssetFile,
   type ProjectAssetUploadRow,
 } from "@/services/subscriptionsApi";
-import type { ProjectAddonCard, ProjectRecord, ProjectRequirementType } from "@/types/project";
-import type { BillingCycle, SubscriptionAddon } from "@/types/subscription";
+import type { ProjectRecord, ProjectRequirementType } from "@/types/project";
+import type { SubscriptionAddon } from "@/types/subscription";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
+
+const ADDONS_PAGE_SIZE = 6;
 
 function money(cents: number, currency = "USD") {
   return new Intl.NumberFormat(undefined, {
@@ -42,63 +55,6 @@ function fmtDate(iso: string | null) {
 function prettyAssetType(value: string) {
   return value.replace(/_/g, " ");
 }
-
-function isRecurringPurchasableAddon(addon: ProjectAddonCard) {
-  return addon.billingKind === "recurring";
-}
-
-function displayCentsForPurchasableAddon(addon: ProjectAddonCard, chosenCycle: BillingCycle) {
-  if (addon.hasSetupPlusRecurring) {
-    const unit =
-      chosenCycle === "yearly" && addon.recurringPriceOptions?.yearlyPriceCents
-        ? addon.recurringPriceOptions.yearlyPriceCents
-        : addon.recurringPriceOptions?.monthlyPriceCents ?? addon.recurringPriceCents ?? 0;
-    return (addon.setupFeeCents ?? 0) + unit;
-  }
-  if (addon.recurringPriceOptions) {
-    if (chosenCycle === "yearly" && addon.recurringPriceOptions.yearlyPriceCents) {
-      return addon.recurringPriceOptions.yearlyPriceCents;
-    }
-    if (addon.recurringPriceOptions.monthlyPriceCents) {
-      return addon.recurringPriceOptions.monthlyPriceCents;
-    }
-  }
-  return addon.displayPriceCents;
-}
-
-function recurringIntervalSuffix(addon: ProjectAddonCard, chosenCycle: BillingCycle) {
-  if (!isRecurringPurchasableAddon(addon)) return "";
-  return chosenCycle === "yearly" ? "/yr" : "/mo";
-}
-
-function recurringSetupPriceBreakdown(card: ProjectAddonCard, chosenCycle: BillingCycle) {
-  if (!card.hasSetupPlusRecurring) return null;
-  const setup = card.setupFeeCents ?? 0;
-  const rec =
-    chosenCycle === "yearly" && card.recurringPriceOptions?.yearlyPriceCents
-      ? card.recurringPriceOptions.yearlyPriceCents
-      : card.recurringPriceOptions?.monthlyPriceCents ?? card.recurringPriceCents ?? 0;
-  const ccy = card.currency || "USD";
-  return (
-    <div className="mt-2 rounded-lg border border-white/10 bg-black/25 px-2.5 py-2 text-[11px] leading-snug text-zinc-300">
-      <div className="flex justify-between gap-2">
-        <span className="text-zinc-500">Setup (one-time)</span>
-        <span className="tabular-nums font-medium text-white">{money(setup, ccy)}</span>
-      </div>
-      <div className="mt-1 flex justify-between gap-2">
-        <span className="text-zinc-500">
-          Recurring (per {chosenCycle === "yearly" ? "year" : "month"})
-        </span>
-        <span className="tabular-nums font-medium text-white">{money(rec, ccy)}</span>
-      </div>
-      <p className="mt-1.5 border-t border-white/5 pt-1.5 text-[10px] text-zinc-500">
-        First checkout charges setup + first billing cycle; renewals bill the recurring amount only.
-      </p>
-    </div>
-  );
-}
-
-const ADDONS_PAGE_SIZE = 6;
 
 function IconPuzzle(props: { className?: string }) {
   return (
@@ -153,8 +109,12 @@ export function ProjectDashboardPage() {
   const { portal } = useUser();
   const [searchParams, setSearchParams] = useSearchParams();
   const plans = useMemo(() => portal?.plans ?? [], [portal?.plans]);
+  const addonCatalog = useMemo(() => portal?.addons ?? [], [portal?.addons]);
+  const purchasableAddons = useMemo(
+    () => addonCatalog.filter((a) => !isCreditPackAddon(a)),
+    [addonCatalog],
+  );
   const [addonPage, setAddonPage] = useState(0);
-  const [addonRecurringCycle, setAddonRecurringCycle] = useState<BillingCycle>("monthly");
   const userId = user?.id ?? portal?.user?.id ?? "guest-user";
   const [, setTick] = useState(0);
   const [serverAssets, setServerAssets] = useState<ProjectAssetUploadRow[]>([]);
@@ -163,20 +123,22 @@ export function ProjectDashboardPage() {
     useState<ProjectRequirementType>("requirements");
   const [assetFile, setAssetFile] = useState<File | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [quickUploadType, setQuickUploadType] =
-    useState<ProjectRequirementType>("requirements");
-  const quickUploadRef = useRef<HTMLInputElement | null>(null);
   const [rawProject, setRawProject] = useState<ProjectRecord | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
   const [addonCheckoutBusy, setAddonCheckoutBusy] = useState(false);
   const [extraEditModalOpen, setExtraEditModalOpen] = useState(false);
+  const [addonPurchaseTarget, setAddonPurchaseTarget] = useState<SubscriptionAddon | null>(
+    null,
+  );
+  const [addonCheckoutError, setAddonCheckoutError] = useState<string | null>(null);
+  const [addonBillingPreparing, setAddonBillingPreparing] = useState(false);
   const [assetFormUploadBusy, setAssetFormUploadBusy] = useState(false);
-  const [quickAssetUploadBusy, setQuickAssetUploadBusy] = useState(false);
-  const assetUploadBusy = assetFormUploadBusy || quickAssetUploadBusy;
+  const assetUploadBusy = assetFormUploadBusy;
   const [assetDownloadBusyType, setAssetDownloadBusyType] =
     useState<ProjectRequirementType | null>(null);
   const [assetDeleteBusyType, setAssetDeleteBusyType] =
     useState<ProjectRequirementType | null>(null);
+  const [setupOverlayDismissed, setSetupOverlayDismissed] = useState(false);
   const addonReturnHandledRef = useRef<string | null>(null);
   const ownedProject =
     rawProject && rawProject.ownerUserId === userId ? rawProject : null;
@@ -193,6 +155,33 @@ export function ProjectDashboardPage() {
   useEffect(() => {
     void refreshProject();
   }, [projectId]);
+
+  useEffect(() => {
+    setSetupOverlayDismissed(false);
+    setNotice(null);
+    setAddonCheckoutError(null);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!addonPurchaseTarget || !ownedProject || !hasValidProjectPlan(ownedProject)) return;
+    let cancelled = false;
+    setAddonBillingPreparing(true);
+    setAddonCheckoutError(null);
+    void ensureBillingCustomer(ownedProject.id)
+      .catch((err) => {
+        if (!cancelled) {
+          setAddonCheckoutError(
+            formatBillingApiError(err, "Could not prepare billing for this purchase."),
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAddonBillingPreparing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [addonPurchaseTarget?.code, ownedProject?.id]);
 
   const addonFunnel = searchParams.get("subscriptionFunnel");
   const addonSessionId = searchParams.get("session_id");
@@ -255,15 +244,12 @@ export function ProjectDashboardPage() {
   const assetsReady = !assetsLoading;
   const needsOnboarding = assetsReady && completedCoreCount < coreRequired.length;
   const hasValidPlan = ownedProject ? hasValidProjectPlan(ownedProject) : false;
-  const showSetupOverlay = assetsReady && !hasValidPlan;
-  const allRequirementsDone = assetsReady && !needsOnboarding;
-  const accessibleAddons = ownedProject?.accessibleAddons ?? { existing: [], purchasable: [] };
-  const addonBillingContext = accessibleAddons.billingContext;
-  const existingAddons = accessibleAddons.existing;
-  const availableAddons = accessibleAddons.purchasable;
-  const showRecurringCycleToggle =
-    addonBillingContext?.canChooseRecurringAddonCycle === true &&
-    availableAddons.some((a) => a.canChooseRecurringCycle);
+  const showSetupOverlay = assetsReady && !hasValidPlan && !setupOverlayDismissed;
+  const ownedAddonCodes = ownedProject?.addons ?? [];
+  const availableAddons = useMemo(
+    () => purchasableAddons.filter((addon) => !ownedAddonCodes.includes(addon.code)),
+    [purchasableAddons, ownedAddonCodes],
+  );
   const addonPageCount = Math.max(1, Math.ceil(availableAddons.length / ADDONS_PAGE_SIZE));
   const addonPageSafe = Math.min(addonPage, addonPageCount - 1);
   const pagedAvailableAddons = availableAddons.slice(
@@ -273,12 +259,6 @@ export function ProjectDashboardPage() {
   useEffect(() => {
     setAddonPage((p) => Math.min(p, Math.max(0, addonPageCount - 1)));
   }, [addonPageCount]);
-
-  useEffect(() => {
-    setAddonRecurringCycle(
-      addonBillingContext?.subscriptionBillingCycle === "yearly" ? "monthly" : "monthly",
-    );
-  }, [ownedProject?.id, addonBillingContext?.subscriptionBillingCycle]);
 
   if (!ownedProject && !projectLoading)
     return <Navigate to="/projects" replace />;
@@ -347,16 +327,13 @@ export function ProjectDashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              document.getElementById("project-add-ons")?.scrollIntoView({ behavior: "smooth", block: "start" });
-            }}
+          <Link
+            to={`/projects/${project.id}/add-ons`}
             className="inline-flex items-center gap-2 rounded-xl border border-zinc-600 bg-[#1C2126] px-4 py-2 text-sm font-semibold text-white transition hover:border-zinc-400 hover:bg-[#232a32]"
           >
             <IconPuzzle className="h-4 w-4 shrink-0 text-zinc-300" />
             Manage Add-ons
-          </button>
+          </Link>
           <button
             type="button"
             onClick={() => setNotice("Project settings panel will be available soon.")}
@@ -366,7 +343,7 @@ export function ProjectDashboardPage() {
           </button>
           <Link
             to="/requests"
-            className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200"
+            className={portalUi.btnDark + " !rounded-xl !px-4 !py-2 !text-sm"}
           >
             Contact Support
           </Link>
@@ -500,7 +477,7 @@ export function ProjectDashboardPage() {
               <p className="mt-1 text-sm text-zinc-400">Files required for this project.</p>
             </div>
             <label
-              className={`cursor-pointer rounded-xl bg-white px-4 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200 ${
+              className={`${portalUi.btnPrimary} cursor-pointer !rounded-xl !px-4 !py-2 !text-sm ${
                 assetUploadBusy || assetDeleteBusyType ? "pointer-events-none cursor-not-allowed opacity-50" : ""
               }`}
             >
@@ -533,7 +510,7 @@ export function ProjectDashboardPage() {
                   className="flex items-center justify-between gap-3 px-4 py-3.5 first:rounded-t-xl last:rounded-b-xl"
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-white">{asset.fileName}</p>
+                    <p className="truncate text-sm font-semibold text-on-surface">{asset.fileName}</p>
                     <p className="mt-0.5 text-xs text-zinc-500">
                       {formatFileSize(asset.sizeBytes)} · {prettyAssetType(asset.type)}
                     </p>
@@ -619,7 +596,7 @@ export function ProjectDashboardPage() {
               value={assetType}
               onChange={(e) => setAssetType(e.target.value as ProjectRequirementType)}
               disabled={assetUploadBusy}
-              className="rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm text-on-surface disabled:cursor-not-allowed disabled:opacity-50"
             >
               {PROJECT_ASSET_TYPES.map((req) => (
                 <option key={req.type} value={req.type}>
@@ -627,14 +604,16 @@ export function ProjectDashboardPage() {
                 </option>
               ))}
             </select>
-            <div className="rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-xs text-zinc-400">
-              {assetFile ? assetFile.name : "No file selected"}
+            <div className="rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-xs text-on-surface-variant">
+              <span className={assetFile ? "text-on-surface" : undefined}>
+                {assetFile ? assetFile.name : "No file selected"}
+              </span>
             </div>
             <button
               type="submit"
               disabled={!assetFile || assetUploadBusy}
               aria-busy={assetFormUploadBusy}
-              className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
+              className={portalUi.btnPrimary + " !rounded-xl !px-4 !py-2 !text-sm disabled:cursor-not-allowed disabled:opacity-40"}
             >
               {assetFormUploadBusy ? "Saving…" : "Save"}
             </button>
@@ -650,143 +629,18 @@ export function ProjectDashboardPage() {
         </article>
       </section>
 
-      {showSetupOverlay ? (
-        <div className="fixed inset-0 z-[80] grid place-items-center bg-black/70 p-4 backdrop-blur-[2px]">
-          <div
-            className="w-full max-w-md rounded-3xl border border-[#2A3037] bg-[#161B22] p-5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p className="inline-flex rounded-full bg-indigo-500/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-200">
-              Draft project
-            </p>
-            <h3 className="mt-3 text-2xl font-bold text-white">
-              {project.name}
-            </h3>
-            <p className="mt-2 text-sm text-zinc-400">
-              {allRequirementsDone
-                ? "All required uploads are complete. Continue to subscription to activate this project."
-                : "Upload the required items below. Additional materials help us deliver faster but are optional."}
-            </p>
-            <div className="mt-4 flex items-center justify-between text-sm">
-              <span className="font-semibold text-white">Required progress</span>
-              <span className="text-zinc-300">
-                {completedCoreCount}/{coreRequired.length}
-              </span>
-            </div>
-            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-[#2A3037]">
-              <div
-                className="h-full bg-white"
-                style={{
-                  width: `${(completedCoreCount / Math.max(1, coreRequired.length)) * 100}%`,
-                }}
-              />
-            </div>
-            <ul className="mt-4 space-y-2">
-              {PROJECT_ASSET_TYPES.map((req) => {
-                const done = serverAssets.some(
-                  (asset) => asset.type === req.type,
-                );
-                const isCore = coreRequired.some((c) => c.type === req.type);
-                return (
-                  <li
-                    key={req.type}
-                    className="flex items-center justify-between rounded-xl border border-[#2A3037] bg-[#0F1318] px-3 py-2"
-                  >
-                    <span className="text-sm text-white">
-                      {req.label}
-                      {!isCore ? (
-                        <span className="ml-2 text-[10px] font-normal uppercase tracking-wide text-zinc-500">
-                          Optional
-                        </span>
-                      ) : (
-                        <span className="ml-2 text-[10px] font-normal uppercase tracking-wide text-amber-200/90">
-                          Required
-                        </span>
-                      )}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {done ? (
-                        <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-200">
-                          Completed
-                        </span>
-                      ) : null}
-                      <button
-                        type="button"
-                        disabled={
-                          assetUploadBusy || assetDeleteBusyType !== null
-                        }
-                        onClick={() => {
-                          if (assetUploadBusy || assetDeleteBusyType) return;
-                          setQuickUploadType(req.type);
-                          quickUploadRef.current?.click();
-                        }}
-                        className={`rounded-full px-3 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${
-                          done ? "bg-zinc-700 text-zinc-100" : "bg-white text-canvas"
-                        }`}
-                      >
-                        {quickAssetUploadBusy && quickUploadType === req.type
-                          ? "Uploading…"
-                          : done
-                            ? "Replace"
-                            : "Upload"}
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-            <input
-              ref={quickUploadRef}
-              type="file"
-              className="hidden"
-              disabled={assetUploadBusy}
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file || assetUploadBusy) return;
-                setQuickAssetUploadBusy(true);
-                setNotice(null);
-                try {
-                  await uploadProjectAssetFile(
-                    project.id,
-                    quickUploadType,
-                    file,
-                  );
-                  await refreshAssets({ silent: true });
-                  await refreshProject({ silent: true });
-                } catch (err) {
-                  setNotice(
-                    err instanceof Error
-                      ? err.message
-                      : "Could not upload asset.",
-                  );
-                  e.currentTarget.value = "";
-                  return;
-                } finally {
-                  setQuickAssetUploadBusy(false);
-                }
-                setTick((v) => v + 1);
-                e.currentTarget.value = "";
-              }}
-            />
-            <Link
-              to={`/projects/${project.id}/subscription`}
-              className={`mt-5 inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold ${
-                needsOnboarding || assetUploadBusy
-                  ? "pointer-events-none cursor-not-allowed bg-zinc-700 text-zinc-400"
-                  : "bg-white text-canvas"
-              }`}
-              onClick={(e) => {
-                if (needsOnboarding || assetUploadBusy) e.preventDefault();
-              }}
-            >
-              {assetUploadBusy ? "Uploading…" : "Continue to Subscription"}
-            </Link>
-            <p className="mt-3 text-center text-[11px] text-zinc-500">
-              A valid subscription is required to activate the project.
-            </p>
-          </div>
-        </div>
-      ) : null}
+      <ProjectSetupDialog
+        project={ownedProject}
+        open={showSetupOverlay && Boolean(ownedProject)}
+        onClose={() => setSetupOverlayDismissed(true)}
+        assets={serverAssets}
+        assetsLoading={assetsLoading}
+        onAssetsUpdated={async () => {
+          await refreshAssets({ silent: true });
+          await refreshProject({ silent: true });
+          setTick((v) => v + 1);
+        }}
+      />
 
       <section className="rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -823,22 +677,18 @@ export function ProjectDashboardPage() {
         )}
       </section>
 
-      <section
-        id="project-add-ons"
-        className="scroll-mt-24 rounded-2xl border border-[#24292E] bg-[#15191C] p-5 shadow-glass"
-      >
-        <h2 className="text-3xl font-bold tracking-tight text-white">Add-ons</h2>
-        <p className="mt-1 text-sm text-zinc-400">
+      <section id="project-add-ons" className={`${portalUi.panel} scroll-mt-24`}>
+        <h2 className={portalUi.pageTitle}>Add-ons</h2>
+        <p className={portalUi.pageSubtitle}>
           Purchased add-ons stay on your subscription. Buy new extras individually through secure checkout.
         </p>
-
         {canBuyExtraEdits ? (
           <div className="mt-6">
-            <article className="rounded-2xl border border-[#2A3037] bg-[#101317] p-4 sm:p-5">
+            <article className={portalUi.addonCard}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-lg font-semibold text-white">Extra website edits</h3>
-                  <p className="mt-1 text-xs text-zinc-400">
+                  <h3 className="font-body text-body-lg font-semibold text-on-surface">Extra website edits</h3>
+                  <p className="mt-1 font-body-sm text-body-sm text-on-surface-variant">
                     {modalPerEditCents > 0
                       ? `From ${money(modalPerEditCents, extraEditPurchase?.currency ?? "USD")} per edit`
                       : modalBundleCredits > 0 && modalBundleCents > 0
@@ -850,7 +700,7 @@ export function ProjectDashboardPage() {
                   type="button"
                   disabled={addonCheckoutBusy}
                   onClick={() => setExtraEditModalOpen(true)}
-                  className="shrink-0 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={portalUi.btnPrimary + " shrink-0 !px-4 !py-2 !text-sm"}
                 >
                   Buy edit credits
                 </button>
@@ -859,33 +709,27 @@ export function ProjectDashboardPage() {
           </div>
         ) : null}
 
-        {existingAddons.length > 0 ? (
+        {addonCatalog.filter((addon) => project.addons.includes(addon.code)).length > 0 ? (
           <div className="mt-6">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-zinc-500">
-              Existing add-ons
-            </h3>
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              {existingAddons.map((addon) => (
-                  <div
+            <h3 className={portalUi.addonSectionEyebrow}>Existing add-ons</h3>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {addonCatalog
+                .filter((addon) => project.addons.includes(addon.code))
+                .map((addon) => (
+                  <AddonOfferCard
                     key={addon.code}
-                    aria-disabled
-                    className="cursor-not-allowed select-none rounded-2xl border border-[#2A3037] bg-[#101317] p-4 text-left opacity-70"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-lg font-semibold text-white">{addon.label}</p>
-                      <span className="rounded-full bg-zinc-700 px-2 py-0.5 text-xs font-semibold text-zinc-100">
-                        {money(addon.displayPriceCents, addon.currency)}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-xs text-zinc-500">{addon.desc}</p>
-                    {addon.creditsLabel ? (
-                      <p className="mt-1 text-[11px] font-medium text-zinc-500">{addon.creditsLabel}</p>
-                    ) : null}
-                    {recurringSetupPriceBreakdown(addon, addon.defaultRecurringCycle ?? "monthly")}
-                    <span className="mt-4 inline-flex w-full cursor-not-allowed items-center justify-center rounded-xl border border-[#2A3037] bg-[#1C2126] px-3 py-2 text-sm font-semibold text-zinc-500">
-                      Purchased
-                    </span>
-                  </div>
+                    mode="owned"
+                    label={addon.label}
+                    description={addon.desc}
+                    priceLabel={money(
+                      addonCardDisplayCents(addon, plans, project.planId),
+                      addon.currency || "USD",
+                    )}
+                    caption={extraEditAddonCaption(addon, plans, project.planId)}
+                    breakdown={
+                      <AddonRecurringPriceBreakdown addon={addon} currency={addon.currency || "USD"} />
+                    }
+                  />
                 ))}
             </div>
           </div>
@@ -894,117 +738,48 @@ export function ProjectDashboardPage() {
         {availableAddons.length > 0 ? (
           <div className="mt-8">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                Available add-ons
-              </h3>
+              <h3 className={portalUi.addonSectionEyebrow}>Available add-ons</h3>
               {addonPageCount > 1 ? (
-                <p className="text-xs text-zinc-500">
+                <p className="font-body-sm text-body-sm text-on-surface-variant">
                   Page {addonPageSafe + 1} of {addonPageCount}
                 </p>
               ) : null}
             </div>
-            {showRecurringCycleToggle ? (
-              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#2A3037] bg-[#101317] px-4 py-3">
-                <span className="text-xs font-medium text-zinc-400">Recurring add-on billing</span>
-                <div className="inline-flex rounded-lg border border-[#2A3037] bg-[#1C2126] p-0.5">
-                  {(["monthly", "yearly"] as const).map((cycle) => (
-                    <button
-                      key={cycle}
-                      type="button"
-                      onClick={() => setAddonRecurringCycle(cycle)}
-                      className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition ${
-                        addonRecurringCycle === cycle
-                          ? "bg-white text-canvas"
-                          : "text-zinc-400 hover:text-white"
-                      }`}
-                    >
-                      {cycle}
-                    </button>
-                  ))}
-                </div>
-                {addonRecurringCycle === "yearly" && addonBillingContext?.periodStartIso ? (
-                  <p className="text-[11px] text-zinc-500">
-                    Yearly add-ons renew on the same day as your plan (
-                    {new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(
-                      new Date(addonBillingContext.periodStartIso),
-                    )}
-                    ).
-                  </p>
-                ) : addonRecurringCycle === "monthly" ? (
-                  <p className="text-[11px] text-zinc-500">
-                    Monthly add-ons bill on their own cycle (separate from your yearly plan renewal).
-                  </p>
-                ) : null}
-              </div>
-            ) : addonBillingContext?.subscriptionBillingCycle === "monthly" &&
-              availableAddons.some((a) => isRecurringPurchasableAddon(a)) ? (
-              <p className="mt-3 text-[11px] text-zinc-500">
-                Recurring add-ons bill monthly on the same day as your subscription.
-              </p>
-            ) : null}
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              {pagedAvailableAddons.map((addon) => {
-                const purchaseCycle: BillingCycle = addon.canChooseRecurringCycle
-                  ? addonRecurringCycle
-                  : addon.defaultRecurringCycle ?? "monthly";
-                const priceCents = displayCentsForPurchasableAddon(addon, purchaseCycle);
-                return (
-                  <button
-                    key={addon.code}
-                    type="button"
-                    disabled={!hasValidPlan || addonCheckoutBusy}
-                    onClick={async () => {
-                      if (!hasValidPlan) return;
-                      setAddonCheckoutBusy(true);
-                      setNotice(null);
-                      try {
-                        const base = `${window.location.origin}/projects/${project.id}`;
-                        const { url } = await createAddonCheckoutSession(project.id, [addon.code], {
-                          successUrl: base,
-                          cancelUrl: base,
-                          ...(isRecurringPurchasableAddon(addon)
-                            ? { addonRecurringCycle: purchaseCycle }
-                            : {}),
-                        });
-                        if (!url) {
-                          setNotice("Could not start checkout for this add-on.");
-                          return;
-                        }
-                        window.location.assign(url);
-                      } catch (err) {
-                        setNotice(
-                          err instanceof Error ? err.message : "Could not start add-on checkout.",
-                        );
-                      } finally {
-                        setAddonCheckoutBusy(false);
-                      }
-                    }}
-                    className={`rounded-2xl border p-4 text-left transition ${
-                      !hasValidPlan || addonCheckoutBusy
-                        ? "cursor-not-allowed border-[#2A3037] bg-[#1C2126] text-zinc-500 opacity-50"
-                        : "border-[#2A3037] bg-[#1C2126] text-white hover:border-zinc-400 active:scale-[0.99]"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-lg font-semibold">{addon.label}</p>
-                      <span className="rounded-full bg-zinc-700 px-2 py-0.5 text-xs font-semibold text-zinc-100">
-                        {money(priceCents, addon.currency)}
-                        {isRecurringPurchasableAddon(addon)
-                          ? recurringIntervalSuffix(addon, purchaseCycle)
-                          : ""}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-xs text-zinc-400">{addon.desc}</p>
-                    {addon.creditsLabel ? (
-                      <p className="mt-1 text-[11px] font-medium text-zinc-400">{addon.creditsLabel}</p>
-                    ) : null}
-                    {recurringSetupPriceBreakdown(addon, purchaseCycle)}
-                    <span className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-white px-3 py-2 text-sm font-semibold text-canvas transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40">
-                      {hasValidPlan ? "Purchase add-on" : "Subscribe to enable"}
-                    </span>
-                  </button>
-                );
-              })}
+            <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {pagedAvailableAddons.map((addon) => (
+                <AddonOfferCard
+                  key={addon.code}
+                  mode="purchase"
+                  label={addon.label}
+                  description={addon.desc}
+                  priceLabel={money(
+                    addonCardDisplayCents(addon, plans, project.planId),
+                    addon.currency || "USD",
+                  )}
+                  caption={extraEditAddonCaption(addon, plans, project.planId)}
+                  breakdown={
+                    <AddonRecurringPriceBreakdown addon={addon} currency={addon.currency || "USD"} />
+                  }
+                  disabled={addonCheckoutBusy}
+                  actionLabel={
+                    addonCheckoutBusy
+                      ? "Starting checkout…"
+                      : hasValidPlan
+                        ? "Purchase add-on"
+                        : "Subscribe to enable"
+                  }
+                  onPress={() => {
+                    if (!hasValidPlan) {
+                      navigate(`/projects/${project.id}/subscription`);
+                      return;
+                    }
+                    setAddonCheckoutError(null);
+                    setNotice(null);
+                    setAddonPurchaseTarget(addon);
+                  }}
+                />
+              ))}
+
             </div>
             {addonPageCount > 1 ? (
               <div className="mt-4 flex items-center justify-center gap-2">
@@ -1012,7 +787,7 @@ export function ProjectDashboardPage() {
                   type="button"
                   disabled={addonPageSafe <= 0}
                   onClick={() => setAddonPage((p) => Math.max(0, p - 1))}
-                  className="rounded-lg border border-[#2A3037] bg-[#1C2126] px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  className={portalUi.btnSecondary + " !px-3 !py-1.5 !text-xs"}
                 >
                   Previous
                 </button>
@@ -1020,7 +795,7 @@ export function ProjectDashboardPage() {
                   type="button"
                   disabled={addonPageSafe >= addonPageCount - 1}
                   onClick={() => setAddonPage((p) => Math.min(addonPageCount - 1, p + 1))}
-                  className="rounded-lg border border-[#2A3037] bg-[#1C2126] px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  className={portalUi.btnSecondary + " !px-3 !py-1.5 !text-xs"}
                 >
                   Next
                 </button>
@@ -1030,19 +805,81 @@ export function ProjectDashboardPage() {
         ) : null}
 
         {!canBuyExtraEdits &&
-        existingAddons.length === 0 &&
+        addonCatalog.filter((addon) => project.addons.includes(addon.code)).length === 0 &&
         availableAddons.length === 0 &&
         hasValidPlan ? (
-          <p className="mt-4 rounded-xl border border-[#2A3037] bg-[#1C2126] px-4 py-3 text-sm text-zinc-400">
+          <p className="mt-4 rounded-lg border border-on-surface/10 bg-surface-container-low px-4 py-3 font-body-sm text-body-sm text-on-surface-variant">
             No add-ons are available for your plan and billing cycle.
           </p>
         ) : null}
       </section>
 
+      <AddonPurchaseDialog
+        open={addonPurchaseTarget !== null}
+        addon={addonPurchaseTarget}
+        project={project}
+        priceLabel={
+          addonPurchaseTarget
+            ? money(
+                addonCardDisplayCents(addonPurchaseTarget, plans, project.planId),
+                addonPurchaseTarget.currency || "USD",
+              )
+            : ""
+        }
+        dueTodayCents={
+          addonPurchaseTarget
+            ? addonCardDisplayCents(addonPurchaseTarget, plans, project.planId)
+            : 0
+        }
+        currency={addonPurchaseTarget?.currency || "USD"}
+        caption={
+          addonPurchaseTarget
+            ? extraEditAddonCaption(addonPurchaseTarget, plans, project.planId)
+            : null
+        }
+        breakdownAddon={addonPurchaseTarget}
+        busy={addonCheckoutBusy}
+        preparing={addonBillingPreparing}
+        errorMessage={addonCheckoutError}
+        onClose={() => {
+          setAddonPurchaseTarget(null);
+          setAddonCheckoutError(null);
+        }}
+        onConfirm={async () => {
+          if (!addonPurchaseTarget || !hasValidPlan) return;
+          setAddonCheckoutBusy(true);
+          setAddonCheckoutError(null);
+          try {
+            await ensureBillingCustomer(project.id);
+            const base = `${window.location.origin}/projects/${project.id}`;
+            const { url } = await createAddonCheckoutSession(
+              project.id,
+              [addonPurchaseTarget.code],
+              {
+                successUrl: base,
+                cancelUrl: base,
+              },
+            );
+            if (!url) {
+              setAddonCheckoutError("Could not start checkout for this add-on.");
+              return;
+            }
+            window.location.assign(url);
+          } catch (err) {
+            setAddonCheckoutError(
+              formatBillingApiError(err, "Could not start add-on checkout."),
+            );
+          } finally {
+            setAddonCheckoutBusy(false);
+          }
+        }}
+      />
+
       <ExtraEditPurchaseModal
         open={extraEditModalOpen}
         onClose={() => setExtraEditModalOpen(false)}
         projectId={project.id}
+        projectName={project.name}
         plan={planForProject}
         usage={usage ?? undefined}
         singleAddon={extraEditSinglePurchAddon}

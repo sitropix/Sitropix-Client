@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { portal } from "@/components/portal/portalStyles";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge } from "@/components/StatusBadge";
 import { TicketRowSkeleton } from "@/components/Skeleton";
@@ -64,10 +65,7 @@ export function MyRequestsPage() {
             Everything you have opened with our team — filter by lifecycle stage or search by subject.
           </p>
         </div>
-        <Link
-          to="/ticket"
-          className="inline-flex shrink-0 items-center justify-center rounded-xl bg-zinc-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-600"
-        >
+        <Link to="/ticket" className={portal.btnDark + " shrink-0 !text-sm shadow-sm"}>
           New ticket
         </Link>
       </header>
