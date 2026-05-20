@@ -1,4 +1,4 @@
-import { AddonOfferCard } from "@/components/billing/addonDisplay";
+import { AddonBillingCycleToggle, AddonOfferCard } from "@/components/billing/addonDisplay";
 import { AddonNotAvailableModal } from "@/components/billing/AddonNotAvailableModal";
 import { ExtraEditPurchaseModal } from "@/components/billing/ExtraEditPurchaseModal";
 import { Breadcrumb } from "@/components/Breadcrumb";
@@ -16,7 +16,10 @@ import { useUser } from "@/context/UserContext";
 import {
   addonCheckoutDisplayCents,
   addonPriceCycleSuffix,
+  defaultAddonRecurringCycle,
+  isAddonRecurring,
 } from "@/lib/addonDisplayHelpers";
+import { resolveAddonPlanPriceCents } from "@/lib/addonPlanPricing";
 import {
   addonEligibleForPlan,
   planForAddonPurchaseGate,
@@ -125,6 +128,7 @@ export function ProjectSubscriptionPage() {
   const { portal, refresh: refreshUser } = useUser();
   const userId = user?.id ?? portal?.user?.id ?? "guest-user";
   const [billingCycle, setBillingCycle] = useState<BillingCycle>("monthly");
+  const [addonRecurringCycle, setAddonRecurringCycle] = useState<BillingCycle>("monthly");
   const [selectedPlanId, setSelectedPlanId] = useState<string>("");
   const [addons, setAddons] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -210,6 +214,31 @@ export function ProjectSubscriptionPage() {
       ),
     [addonCatalog, addonGatePlan, billingCycle, selectedPlan],
   );
+
+  const purchasableCards = ownedProject?.accessibleAddons?.purchasable ?? [];
+  const canChooseAddonCycleFromProject =
+    ownedProject?.accessibleAddons?.billingContext?.canChooseRecurringAddonCycle ??
+    false;
+  const canChooseAddonCycleFromSelection = useMemo(() => {
+    if (billingCycle !== "yearly" || !addonGatePlan) return false;
+    return eligibleAddons.some((addon) => {
+      if (!isAddonRecurring(addon) || (addon.setupFeeCents ?? 0) > 0) return false;
+      const monthly = resolveAddonPlanPriceCents(addon, addonGatePlan, "monthly");
+      const yearly = resolveAddonPlanPriceCents(addon, addonGatePlan, "yearly");
+      return monthly > 0 && yearly > 0;
+    });
+  }, [billingCycle, addonGatePlan, eligibleAddons]);
+  const canChooseAddonCycle =
+    canChooseAddonCycleFromProject || canChooseAddonCycleFromSelection;
+  const addonDisplayCycle: BillingCycle = canChooseAddonCycle
+    ? addonRecurringCycle
+    : billingCycle;
+
+  useEffect(() => {
+    setAddonRecurringCycle(
+      defaultAddonRecurringCycle(ownedProject?.billingCycle ?? billingCycle, purchasableCards),
+    );
+  }, [ownedProject?.billingCycle, billingCycle, purchasableCards]);
 
   useEffect(() => {
     if (!selectedPlan) return;
@@ -348,12 +377,19 @@ export function ProjectSubscriptionPage() {
           return;
         }
         const base = `${window.location.origin}/projects/${ownedProject.id}`;
+        const hasRecurring = newAddonCodes.some((code) => {
+          const row = addonByCode.get(code);
+          return row != null && isAddonRecurring(row);
+        });
         const { url } = await createAddonCheckoutSession(
           ownedProject.id,
           newAddonCodes,
           {
             successUrl: base,
             cancelUrl: `${window.location.origin}/projects/${ownedProject.id}/subscription`,
+            ...(canChooseAddonCycle && hasRecurring
+              ? { addonRecurringCycle: addonDisplayCycle }
+              : {}),
           },
         );
         if (!url) {
@@ -446,7 +482,7 @@ export function ProjectSubscriptionPage() {
     const item = addonByCode.get(code);
     if (!item) return sum;
     return (
-      sum + addonCheckoutDisplayCents(item, addonGatePlan, billingCycle)
+      sum + addonCheckoutDisplayCents(item, addonGatePlan, addonDisplayCycle)
     );
   }, 0);
   const funnelState = searchParams.get("subscriptionFunnel");
@@ -806,6 +842,18 @@ export function ProjectSubscriptionPage() {
                   </div>
                 </div>
               ) : null}
+              {canChooseAddonCycle ? (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="font-body-sm text-body-sm text-on-surface-variant">
+                    Choose whether recurring add-ons bill monthly or yearly.
+                  </p>
+                  <AddonBillingCycleToggle
+                    value={addonRecurringCycle}
+                    onChange={setAddonRecurringCycle}
+                    disabled={checkoutReturnLocksUI}
+                  />
+                </div>
+              ) : null}
               <div className="mt-4 space-y-3">
                 {addonCatalog.filter(
                   (a) =>
@@ -830,11 +878,11 @@ export function ProjectSubscriptionPage() {
                     const displayCents = addonCheckoutDisplayCents(
                       addon,
                       addonGatePlan,
-                      billingCycle,
+                      addonDisplayCycle,
                     );
                     const cycleSuffix = addonPriceCycleSuffix(
                       addon,
-                      billingCycle,
+                      addonDisplayCycle,
                     );
                     const priceLabel =
                       money(displayCents, addon.currency || "USD") +
@@ -919,7 +967,7 @@ export function ProjectSubscriptionPage() {
                           addonCheckoutDisplayCents(
                             item,
                             addonGatePlan,
-                            billingCycle,
+                            addonDisplayCycle,
                           ),
                           item.currency || "USD",
                         )}

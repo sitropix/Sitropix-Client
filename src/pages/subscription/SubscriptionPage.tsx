@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/Skeleton";
 import { PricingCard } from "@/components/subscription/PricingCard";
 import {
   addonCatalogDisplayCents,
+  addonCatalogDisplayDesc,
   addonPriceCycleSuffix,
   formatAddonMoney,
 } from "@/lib/addonDisplayHelpers";
@@ -175,7 +176,9 @@ export function SubscriptionPage() {
               >
                 <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{addon.code}</p>
                 <h3 className="mt-1 text-lg font-semibold text-zinc-900">{addon.label}</h3>
-                <p className="mt-2 flex-1 text-sm leading-relaxed text-zinc-600">{addon.desc}</p>
+                <p className="mt-2 flex-1 text-sm leading-relaxed text-zinc-600">
+                  {addonCatalogDisplayDesc(addon, billingCycle, visiblePlans)}
+                </p>
                 <p className="mt-3 text-lg font-bold text-zinc-900">
                   {formatAddonMoney(
                     addonCatalogDisplayCents(addon, billingCycle, visiblePlans),

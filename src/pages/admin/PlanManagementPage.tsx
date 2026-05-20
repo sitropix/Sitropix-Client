@@ -20,7 +20,9 @@ import {
 } from "@/constants/extraEditAddons";
 import {
   addonUsesPlanWisePricing,
+  aggregatePlanPricingListBounds,
   firstPlanPriceCents,
+  plansForAddonPricingEditor,
   readExtraEditTier,
   seedPlanPricingFromAddon,
   type AddonPlanPricing,
@@ -383,6 +385,13 @@ export function PlanManagementPage() {
       const extraTier = extraEditTierForAddon(addon);
       const usesPlanPricing = addonUsesPlanWisePricing(addon);
       if (usesPlanPricing || extraTier) {
+        const planPricingKeys = Object.keys(eAddonPlanPricing);
+        if (usesPlanPricing && planPricingKeys.length === 0) {
+          showError(
+            "Set monthly and/or yearly prices in the plan pricing table before saving.",
+          );
+          return;
+        }
         catalogJson = {
           ...catalogJson,
           planPricing: eAddonPlanPricing,
@@ -403,6 +412,12 @@ export function PlanManagementPage() {
         usesPlanPricing && pricingFallback != null && pricingFallback > 0
           ? pricingFallback
           : Math.round(Number(eAddonPrice) * 100);
+      const listBounds = usesPlanPricing
+        ? aggregatePlanPricingListBounds(eAddonPlanPricing)
+        : {
+            priceMinCents: moneyInputToNullableCents(eAddonPriceMin),
+            priceMaxCents: moneyInputToNullableCents(eAddonPriceMax),
+          };
       await updateAdminAddon(addonId, {
         desc: eAddonDesc.trim(),
         priceCents,
@@ -410,8 +425,8 @@ export function PlanManagementPage() {
         billingYearlyEnabled: eAddonBillYearly,
         billingKind: eAddonBillingKind,
         setupFeeCents: setupCents,
-        priceMinCents: usesPlanPricing ? null : moneyInputToNullableCents(eAddonPriceMin),
-        priceMaxCents: usesPlanPricing ? null : moneyInputToNullableCents(eAddonPriceMax),
+        priceMinCents: listBounds.priceMinCents,
+        priceMaxCents: listBounds.priceMaxCents,
         deliveryMode: eAddonDelivery.trim(),
         eligiblePlanCodes: eligible,
         catalogJson,
@@ -433,6 +448,9 @@ export function PlanManagementPage() {
     ? addonUsesPlanWisePricing(editingAddon)
     : false;
   const activePlans = plans.filter((p) => p.isActive !== false);
+  const editingAddonPricingPlans = editingAddon
+    ? plansForAddonPricingEditor(activePlans, editingAddon)
+    : activePlans;
 
   return (
     <div className="space-y-8">
@@ -997,7 +1015,7 @@ export function PlanManagementPage() {
                   {editingUsesPlanPricing && editingAddon ? (
                     <AddonPlanPricingEditor
                       addon={editingAddon}
-                      plans={activePlans}
+                      plans={editingAddonPricingPlans}
                       pricing={eAddonPlanPricing}
                       onChange={setEAddonPlanPricing}
                       showCredits={editingExtraEditTier === "bundle"}

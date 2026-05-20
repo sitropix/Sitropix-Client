@@ -1,9 +1,13 @@
 import {
   addonPlanPricingMode,
+  addonTopLevelCycleCents,
+  plansForAddonCatalogPricing,
   readPlanPricingMap,
   resolveAddonPlanPriceCents,
 } from "@/lib/addonPlanPricing";
+import { isCreditPackAddon } from "@/constants/extraEditAddons";
 import type { BillingCycle, Plan, SubscriptionAddon } from "@/types/subscription";
+import type { ProjectAddonCard } from "@/types/project";
 
 export function formatAddonMoney(cents: number, currency = "USD") {
   return new Intl.NumberFormat(undefined, {
@@ -46,8 +50,8 @@ export function addonCatalogDisplayCents(
 ) {
   const planMap = readPlanPricingMap(addon.catalogJson);
   if (Object.keys(planMap).length > 0 && plans.length > 0) {
-    const prices = plans
-      .filter((p) => p.isActive !== false)
+    const scopedPlans = plansForAddonCatalogPricing(plans, addon);
+    const prices = scopedPlans
       .map((p) => resolveAddonPlanPriceCents(addon, p, billingCycle))
       .filter((c) => c > 0);
     if (prices.length > 0) return Math.min(...prices);
@@ -58,13 +62,29 @@ export function addonCatalogDisplayCents(
     return resolveAddonPlanPriceCents(addon, null, null);
   }
 
-  if (billingCycle === "yearly" && addon.billingYearlyEnabled !== false) {
-    if (addon.priceMaxCents != null && addon.priceMaxCents > 0) return addon.priceMaxCents;
+  return addonTopLevelCycleCents(addon, billingCycle);
+}
+
+/** Customer-facing add-on description aligned with the selected billing cycle. */
+export function addonCatalogDisplayDesc(
+  addon: SubscriptionAddon,
+  billingCycle: BillingCycle,
+  plans: Plan[],
+) {
+  const setup = addon.setupFeeCents ?? 0;
+  if (addon.billingKind === "recurring" && setup > 0) {
+    const recurring = addonCatalogDisplayCents(addon, billingCycle, plans);
+    const unit = Math.max(0, recurring - setup);
+    const unitLabel = formatAddonMoney(unit, addon.currency || "USD");
+    const setupLabel = formatAddonMoney(setup, addon.currency || "USD");
+    const cycle = billingCycle === "yearly" ? "yr" : "mo";
+    return `${setupLabel} setup + ${unitLabel}/${cycle} recurring.`;
   }
-  if (billingCycle === "monthly" && addon.billingMonthlyEnabled !== false) {
-    if (addon.priceMinCents != null && addon.priceMinCents > 0) return addon.priceMinCents;
-  }
-  return addon.priceCents ?? 0;
+  if (billingCycle !== "yearly") return addon.desc;
+  return addon.desc
+    .replace(/\$([\d,.]+)\s*\/\s*mo\b/gi, (_, amt) => `$${amt}/yr`)
+    .replace(/\bper month\b/gi, "per year")
+    .replace(/\bmonthly\b/gi, "yearly");
 }
 
 export function addonPriceCycleSuffix(
@@ -112,13 +132,58 @@ export function extraEditAddonCaption(
 
 export function addonCardDisplayCents(
   addon: SubscriptionAddon,
-  plans: { id: string; catalogJson?: Record<string, unknown> }[],
+  plans: { id: string; code?: string; catalogJson?: Record<string, unknown> }[],
   projectPlanId: string | null | undefined,
+  billingCycle: BillingCycle = "monthly",
 ) {
-  if (addon.billingKind === "recurring" && (addon.setupFeeCents ?? 0) > 0) {
-    return (addon.setupFeeCents ?? 0) + (addon.priceCents ?? 0);
+  const plan = plans.find((p) => p.id === projectPlanId) ?? null;
+  if (addon.code === "addon_extra_edit_single" || addon.code === "addon_extra_edit_bundle") {
+    return resolveExtraEditAddonDisplayCents(addon, plans, projectPlanId);
   }
-  return resolveExtraEditAddonDisplayCents(addon, plans, projectPlanId);
+  return addonCheckoutDisplayCents(addon, plan, billingCycle);
+}
+
+/** Resolved display price for a server-built project add-on card. */
+export function projectAddonCardPriceCents(
+  card: ProjectAddonCard,
+  addon: SubscriptionAddon | undefined,
+  plan: Plan | null | undefined,
+  chosenCycle: BillingCycle,
+) {
+  if (card.canChooseRecurringCycle && card.recurringPriceOptions) {
+    const opts = card.recurringPriceOptions;
+    if (chosenCycle === "yearly" && (opts.yearlyPriceCents ?? 0) > 0) {
+      return opts.yearlyPriceCents!;
+    }
+    if (chosenCycle === "monthly" && (opts.monthlyPriceCents ?? 0) > 0) {
+      return opts.monthlyPriceCents!;
+    }
+  }
+  if (addon) {
+    return addonCheckoutDisplayCents(addon, plan, chosenCycle);
+  }
+  return card.displayPriceCents;
+}
+
+export function projectAddonPriceSuffix(
+  addon: SubscriptionAddon | undefined,
+  chosenCycle: BillingCycle,
+): string | null {
+  if (!addon) return chosenCycle === "yearly" ? "/yr" : "/mo";
+  const suffix = addonPriceCycleSuffix(addon, chosenCycle);
+  return suffix === "one-time" ? null : suffix;
+}
+
+export function defaultAddonRecurringCycle(
+  subscriptionBillingCycle: BillingCycle | null | undefined,
+  cards: ProjectAddonCard[],
+): BillingCycle {
+  const canChoose = cards.some((c) => c.canChooseRecurringCycle);
+  if (subscriptionBillingCycle === "yearly" && canChoose) {
+    const def = cards.find((c) => c.defaultRecurringCycle)?.defaultRecurringCycle;
+    return def === "yearly" || def === "monthly" ? def : "monthly";
+  }
+  return subscriptionBillingCycle === "yearly" ? "yearly" : "monthly";
 }
 
 export function addonRecurringMonthlyCents(addon: SubscriptionAddon) {
@@ -148,11 +213,10 @@ export function isRecurringSetupAddon(addon: SubscriptionAddon): boolean {
   return addon.billingKind === "recurring" && (addon.setupFeeCents ?? 0) > 0;
 }
 
-/** Can be purchased via POST /addon-checkout-session (excludes plain recurring without setup fee). */
+/** Can be purchased via POST /addon-checkout-session on an active project subscription. */
 export function isAddonCheckoutEligible(addon: SubscriptionAddon): boolean {
-  if (addon.billingKind === "recurring" && (addon.setupFeeCents ?? 0) <= 0) {
-    return false;
-  }
+  if (addon.billingKind === "per_use") return false;
+  if (isCreditPackAddon(addon)) return false;
   return true;
 }
 

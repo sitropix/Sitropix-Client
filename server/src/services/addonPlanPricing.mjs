@@ -56,6 +56,16 @@ function readPlanPricingEntry(addonRow, planCode) {
   return entry;
 }
 
+function addonTopLevelCycleCents(addonRow, billingCycle) {
+  if (billingCycle === "yearly") {
+    if (addonRow.priceMaxCents != null && addonRow.priceMaxCents > 0) return addonRow.priceMaxCents;
+  }
+  if (billingCycle === "monthly") {
+    if (addonRow.priceMinCents != null && addonRow.priceMinCents > 0) return addonRow.priceMinCents;
+  }
+  return addonRow?.priceCents ?? 0;
+}
+
 export function resolveAddonPlanPriceCents(plan, addonRow, billingCycle) {
   const tier = readExtraEditTier(addonRow);
   if (tier) {
@@ -68,10 +78,12 @@ export function resolveAddonPlanPriceCents(plan, addonRow, billingCycle) {
     if (billingCycle === "yearly" && entry.yearlyCents != null && entry.yearlyCents > 0) {
       return entry.yearlyCents;
     }
-    if (entry.monthlyCents != null && entry.monthlyCents > 0) return entry.monthlyCents;
+    if (billingCycle === "monthly" && entry.monthlyCents != null && entry.monthlyCents > 0) {
+      return entry.monthlyCents;
+    }
     if (entry.priceCents != null && entry.priceCents > 0) return entry.priceCents;
   }
-  return addonRow?.priceCents ?? 0;
+  return addonTopLevelCycleCents(addonRow, billingCycle);
 }
 
 export function readExtraEditAddonOffer(plan, addonRow) {

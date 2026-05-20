@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addonCatalogDisplayCents,
+  addonCatalogDisplayDesc,
   addonCheckoutDisplayCents,
   addonPriceCycleSuffix,
 } from "./addonDisplayHelpers";
@@ -42,6 +43,50 @@ describe("addonDisplayHelpers", () => {
     expect(addonCatalogDisplayCents(addon, "yearly", [growthPlan, proPlan])).toBe(10900);
   });
 
+  it("ignores plans without planPricing rows when computing catalog min", () => {
+    const addon = {
+      code: "addon_booking_widget",
+      label: "Booking widget",
+      desc: "Automated.",
+      priceCents: 1200,
+      billingKind: "recurring",
+      billingMonthlyEnabled: true,
+      billingYearlyEnabled: true,
+      eligiblePlanCodes: ["sitropix_starter", "sitropix_growth"],
+      catalogJson: {
+        planPricing: {
+          sitropix_starter: { monthlyCents: 1200, yearlyCents: 12000 },
+          sitropix_growth: { monthlyCents: 1200, yearlyCents: 12000 },
+        },
+      },
+    } as SubscriptionAddon;
+
+    expect(addonCatalogDisplayCents(addon, "yearly", [growthPlan, proPlan])).toBe(12000);
+    expect(addonCatalogDisplayCents(addon, "monthly", [growthPlan, proPlan])).toBe(1200);
+  });
+
+  it("does not use monthly plan price when yearly is selected", () => {
+    const addon = {
+      code: "addon_booking_widget",
+      label: "Booking widget",
+      desc: "Automated.",
+      priceCents: 1200,
+      priceMinCents: 1200,
+      priceMaxCents: 12000,
+      billingKind: "recurring",
+      billingMonthlyEnabled: true,
+      billingYearlyEnabled: true,
+      catalogJson: {
+        planPricing: {
+          sitropix_starter: { monthlyCents: 1200 },
+        },
+      },
+    } as SubscriptionAddon;
+
+    expect(addonCatalogDisplayCents(addon, "yearly", [growthPlan])).toBe(12000);
+    expect(addonCatalogDisplayCents(addon, "monthly", [growthPlan])).toBe(1200);
+  });
+
   it("falls back to price min/max when no plan map", () => {
     const addon = {
       code: "addon_test",
@@ -78,6 +123,25 @@ describe("addonDisplayHelpers", () => {
 
     expect(addonCheckoutDisplayCents(addon, growthPlan, "monthly")).toBe(34400);
     expect(addonCheckoutDisplayCents(addon, growthPlan, "yearly")).toBe(38900);
+  });
+
+  it("formats setup + recurring description by billing cycle", () => {
+    const addon = {
+      code: "addon_ecommerce_bolt_on",
+      label: "E-commerce",
+      desc: "$299 setup + $45/mo recurring.",
+      priceCents: 4500,
+      setupFeeCents: 29900,
+      priceMinCents: 4500,
+      priceMaxCents: 45000,
+      billingKind: "recurring",
+      billingMonthlyEnabled: true,
+      billingYearlyEnabled: true,
+    } as SubscriptionAddon;
+
+    expect(addonCatalogDisplayDesc(addon, "monthly", [])).toContain("/mo");
+    expect(addonCatalogDisplayDesc(addon, "yearly", [])).toContain("/yr");
+    expect(addonCatalogDisplayDesc(addon, "yearly", [])).not.toContain("/mo");
   });
 
   it("formats cycle suffix for recurring add-ons", () => {

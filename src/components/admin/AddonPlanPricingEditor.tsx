@@ -55,7 +55,7 @@ export function AddonPlanPricingEditor({ addon, plans, pricing, onChange, showCr
       </FieldLabel>
       <p className="mt-1 text-[10px] leading-snug text-zinc-500">
         {mode === "recurring"
-          ? "Set recurring add-on prices per subscription plan. Checkout uses the price that matches the project's billing cycle."
+          ? "Set recurring add-on prices per subscription plan. The catalog shows the lowest price across these rows; update every listed plan. Checkout uses the price for the project's plan and billing cycle."
           : "Set one-time add-on prices per plan. Leave a row empty to disable purchase on that plan."}
       </p>
       <div className="mt-2 overflow-x-auto">

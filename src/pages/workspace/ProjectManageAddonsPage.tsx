@@ -1,5 +1,8 @@
 import { Breadcrumb } from "@/components/Breadcrumb";
-import { AddonOfferCard } from "@/components/billing/addonDisplay";
+import {
+  AddonBillingCycleToggle,
+  AddonOfferCard,
+} from "@/components/billing/addonDisplay";
 import { ExtraEditPurchaseModal } from "@/components/billing/ExtraEditPurchaseModal";
 import { MaterialIcon } from "@/components/MaterialIcon";
 import { portal as portalUi } from "@/components/portal/portalStyles";
@@ -12,11 +15,14 @@ import {
 import {
   addonCardDisplayCents,
   addonCategoryLabel,
-  addonRecurringMonthlyCents,
+  defaultAddonRecurringCycle,
   extraEditAddonCaption,
   formatAddonMoney,
+  isAddonCheckoutEligible,
   isAddonRecurring,
   isRecurringSetupAddon,
+  projectAddonCardPriceCents,
+  projectAddonPriceSuffix,
 } from "@/lib/addonDisplayHelpers";
 import { maxPurchasableExtraEditCredits } from "@/lib/websiteEditCreditsLimit";
 import { getProjectById, hasValidProjectPlan } from "@/services/projectsStore";
@@ -25,7 +31,8 @@ import {
   saveAddonCheckoutCart,
 } from "@/services/addonCheckoutCart";
 import { confirmAddonCheckoutSession } from "@/services/subscriptionsApi";
-import type { ProjectRecord } from "@/types/project";
+import type { BillingCycle } from "@/types/subscription";
+import type { ProjectAddonCard, ProjectRecord } from "@/types/project";
 import type { SubscriptionAddon } from "@/types/subscription";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/context/UserContext";
@@ -49,6 +56,7 @@ export function ProjectManageAddonsPage() {
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [extraEditModalOpen, setExtraEditModalOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [addonRecurringCycle, setAddonRecurringCycle] = useState<BillingCycle>("monthly");
   const addonReturnHandledRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -97,32 +105,53 @@ export function ProjectManageAddonsPage() {
     [addonCatalog],
   );
 
-  const ownedCodes = useMemo(() => new Set(ownedProject?.addons ?? []), [ownedProject?.addons]);
-
-  const activeAddons = useMemo(
-    () => purchasableAddons.filter((a) => ownedCodes.has(a.code)),
-    [purchasableAddons, ownedCodes],
-  );
+  const accessible = ownedProject?.accessibleAddons;
+  const existingCards = accessible?.existing ?? [];
+  const purchasableCards = accessible?.purchasable ?? [];
+  const canChooseAddonCycle = accessible?.billingContext?.canChooseRecurringAddonCycle ?? false;
 
   const addonByCode = useMemo(
     () => new Map(purchasableAddons.map((a) => [a.code, a])),
     [purchasableAddons],
   );
 
-  const availableUpgrades = useMemo(
-    () => purchasableAddons.filter((a) => !ownedCodes.has(a.code)),
-    [purchasableAddons, ownedCodes],
+  const cardByCode = useMemo(() => {
+    const map = new Map<string, ProjectAddonCard>();
+    for (const card of [...existingCards, ...purchasableCards]) {
+      map.set(card.code, card);
+    }
+    return map;
+  }, [existingCards, purchasableCards]);
+
+  useEffect(() => {
+    if (!ownedProject) return;
+    setAddonRecurringCycle(
+      defaultAddonRecurringCycle(ownedProject.billingCycle, purchasableCards),
+    );
+  }, [ownedProject?.id, ownedProject?.billingCycle, purchasableCards]);
+
+  const availableForCart = useMemo(
+    () =>
+      purchasableCards
+        .map((card) => addonByCode.get(card.code))
+        .filter((a): a is SubscriptionAddon => Boolean(a))
+        .filter((a) => isAddonCheckoutEligible(a)),
+    [purchasableCards, addonByCode],
   );
 
-  const availableRecurring = useMemo(
-    () => availableUpgrades.filter((a) => isAddonRecurring(a)),
-    [availableUpgrades],
+  const activeAddons = useMemo(
+    () =>
+      existingCards
+        .map((card) => addonByCode.get(card.code))
+        .filter((a): a is SubscriptionAddon => Boolean(a)),
+    [existingCards, addonByCode],
   );
 
-  const availableOneTime = useMemo(
-    () => availableUpgrades.filter((a) => !isAddonRecurring(a)),
-    [availableUpgrades],
-  );
+  const effectiveAddonCycle: BillingCycle = canChooseAddonCycle
+    ? addonRecurringCycle
+    : ownedProject?.billingCycle === "yearly"
+      ? "yearly"
+      : "monthly";
 
   const selectedCartAddons = useMemo(
     () =>
@@ -132,15 +161,18 @@ export function ProjectManageAddonsPage() {
     [selectedCart, addonByCode],
   );
 
-  const cartTotalCents = useMemo(
-    () =>
-      selectedCartAddons.reduce(
-        (sum, addon) =>
-          sum + addonCardDisplayCents(addon, plans, ownedProject?.planId),
-        0,
-      ),
-    [selectedCartAddons, plans, ownedProject?.planId],
-  );
+  const cartTotalCents = useMemo(() => {
+    const plan = plans.find((p) => p.id === ownedProject?.planId) ?? null;
+    return selectedCartAddons.reduce((sum, addon) => {
+      const card = cardByCode.get(addon.code);
+      return (
+        sum +
+        (card
+          ? projectAddonCardPriceCents(card, addon, plan, effectiveAddonCycle)
+          : addonCardDisplayCents(addon, plans, ownedProject?.planId, effectiveAddonCycle))
+      );
+    }, 0);
+  }, [selectedCartAddons, cardByCode, effectiveAddonCycle, plans, ownedProject?.planId]);
 
   if (!ownedProject && !projectLoading) {
     return <Navigate to="/projects" replace />;
@@ -198,38 +230,6 @@ export function ProjectManageAddonsPage() {
     });
   }
 
-  function renderSelectableAddon(addon: SubscriptionAddon) {
-    const selected = selectedCart.includes(addon.code);
-    const recurringSetup = isRecurringSetupAddon(addon);
-    const plainRecurring = isAddonRecurring(addon) && !recurringSetup;
-    return (
-      <AddonOfferCard
-        key={addon.code}
-        mode="select"
-        label={addon.label}
-        description={addon.desc}
-        priceLabel={formatAddonMoney(
-          plainRecurring
-            ? addonRecurringMonthlyCents(addon)
-            : addonCardDisplayCents(addon, plans, project.planId),
-          addon.currency || "USD",
-        )}
-        priceSuffix={plainRecurring ? "/month" : undefined}
-        caption={
-          recurringSetup
-            ? "Setup + first billing cycle · select alone"
-            : plainRecurring
-              ? "Billed with your subscription · one recurring add-on per checkout"
-              : extraEditAddonCaption(addon, plans, project.planId) ||
-                "Combine with other one-time add-ons"
-        }
-        selected={selected}
-        disabled={checkoutBusy || !hasValidPlan}
-        onPress={() => toggleCartSelection(addon.code)}
-      />
-    );
-  }
-
   function openCartReview() {
     if (!hasValidPlan) {
       navigate(`/projects/${project.id}/subscription`);
@@ -243,7 +243,10 @@ export function ProjectManageAddonsPage() {
       plans,
       returnUrl: checkoutReturnUrl,
     });
-    saveAddonCheckoutCart(cart);
+    saveAddonCheckoutCart({
+      ...cart,
+      ...(canChooseAddonCycle ? { addonRecurringCycle: effectiveAddonCycle } : {}),
+    });
     navigate(`/projects/${project.id}/add-ons/checkout`);
   }
 
@@ -325,64 +328,102 @@ export function ProjectManageAddonsPage() {
             Active Add-ons
           </h2>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {activeAddons.map((addon) => (
-              <AddonOfferCard
-                key={addon.code}
-                mode="active"
-                label={addon.label}
-                description={addon.desc}
-                priceLabel={formatAddonMoney(
-                  addonRecurringMonthlyCents(addon),
-                  addon.currency || "USD",
-                )}
-                categoryTag={addonCategoryLabel(addon)}
-                onManage={() => navigate("/subscription-management")}
-              />
-            ))}
+            {activeAddons.map((addon) => {
+              const card = cardByCode.get(addon.code);
+              const priceCents = card
+                ? projectAddonCardPriceCents(
+                    card,
+                    addon,
+                    planForProject,
+                    project.billingCycle === "yearly" ? "yearly" : "monthly",
+                  )
+                : addonCardDisplayCents(
+                    addon,
+                    plans,
+                    project.planId,
+                    project.billingCycle === "yearly" ? "yearly" : "monthly",
+                  );
+              const suffix = projectAddonPriceSuffix(
+                addon,
+                project.billingCycle === "yearly" ? "yearly" : "monthly",
+              );
+              return (
+                <AddonOfferCard
+                  key={addon.code}
+                  mode="active"
+                  label={addon.label}
+                  description={addon.desc}
+                  priceLabel={formatAddonMoney(priceCents, addon.currency || "USD")}
+                  priceSuffix={suffix}
+                  categoryTag={addonCategoryLabel(addon)}
+                  onManage={() => navigate("/subscription-management")}
+                />
+              );
+            })}
           </div>
         </section>
       ) : null}
 
-      {availableUpgrades.length > 0 ? (
+      {availableForCart.length > 0 ? (
         <section>
-          <h2 className="font-h2 text-h2 font-bold text-on-surface">Available Upgrades</h2>
-          <p className="mt-1 font-body-sm text-body-sm text-on-surface-variant">
-            Select add-ons to purchase at checkout. One-time add-ons can be combined; recurring
-            add-ons allow one per checkout (setup-fee add-ons must be purchased alone).
-          </p>
-
-          {availableRecurring.length > 0 ? (
-            <>
-              <h3 className="mt-6 flex items-center gap-2 font-body font-semibold text-on-surface">
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold-light text-accent-gold">
-                  <MaterialIcon name="sync" className="!text-[18px]" />
-                </span>
-                Recurring add-ons
-              </h3>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {availableRecurring.map((addon) => renderSelectableAddon(addon))}
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h2 className="font-h2 text-h2 font-bold text-on-surface">Available Upgrades</h2>
+              <p className="mt-1 font-body-sm text-body-sm text-on-surface-variant">
+                Select add-ons, then checkout. One-time add-ons can be combined; only one recurring
+                add-on per checkout (setup-fee add-ons must be purchased alone).
+              </p>
+            </div>
+            {canChooseAddonCycle ? (
+              <div className="flex flex-col items-end gap-1.5">
+                <p className="font-caption text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant">
+                  Add-on billing cycle
+                </p>
+                <AddonBillingCycleToggle
+                  value={addonRecurringCycle}
+                  onChange={setAddonRecurringCycle}
+                  disabled={checkoutBusy}
+                />
               </div>
-            </>
-          ) : null}
-
-          {availableOneTime.length > 0 ? (
-            <>
-              <h3 className="mt-8 flex items-center gap-2 font-body font-semibold text-on-surface">
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-container text-on-surface-variant">
-                  <MaterialIcon name="inventory_2" className="!text-[18px]" />
-                </span>
-                One-time purchases
-              </h3>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {availableOneTime.map((addon) => renderSelectableAddon(addon))}
-              </div>
-            </>
-          ) : null}
+            ) : null}
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {availableForCart.map((addon) => {
+              const selected = selectedCart.includes(addon.code);
+              const card = cardByCode.get(addon.code);
+              const priceCents = card
+                ? projectAddonCardPriceCents(card, addon, planForProject, effectiveAddonCycle)
+                : addonCardDisplayCents(addon, plans, project.planId, effectiveAddonCycle);
+              const suffix = projectAddonPriceSuffix(addon, effectiveAddonCycle);
+              const recurringSetup = isRecurringSetupAddon(addon);
+              return (
+                <AddonOfferCard
+                  key={addon.code}
+                  mode="select"
+                  label={addon.label}
+                  description={addon.desc}
+                  priceLabel={formatAddonMoney(priceCents, addon.currency || "USD")}
+                  priceSuffix={suffix}
+                  caption={
+                    recurringSetup
+                      ? "Setup + first billing cycle · select alone"
+                      : isAddonRecurring(addon)
+                        ? "One recurring add-on per checkout"
+                        : extraEditAddonCaption(addon, plans, project.planId) ||
+                          "Combine with other one-time add-ons"
+                  }
+                  selected={selected}
+                  disabled={checkoutBusy || !hasValidPlan}
+                  onPress={() => toggleCartSelection(addon.code)}
+                />
+              );
+            })}
+          </div>
         </section>
       ) : null}
 
       {activeAddons.length === 0 &&
-      availableUpgrades.length === 0 &&
+      availableForCart.length === 0 &&
       !canBuyExtraEdits ? (
         <p className="rounded-lg border border-on-surface/10 bg-surface-container-low px-4 py-3 font-body-sm text-body-sm text-on-surface-variant">
           No add-ons are available for this project right now.
