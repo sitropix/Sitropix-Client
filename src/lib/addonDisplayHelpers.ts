@@ -132,7 +132,7 @@ export function extraEditAddonCaption(
 
 export function addonCardDisplayCents(
   addon: SubscriptionAddon,
-  plans: { id: string; code?: string; catalogJson?: Record<string, unknown> }[],
+  plans: Plan[],
   projectPlanId: string | null | undefined,
   billingCycle: BillingCycle = "monthly",
 ) {

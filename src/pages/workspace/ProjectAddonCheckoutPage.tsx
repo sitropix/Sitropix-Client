@@ -111,12 +111,13 @@ export function ProjectAddonCheckoutPage() {
   }
 
   const project = ownedProject;
+  const checkoutCart = cart;
   const hasValidPlan = hasValidProjectPlan(project);
   const addonsPath = `/projects/${project.id}/add-ons`;
   const checkoutReturnUrl = `${window.location.origin}${addonsPath}/checkout`;
 
   const breakdownAddon: SubscriptionAddon | null =
-    cart.addonCodes
+    checkoutCart.addonCodes
       .map((code) => addonCatalog.find((a) => a.code === code))
       .find((a) => a?.billingKind === "recurring" && (a.setupFeeCents ?? 0) > 0) ?? null;
 
@@ -129,11 +130,11 @@ export function ProjectAddonCheckoutPage() {
     setCheckoutError(null);
     try {
       await ensureBillingCustomer(project.id);
-      const { url } = await createAddonCheckoutSession(project.id, cart.addonCodes, {
+      const { url } = await createAddonCheckoutSession(project.id, checkoutCart.addonCodes, {
         successUrl: checkoutReturnUrl,
         cancelUrl: checkoutReturnUrl,
-        extraEditCheckout: cart.extraEditCheckout,
-        addonRecurringCycle: cart.addonRecurringCycle,
+        extraEditCheckout: checkoutCart.extraEditCheckout,
+        addonRecurringCycle: checkoutCart.addonRecurringCycle,
       });
       if (!url) {
         setCheckoutError("Could not start checkout.");
@@ -177,9 +178,9 @@ export function ProjectAddonCheckoutPage() {
 
       <AddonOrderReview
         project={project}
-        lineItems={cart.lineItems}
-        dueTodayCents={cart.dueTodayCents}
-        currency={cart.currency}
+        lineItems={checkoutCart.lineItems}
+        dueTodayCents={checkoutCart.dueTodayCents}
+        currency={checkoutCart.currency}
         breakdownAddon={breakdownAddon}
         busy={checkoutBusy}
         preparing={billingPreparing}
