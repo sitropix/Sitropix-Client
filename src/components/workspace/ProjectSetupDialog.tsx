@@ -5,10 +5,15 @@ import {
   hasValidProjectPlan,
 } from "@/services/projectsStore";
 import {
+  DOCUMENT_MAX_BYTES,
+  documentMaxSizeLabelMb,
+} from "@/lib/documentLimits";
+import {
   fetchProjectAssets,
   uploadProjectAssetFile,
   type ProjectAssetUploadRow,
 } from "@/services/subscriptionsApi";
+import { userFacingApiError } from "@/services/http";
 import type { ProjectRecord, ProjectRequirementType } from "@/types/project";
 import { PortalOverlay } from "@/components/ui/PortalOverlay";
 import { useEffect, useRef, useState } from "react";
@@ -204,15 +209,20 @@ export function ProjectSetupDialog({
             onChange={async (e) => {
               const file = e.target.files?.[0];
               if (!file || uploadingType !== null || !project) return;
+              if (file.size > DOCUMENT_MAX_BYTES) {
+                setNotice(`"${file.name}" exceeds the ${documentMaxSizeLabelMb()} limit.`);
+                e.currentTarget.value = "";
+                return;
+              }
               setUploadingType(quickUploadType);
               setNotice(null);
               try {
-                await uploadProjectAssetFile(project.id, quickUploadType, file);
+                await uploadProjectAssetFile(project.id, quickUploadType, file, {
+                  onboarding: true,
+                });
                 await afterAssetChange();
               } catch (err) {
-                setNotice(
-                  err instanceof Error ? err.message : "Could not upload asset.",
-                );
+                setNotice(userFacingApiError(err, "Could not upload asset."));
                 e.currentTarget.value = "";
                 return;
               } finally {

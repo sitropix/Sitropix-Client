@@ -628,11 +628,14 @@ export async function uploadProjectAssetFile(
   projectId: string,
   type: ProjectRequirementType,
   file: File,
+  opts?: { onboarding?: boolean },
 ) {
   const form = new FormData();
   form.append("file", file);
+  const onboarding = opts?.onboarding === true ? "1" : "";
+  const qs = onboarding ? `?onboarding=${onboarding}` : "";
   const row = await api<ProjectAssetUploadRow>(
-    `/api/documents/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(type)}`,
+    `/api/documents/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(type)}${qs}`,
     {
       method: "POST",
       body: form,
@@ -642,10 +645,10 @@ export async function uploadProjectAssetFile(
   return row;
 }
 
-export async function downloadProjectAssetFromServer(projectId: string, type: ProjectRequirementType) {
+export async function downloadProjectAssetFromServer(projectId: string, documentId: string) {
   const token = getAccessToken();
   const res = await fetch(
-    `${API_BASE}/api/documents/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(type)}/download`,
+    `${API_BASE}/api/documents/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(documentId)}/download`,
     {
       method: "GET",
       credentials: "include",
@@ -656,7 +659,7 @@ export async function downloadProjectAssetFromServer(projectId: string, type: Pr
   const blob = await res.blob();
   const cd = res.headers.get("Content-Disposition");
   const match = cd?.match(/filename="([^"]+)"/);
-  const name = match?.[1] ? decodeURIComponent(match[1]) : `${type}.bin`;
+  const name = match?.[1] ? decodeURIComponent(match[1]) : "download.bin";
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -665,9 +668,9 @@ export async function downloadProjectAssetFromServer(projectId: string, type: Pr
   URL.revokeObjectURL(url);
 }
 
-export function deleteProjectAssetFile(projectId: string, type: ProjectRequirementType) {
+export function deleteProjectAssetFile(projectId: string, documentId: string) {
   return api<{ ok: boolean; deleted: number }>(
-    `/api/documents/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(type)}`,
+    `/api/documents/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(documentId)}`,
     { method: "DELETE", body: JSON.stringify({}) },
   ).then((r) => {
     projectAssetsInFlight.delete(projectId);

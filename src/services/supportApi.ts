@@ -44,6 +44,13 @@ export function messageForTicketSubmitError(err: unknown): string {
     };
     return friendly[err.code] ?? fallback;
   }
+  if (
+    err instanceof ApiRequestError &&
+    (err.code === "file_too_large" || err.code === "too_many_files")
+  ) {
+    const msg = err.message.trim();
+    if (msg && !msg.includes("_")) return msg;
+  }
   if (err instanceof ApiRequestError && err.code === "insufficient_credits") {
     const { needed, available } = err;
     if (typeof needed === "number" && typeof available === "number") {

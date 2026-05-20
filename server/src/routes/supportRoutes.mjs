@@ -1,7 +1,5 @@
 import express from "express";
 import multer from "multer";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import { env } from "../config/env.mjs";
 import { prisma } from "../db/client.mjs";
 import { requireAuth } from "../middleware/auth.mjs";
@@ -16,11 +14,9 @@ import {
   subscriptionCreditView,
   totalCreditsAvailable,
 } from "../services/subscriptionCredits.mjs";
-import {
-  absoluteTicketAttachmentPath,
-  ensureTicketAttachmentsDir,
-  safeTicketAttachmentRelativePath,
-} from "../services/ticketAttachmentPaths.mjs";
+import { DOCUMENT_MAX_BYTES, SUPPORT_TICKET_MAX_ATTACHMENTS } from "../constants/documentLimits.mjs";
+import { blobStorageFields, readTicketAttachmentBytes } from "../services/storedDocumentBlob.mjs";
+import { validateSupportTicketAttachments } from "../services/uploadValidation.mjs";
 import { projectNameByIdForTickets } from "../services/supportTicketProjectNames.mjs";
 import { resolveSupportTicketPriority } from "../services/supportTicketPriority.mjs";
 import {
@@ -48,7 +44,7 @@ const router = express.Router();
 router.use(requireAuth);
 const ticketUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 12 * 1024 * 1024, files: 5 },
+  limits: { fileSize: DOCUMENT_MAX_BYTES, files: SUPPORT_TICKET_MAX_ATTACHMENTS },
 });
 
 router.get("/projects/:projectId/addon-ticket-options", async (req, res) => {
@@ -116,7 +112,7 @@ router.get("/tickets/:id", async (req, res) => {
   return res.json(enriched);
 });
 
-router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) => {
+router.post("/tickets", ticketUpload.array("attachments", SUPPORT_TICKET_MAX_ATTACHMENTS), async (req, res) => {
   const payloadResult = createTicketSchema.safeParse({
     subject: req.body?.subject,
     description: req.body?.description,
@@ -132,6 +128,15 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
   }
   const payload = payloadResult.data;
   const files = Array.isArray(req.files) ? req.files : [];
+  const attachmentCheck = validateSupportTicketAttachments(files);
+  if (!attachmentCheck.ok) {
+    return res.status(attachmentCheck.status).json({
+      error: attachmentCheck.error,
+      message: attachmentCheck.message,
+      maxCount: attachmentCheck.maxCount,
+      maxBytes: attachmentCheck.maxBytes,
+    });
+  }
   const ticketCategory =
     payload.ticketCategory ?? (payload.editTypeId?.trim() ? "edit" : payload.subscriptionAddonId?.trim() ? "addon" : "general");
 
@@ -362,27 +367,17 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
   const projectNames = await projectNameByIdForTickets([ticket]);
 
   if (files.length > 0 && firstMessage) {
-    await ensureTicketAttachmentsDir();
     for (const file of files) {
       if (!file?.buffer?.length) continue;
-      const attachment = await prisma.ticketAttachment.create({
+      await prisma.ticketAttachment.create({
         data: {
           ticketId: ticket.id,
           messageId: firstMessage.id,
           uploadedByUserId: req.auth.userId,
           fileName: file.originalname || "attachment",
           mimeType: file.mimetype || "application/octet-stream",
-          sizeBytes: file.size,
-          storagePath: "_pending_",
+          ...blobStorageFields(file.buffer),
         },
-      });
-      const rel = safeTicketAttachmentRelativePath(ticket.id, attachment.id, file.originalname || "attachment");
-      const abs = absoluteTicketAttachmentPath(rel);
-      await mkdir(dirname(abs), { recursive: true });
-      await writeFile(abs, file.buffer);
-      await prisma.ticketAttachment.update({
-        where: { id: attachment.id },
-        data: { storagePath: rel, sizeBytes: file.size },
       });
     }
   }
@@ -447,13 +442,13 @@ router.get("/tickets/:id/attachments/:attachmentId/download", async (req, res) =
   });
   if (!attachment) return res.status(404).json({ error: "not_found" });
 
-  const abs = absoluteTicketAttachmentPath(attachment.storagePath);
+  let buf;
   try {
-    await access(abs);
-  } catch {
-    return res.status(404).json({ error: "file_missing" });
+    buf = await readTicketAttachmentBytes(attachment);
+  } catch (e) {
+    if (e?.code === "file_missing") return res.status(404).json({ error: "file_missing" });
+    throw e;
   }
-  const buf = await readFile(abs);
   res.setHeader("Content-Type", attachment.mimeType || "application/octet-stream");
   res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(attachment.fileName)}"`);
   return res.send(buf);

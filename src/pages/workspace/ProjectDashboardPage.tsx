@@ -29,7 +29,13 @@ import {
 import { ExtraEditPurchaseModal } from "@/components/billing/ExtraEditPurchaseModal";
 import { portal as portalUi } from "@/components/portal/portalStyles";
 import { isCreditPackAddon } from "@/constants/extraEditAddons";
+import {
+  DOCUMENT_MAX_BYTES,
+  PROJECT_ASSET_MAX_PER_TYPE,
+  documentMaxSizeLabelMb,
+} from "@/lib/documentLimits";
 import { formatFileSize } from "@/lib/formatFileSize";
+import { userFacingApiError } from "@/services/http";
 import {
   deleteProjectAssetFile,
   downloadProjectAssetFromServer,
@@ -136,10 +142,8 @@ export function ProjectDashboardPage() {
   const [extraEditModalOpen, setExtraEditModalOpen] = useState(false);
   const [assetFormUploadBusy, setAssetFormUploadBusy] = useState(false);
   const assetUploadBusy = assetFormUploadBusy;
-  const [assetDownloadBusyType, setAssetDownloadBusyType] =
-    useState<ProjectRequirementType | null>(null);
-  const [assetDeleteBusyType, setAssetDeleteBusyType] =
-    useState<ProjectRequirementType | null>(null);
+  const [assetDownloadBusyId, setAssetDownloadBusyId] = useState<string | null>(null);
+  const [assetDeleteBusyId, setAssetDeleteBusyId] = useState<string | null>(null);
   const [setupOverlayDismissed, setSetupOverlayDismissed] = useState(false);
   const [addonRecurringCycle, setAddonRecurringCycle] = useState<BillingCycle>("monthly");
   const addonReturnHandledRef = useRef<string | null>(null);
@@ -224,6 +228,8 @@ export function ProjectDashboardPage() {
   ).length;
   const assetsReady = !assetsLoading;
   const needsOnboarding = assetsReady && completedCoreCount < coreRequired.length;
+  const assetsForSelectedType = serverAssets.filter((a) => a.type === assetType);
+  const selectedTypeAtLimit = assetsForSelectedType.length >= PROJECT_ASSET_MAX_PER_TYPE;
   const hasValidPlan = ownedProject ? hasValidProjectPlan(ownedProject) : false;
   const showSetupOverlay = assetsReady && !hasValidPlan && !setupOverlayDismissed;
   const accessible = ownedProject?.accessibleAddons;
@@ -495,20 +501,29 @@ export function ProjectDashboardPage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-2xl font-bold text-white">Uploaded assets</h2>
-              <p className="mt-1 text-sm text-zinc-400">Files required for this project.</p>
+              <p className="mt-1 text-sm text-zinc-400">
+                Up to {PROJECT_ASSET_MAX_PER_TYPE} files per category (max{" "}
+                {documentMaxSizeLabelMb()} each).
+              </p>
             </div>
             <label
               className={`${portalUi.btnPrimary} cursor-pointer !rounded-xl !px-4 !py-2 !text-sm ${
-                assetUploadBusy || assetDeleteBusyType ? "pointer-events-none cursor-not-allowed opacity-50" : ""
+                assetUploadBusy || assetDeleteBusyId ? "pointer-events-none cursor-not-allowed opacity-50" : ""
               }`}
             >
               Upload file
               <input
                 type="file"
-                disabled={assetUploadBusy || assetDeleteBusyType !== null}
+                disabled={assetUploadBusy || assetDeleteBusyId !== null || selectedTypeAtLimit}
                 className="hidden"
                 onChange={(e) => {
-                  setAssetFile(e.target.files?.[0] ?? null);
+                  const file = e.target.files?.[0] ?? null;
+                  if (file && file.size > DOCUMENT_MAX_BYTES) {
+                    setNotice(`"${file.name}" exceeds the ${documentMaxSizeLabelMb()} limit.`);
+                    e.currentTarget.value = "";
+                    return;
+                  }
+                  setAssetFile(file);
                   e.currentTarget.value = "";
                 }}
               />
@@ -541,40 +556,42 @@ export function ProjectDashboardPage() {
                       type="button"
                       title="Download"
                       disabled={
-                        assetUploadBusy || assetDeleteBusyType !== null || assetDownloadBusyType === asset.type
+                        assetUploadBusy ||
+                        assetDeleteBusyId !== null ||
+                        assetDownloadBusyId === asset.id
                       }
                       onClick={async () => {
-                        setAssetDownloadBusyType(asset.type);
+                        setAssetDownloadBusyId(asset.id);
                         setNotice(null);
                         try {
-                          await downloadProjectAssetFromServer(project.id, asset.type);
+                          await downloadProjectAssetFromServer(project.id, asset.id);
                         } catch {
                           setNotice("Could not download asset.");
                         } finally {
-                          setAssetDownloadBusyType(null);
+                          setAssetDownloadBusyId(null);
                         }
                       }}
                       className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-600 bg-[#1C2126] text-zinc-200 transition hover:border-zinc-400 hover:bg-[#252b33] disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <span className="sr-only">Download</span>
                       <span className="text-sm leading-none" aria-hidden>
-                        {assetDownloadBusyType === asset.type ? "…" : "↓"}
+                        {assetDownloadBusyId === asset.id ? "…" : "↓"}
                       </span>
                     </button>
                     <button
                       type="button"
                       title="Delete"
-                      disabled={assetUploadBusy || assetDeleteBusyType !== null}
+                      disabled={assetUploadBusy || assetDeleteBusyId !== null}
                       onClick={async () => {
-                        setAssetDeleteBusyType(asset.type);
+                        setAssetDeleteBusyId(asset.id);
                         setNotice(null);
                         try {
-                          await deleteProjectAssetFile(project.id, asset.type);
+                          await deleteProjectAssetFile(project.id, asset.id);
                           await refreshAssets({ silent: true });
                         } catch (err) {
                           setNotice(err instanceof Error ? err.message : "Could not remove asset.");
                         } finally {
-                          setAssetDeleteBusyType(null);
+                          setAssetDeleteBusyId(null);
                         }
                         setTick((v) => v + 1);
                       }}
@@ -582,7 +599,7 @@ export function ProjectDashboardPage() {
                     >
                       <span className="sr-only">Delete</span>
                       <span className="text-sm leading-none" aria-hidden>
-                        {assetDeleteBusyType === asset.type ? "…" : "✕"}
+                        {assetDeleteBusyId === asset.id ? "…" : "✕"}
                       </span>
                     </button>
                   </div>
@@ -595,7 +612,11 @@ export function ProjectDashboardPage() {
             className="mt-4 grid gap-2 border-t border-[#2A3037] pt-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
             onSubmit={async (e) => {
               e.preventDefault();
-              if (!assetFile || assetUploadBusy) return;
+              if (!assetFile || assetUploadBusy || selectedTypeAtLimit) return;
+              if (assetFile.size > DOCUMENT_MAX_BYTES) {
+                setNotice(`"${assetFile.name}" exceeds the ${documentMaxSizeLabelMb()} limit.`);
+                return;
+              }
               setAssetFormUploadBusy(true);
               setNotice(null);
               try {
@@ -603,7 +624,7 @@ export function ProjectDashboardPage() {
                 await refreshAssets({ silent: true });
                 await refreshProject({ silent: true });
               } catch (err) {
-                setNotice(err instanceof Error ? err.message : "Could not upload asset.");
+                setNotice(userFacingApiError(err, "Could not upload asset."));
                 return;
               } finally {
                 setAssetFormUploadBusy(false);
@@ -632,7 +653,7 @@ export function ProjectDashboardPage() {
             </div>
             <button
               type="submit"
-              disabled={!assetFile || assetUploadBusy}
+              disabled={!assetFile || assetUploadBusy || selectedTypeAtLimit}
               aria-busy={assetFormUploadBusy}
               className={portalUi.btnPrimary + " !rounded-xl !px-4 !py-2 !text-sm disabled:cursor-not-allowed disabled:opacity-40"}
             >

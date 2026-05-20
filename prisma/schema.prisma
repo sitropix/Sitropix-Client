@@ -442,7 +442,8 @@ model TicketAttachment {
   uploadedByUserId String?  @map("uploaded_by_user_id")
   fileName         String   @map("file_name")
   mimeType         String   @map("mime_type")
-  storagePath      String   @map("storage_path")
+  storagePath      String   @default("") @map("storage_path")
+  fileData         Bytes?   @map("file_data")
   sizeBytes        Int      @default(0) @map("size_bytes")
   createdAt        DateTime @default(now()) @map("created_at")
 
@@ -564,7 +565,8 @@ model ClientDocument {
   title       String
   fileName    String   @map("file_name")
   mimeType    String   @map("mime_type")
-  storagePath String   @map("storage_path")
+  storagePath String   @default("") @map("storage_path")
+  fileData    Bytes?   @map("file_data")
   sizeBytes   Int      @default(0) @map("size_bytes")
   createdAt   DateTime @default(now()) @map("created_at")
 

@@ -1,12 +1,11 @@
 import express from "express";
-import { access, readFile } from "node:fs/promises";
 import { prisma } from "../db/client.mjs";
 import { requireAuth, requireModuleAccess, requireRole } from "../middleware/auth.mjs";
 import { validate } from "../middleware/validate.mjs";
 import { replyTicketSchema, updateTicketStatusSchema } from "../schemas/supportSchemas.mjs";
 import { sendTransactionalEmail } from "../services/emailService.mjs";
 import { env } from "../config/env.mjs";
-import { absoluteTicketAttachmentPath } from "../services/ticketAttachmentPaths.mjs";
+import { readTicketAttachmentBytes } from "../services/storedDocumentBlob.mjs";
 import { projectNameByIdForTickets } from "../services/supportTicketProjectNames.mjs";
 import {
   enrichAdminTicketDetailForApi,
@@ -91,13 +90,13 @@ router.get("/tickets/:id/attachments/:attachmentId/download", async (req, res) =
   });
   if (!attachment) return res.status(404).json({ error: "not_found" });
 
-  const abs = absoluteTicketAttachmentPath(attachment.storagePath);
+  let buf;
   try {
-    await access(abs);
-  } catch {
-    return res.status(404).json({ error: "file_missing" });
+    buf = await readTicketAttachmentBytes(attachment);
+  } catch (e) {
+    if (e?.code === "file_missing") return res.status(404).json({ error: "file_missing" });
+    throw e;
   }
-  const buf = await readFile(abs);
   res.setHeader("Content-Type", attachment.mimeType || "application/octet-stream");
   res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(attachment.fileName)}"`);
   return res.send(buf);

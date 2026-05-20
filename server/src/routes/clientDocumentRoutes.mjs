@@ -1,14 +1,24 @@
 import express from "express";
 import multer from "multer";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, sep } from "node:path";
 import { prisma } from "../db/client.mjs";
 import { requireAuth, requireRole } from "../middleware/auth.mjs";
-import { absoluteStoragePath, ensureClientDocumentsDir, safeStorageRelativePath } from "../services/clientDocumentPaths.mjs";
+import {
+  DOCUMENT_MAX_BYTES,
+  PROJECT_ASSET_MAX_PER_TYPE,
+  PROJECT_ASSET_MAX_PER_TYPE_ONBOARDING,
+} from "../constants/documentLimits.mjs";
+import {
+  blobStorageFields,
+  readClientDocumentBytes,
+} from "../services/storedDocumentBlob.mjs";
+import {
+  validateProjectAssetUpload,
+  validateUploadedFiles,
+} from "../services/uploadValidation.mjs";
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 12 * 1024 * 1024 },
+  limits: { fileSize: DOCUMENT_MAX_BYTES },
 });
 
 const router = express.Router();
@@ -25,6 +35,38 @@ const PROJECT_ASSET_TYPES = new Set([
 function normalizeProjectAssetType(value) {
   const v = String(value ?? "").trim();
   return PROJECT_ASSET_TYPES.has(v) ? v : null;
+}
+
+function projectAssetTitle(projectId, type) {
+  return `${projectId}:${type}`;
+}
+
+async function countProjectAssetsForType(userId, projectId, type) {
+  return prisma.clientDocument.count({
+    where: {
+      userId,
+      category: "Project Asset",
+      title: projectAssetTitle(projectId, type),
+    },
+  });
+}
+
+function isOnboardingAssetUpload(req) {
+  const raw = req.query?.onboarding ?? req.body?.onboarding;
+  return raw === "1" || raw === "true" || raw === true;
+}
+
+async function deleteProjectAssetsForType(userId, projectId, type) {
+  const title = projectAssetTitle(projectId, type);
+  const docs = await prisma.clientDocument.findMany({
+    where: { userId, category: "Project Asset", title },
+    select: { id: true },
+  });
+  if (docs.length === 0) return 0;
+  await prisma.clientDocument.deleteMany({
+    where: { id: { in: docs.map((d) => d.id) } },
+  });
+  return docs.length;
 }
 
 router.get("/", async (req, res) => {
@@ -49,13 +91,13 @@ router.get("/:id/download", async (req, res) => {
     where: { id: req.params.id, userId: req.auth.userId },
   });
   if (!doc) return res.status(404).json({ error: "not_found" });
-  const abs = absoluteStoragePath(doc.storagePath);
+  let buf;
   try {
-    await access(abs);
-  } catch {
-    return res.status(404).json({ error: "file_missing" });
+    buf = await readClientDocumentBytes(doc);
+  } catch (e) {
+    if (e?.code === "file_missing") return res.status(404).json({ error: "file_missing" });
+    throw e;
   }
-  const buf = await readFile(abs);
   res.setHeader("Content-Type", doc.mimeType || "application/octet-stream");
   res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(doc.fileName)}"`);
   return res.send(buf);
@@ -105,26 +147,34 @@ router.post("/projects/:projectId/assets/:type", upload.single("file"), async (r
   if (!type) return res.status(400).json({ error: "invalid_asset_type" });
   if (!file?.buffer?.length) return res.status(400).json({ error: "file_required" });
 
-  await ensureClientDocumentsDir();
-  const title = `${projectId}:${type}`;
-  const existing = await prisma.clientDocument.findFirst({
-    where: {
-      userId: req.auth.userId,
-      category: "Project Asset",
-      title,
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  if (existing) {
-    try {
-      const fs = await import("node:fs/promises");
-      await fs.unlink(absoluteStoragePath(existing.storagePath));
-    } catch {
-      /* ignore missing file */
-    }
-    await prisma.clientDocument.delete({ where: { id: existing.id } });
+  const fileCheck = validateProjectAssetUpload(file);
+  if (!fileCheck.ok) {
+    return res.status(fileCheck.status).json({
+      error: fileCheck.error,
+      message: fileCheck.message,
+      maxBytes: fileCheck.maxBytes,
+    });
   }
 
+  const onboarding = isOnboardingAssetUpload(req);
+  const maxPerType = onboarding
+    ? PROJECT_ASSET_MAX_PER_TYPE_ONBOARDING
+    : PROJECT_ASSET_MAX_PER_TYPE;
+
+  const existingCount = await countProjectAssetsForType(req.auth.userId, projectId, type);
+  if (onboarding) {
+    if (existingCount >= maxPerType) {
+      await deleteProjectAssetsForType(req.auth.userId, projectId, type);
+    }
+  } else if (existingCount >= maxPerType) {
+    return res.status(400).json({
+      error: "too_many_files",
+      message: `You can upload at most ${maxPerType} files for this category.`,
+      maxCount: maxPerType,
+    });
+  }
+
+  const title = projectAssetTitle(projectId, type);
   const doc = await prisma.clientDocument.create({
     data: {
       userId: req.auth.userId,
@@ -132,84 +182,64 @@ router.post("/projects/:projectId/assets/:type", upload.single("file"), async (r
       title,
       fileName: file.originalname || "upload",
       mimeType: file.mimetype || "application/octet-stream",
-      sizeBytes: file.size,
-      storagePath: "_pending_",
+      ...blobStorageFields(file.buffer),
     },
   });
-  const rel = safeStorageRelativePath(req.auth.userId, doc.id, file.originalname || "upload");
-  const relPosix = rel.split(sep).join("/");
-  const abs = absoluteStoragePath(relPosix);
-  await mkdir(dirname(abs), { recursive: true });
-  await writeFile(abs, file.buffer);
-  const updated = await prisma.clientDocument.update({
-    where: { id: doc.id },
-    data: { storagePath: relPosix, sizeBytes: file.size },
-  });
   return res.status(201).json({
-    id: updated.id,
+    id: doc.id,
     type,
-    fileName: updated.fileName,
-    mimeType: updated.mimeType,
-    sizeBytes: updated.sizeBytes,
-    uploadedAt: updated.createdAt,
+    fileName: doc.fileName,
+    mimeType: doc.mimeType,
+    sizeBytes: doc.sizeBytes,
+    uploadedAt: doc.createdAt,
   });
 });
 
-router.get("/projects/:projectId/assets/:type/download", async (req, res) => {
+router.get("/projects/:projectId/assets/:documentId/download", async (req, res) => {
   const projectId = String(req.params.projectId ?? "").trim();
-  const type = normalizeProjectAssetType(req.params.type);
+  const documentId = String(req.params.documentId ?? "").trim();
   if (!projectId) return res.status(400).json({ error: "project_id_required" });
-  if (!type) return res.status(400).json({ error: "invalid_asset_type" });
-  const title = `${projectId}:${type}`;
+  if (!documentId) return res.status(400).json({ error: "document_id_required" });
+
   const doc = await prisma.clientDocument.findFirst({
     where: {
+      id: documentId,
       userId: req.auth.userId,
       category: "Project Asset",
-      title,
+      title: { startsWith: `${projectId}:` },
     },
-    orderBy: { createdAt: "desc" },
   });
   if (!doc) return res.status(404).json({ error: "not_found" });
-  const abs = absoluteStoragePath(doc.storagePath);
+
+  let buf;
   try {
-    await access(abs);
-  } catch {
-    return res.status(404).json({ error: "file_missing" });
+    buf = await readClientDocumentBytes(doc);
+  } catch (e) {
+    if (e?.code === "file_missing") return res.status(404).json({ error: "file_missing" });
+    throw e;
   }
-  const buf = await readFile(abs);
   res.setHeader("Content-Type", doc.mimeType || "application/octet-stream");
   res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(doc.fileName)}"`);
   return res.send(buf);
 });
 
-router.delete("/projects/:projectId/assets/:type", async (req, res) => {
+router.delete("/projects/:projectId/assets/:documentId", async (req, res) => {
   const projectId = String(req.params.projectId ?? "").trim();
-  const type = normalizeProjectAssetType(req.params.type);
+  const documentId = String(req.params.documentId ?? "").trim();
   if (!projectId) return res.status(400).json({ error: "project_id_required" });
-  if (!type) return res.status(400).json({ error: "invalid_asset_type" });
-  const title = `${projectId}:${type}`;
-  const docs = await prisma.clientDocument.findMany({
+  if (!documentId) return res.status(400).json({ error: "document_id_required" });
+
+  const doc = await prisma.clientDocument.findFirst({
     where: {
+      id: documentId,
       userId: req.auth.userId,
       category: "Project Asset",
-      title,
+      title: { startsWith: `${projectId}:` },
     },
-    orderBy: { createdAt: "desc" },
   });
-  if (docs.length === 0) return res.json({ ok: true, deleted: 0 });
-  const ids = docs.map((d) => d.id);
-  await prisma.clientDocument.deleteMany({ where: { id: { in: ids } } });
-  const fs = await import("node:fs/promises");
-  await Promise.all(
-    docs.map(async (doc) => {
-      try {
-        await fs.unlink(absoluteStoragePath(doc.storagePath));
-      } catch {
-        /* ignore missing file */
-      }
-    }),
-  );
-  return res.json({ ok: true, deleted: docs.length });
+  if (!doc) return res.status(404).json({ error: "not_found" });
+  await prisma.clientDocument.delete({ where: { id: doc.id } });
+  return res.json({ ok: true, deleted: 1 });
 });
 
 /* ------------- Admin document uploads ------------- */
@@ -220,6 +250,16 @@ adminDoc.get("/users/:userId/documents", async (req, res) => {
   const rows = await prisma.clientDocument.findMany({
     where: { userId: req.params.userId },
     orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      userId: true,
+      category: true,
+      title: true,
+      fileName: true,
+      mimeType: true,
+      sizeBytes: true,
+      createdAt: true,
+    },
   });
   return res.json(rows);
 });
@@ -231,10 +271,18 @@ adminDoc.post("/users/:userId/documents", upload.single("file"), async (req, res
   const file = req.file;
   if (!file?.buffer?.length) return res.status(400).json({ error: "file_required" });
 
+  const fileCheck = validateUploadedFiles([file], { maxCount: 1 });
+  if (!fileCheck.ok) {
+    return res.status(fileCheck.status).json({
+      error: fileCheck.error,
+      message: fileCheck.message,
+      maxBytes: fileCheck.maxBytes,
+    });
+  }
+
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return res.status(404).json({ error: "user_not_found" });
 
-  await ensureClientDocumentsDir();
   const doc = await prisma.clientDocument.create({
     data: {
       userId,
@@ -242,34 +290,25 @@ adminDoc.post("/users/:userId/documents", upload.single("file"), async (req, res
       title,
       fileName: file.originalname || "upload",
       mimeType: file.mimetype || "application/octet-stream",
-      sizeBytes: file.size,
-      storagePath: "_pending_",
+      ...blobStorageFields(file.buffer),
     },
   });
-
-  const rel = safeStorageRelativePath(userId, doc.id, file.originalname || "upload");
-  const relPosix = rel.split(sep).join("/");
-  const abs = absoluteStoragePath(relPosix);
-  await mkdir(dirname(abs), { recursive: true });
-  await writeFile(abs, file.buffer);
-
-  const updated = await prisma.clientDocument.update({
-    where: { id: doc.id },
-    data: { storagePath: relPosix, sizeBytes: file.size },
+  return res.status(201).json({
+    id: doc.id,
+    userId: doc.userId,
+    category: doc.category,
+    title: doc.title,
+    fileName: doc.fileName,
+    mimeType: doc.mimeType,
+    sizeBytes: doc.sizeBytes,
+    createdAt: doc.createdAt,
   });
-  return res.status(201).json(updated);
 });
 
 adminDoc.delete("/documents/:id", async (req, res) => {
   const doc = await prisma.clientDocument.findUnique({ where: { id: req.params.id } });
   if (!doc) return res.status(404).json({ error: "not_found" });
   await prisma.clientDocument.delete({ where: { id: doc.id } });
-  try {
-    const fs = await import("node:fs/promises");
-    await fs.unlink(absoluteStoragePath(doc.storagePath));
-  } catch {
-    /* ignore missing file */
-  }
   return res.json({ ok: true });
 });
 

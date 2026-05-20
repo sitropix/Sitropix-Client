@@ -20,6 +20,12 @@ import type {
   SupportTicketCategory,
   TicketPriority,
 } from "@/types/support";
+import {
+  DOCUMENT_MAX_BYTES,
+  SUPPORT_TICKET_MAX_ATTACHMENTS,
+  documentMaxSizeLabelMb,
+  filterFilesWithinLimits,
+} from "@/lib/documentLimits";
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -515,8 +521,9 @@ export function SubmitTicketPage() {
               Attach Documents (optional)
             </label>
             <p className="mt-1 text-xs text-ink-muted">
-              Add up to 5 files (each up to 12MB). Supported: screenshots, PDFs,
-              logs, and text files.
+              Add up to {SUPPORT_TICKET_MAX_ATTACHMENTS} files (each up to{" "}
+              {documentMaxSizeLabelMb()}). Supported: images, PDFs, and text
+              documents.
             </p>
             <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
               <input
@@ -526,7 +533,20 @@ export function SubmitTicketPage() {
                 disabled={submitting}
                 onChange={(e) => {
                   const picked = Array.from(e.target.files ?? []);
-                  setAttachments((prev) => [...prev, ...picked].slice(0, 5));
+                  setAttachments((prev) => {
+                    const { accepted, rejected } = filterFilesWithinLimits(
+                      picked,
+                      prev,
+                      {
+                        maxCount: SUPPORT_TICKET_MAX_ATTACHMENTS,
+                        maxBytes: DOCUMENT_MAX_BYTES,
+                      },
+                    );
+                    if (rejected.length > 0) {
+                      setError(rejected[0]);
+                    }
+                    return accepted;
+                  });
                   e.currentTarget.value = "";
                 }}
                 className="w-full text-xs text-ink-muted file:mr-2 file:rounded-lg file:border-0 file:bg-brand-lime file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-canvas"
