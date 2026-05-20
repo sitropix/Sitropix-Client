@@ -8,14 +8,19 @@ import { sendTransactionalEmail } from "../services/emailService.mjs";
 import { env } from "../config/env.mjs";
 import { absoluteTicketAttachmentPath } from "../services/ticketAttachmentPaths.mjs";
 import { projectNameByIdForTickets } from "../services/supportTicketProjectNames.mjs";
+import {
+  enrichAdminTicketDetailForApi,
+  enrichAdminTicketsForApi,
+} from "../services/supportTicketEnrichment.mjs";
 import { ticketStatusForApi } from "../services/supportTicketSerialize.mjs";
 import { refundSubscriptionCreditsTx } from "../services/subscriptionCredits.mjs";
+import { markAddonUtilizedOnTicketResolvedTx } from "../services/addonUtilizationTracking.mjs";
 
 const router = express.Router();
 router.use(requireAuth, requireRole("admin", "master_admin"), requireModuleAccess("tickets"));
 
 router.get("/tickets", async (req, res) => {
-  const { status, userId, priority, limit = "50", offset = "0" } = req.query;
+  const { status, userId, priority, categoryScope, limit = "50", offset = "0" } = req.query;
   const where = {};
   if (status && ["open", "in_progress", "hold", "resolved", "closed"].includes(String(status))) {
     where.status = String(status);
@@ -23,6 +28,12 @@ router.get("/tickets", async (req, res) => {
   if (userId) where.userId = String(userId);
   if (priority && ["low", "medium", "high", "urgent"].includes(String(priority))) {
     where.priority = String(priority);
+  }
+  const scope = String(categoryScope ?? "").trim();
+  if (scope === "general") {
+    where.category = "general";
+  } else if (scope === "non_general") {
+    where.category = { in: ["edit", "addon"] };
   }
 
   const take = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 50));
@@ -43,23 +54,9 @@ router.get("/tickets", async (req, res) => {
   ]);
 
   const projectNames = await projectNameByIdForTickets(rows);
+  const items = await enrichAdminTicketsForApi(rows, projectNames);
   return res.json({
-    items: rows.map((t) => ({
-      id: t.id,
-      subject: t.subject,
-      status: ticketStatusForApi(t.status),
-      priority: t.priority,
-      department: t.department,
-      userPlan: t.userPlan,
-      projectId: t.projectId ?? null,
-      projectName: (t.projectId && projectNames.get(t.projectId)) || null,
-      editTypeId: t.editTypeId ?? null,
-      creditsCharged: t.creditsCharged ?? 0,
-      createdAt: t.createdAt,
-      updatedAt: t.updatedAt,
-      threadCount: t._count.messages,
-      user: t.user,
-    })),
+    items,
     total,
     take,
     skip,
@@ -80,41 +77,7 @@ router.get("/tickets/:id", async (req, res) => {
   });
   if (!ticket) return res.status(404).json({ error: "not_found" });
   const projectNames = await projectNameByIdForTickets([ticket]);
-  return res.json({
-    id: ticket.id,
-    subject: ticket.subject,
-    description: ticket.description,
-    status: ticketStatusForApi(ticket.status),
-    priority: ticket.priority,
-    department: ticket.department,
-    userPlan: ticket.userPlan,
-    projectId: ticket.projectId ?? null,
-    projectName: (ticket.projectId && projectNames.get(ticket.projectId)) || null,
-    editTypeId: ticket.editTypeId ?? null,
-    creditsCharged: ticket.creditsCharged ?? 0,
-    creditsRefunded: ticket.creditsRefunded ?? false,
-    workCompleted: ticket.workCompleted ?? null,
-    createdAt: ticket.createdAt,
-    updatedAt: ticket.updatedAt,
-    user: ticket.user,
-    messages: ticket.messages.map((m) => ({
-      id: m.id,
-      body: m.body,
-      isStaff: m.isStaff,
-      createdAt: m.createdAt,
-      author: m.user ? { id: m.user.id, name: m.user.name, email: m.user.email } : null,
-      attachments: ticket.attachments
-        .filter((a) => a.messageId === m.id)
-        .map((a) => ({
-          id: a.id,
-          fileName: a.fileName,
-          mimeType: a.mimeType,
-          sizeBytes: a.sizeBytes,
-          createdAt: a.createdAt,
-          downloadUrl: `/api/admin/tickets/${ticket.id}/attachments/${a.id}/download`,
-        })),
-    })),
-  });
+  return res.json(await enrichAdminTicketDetailForApi(ticket, projectNames));
 });
 
 router.get("/tickets/:id/attachments/:attachmentId/download", async (req, res) => {
@@ -186,6 +149,13 @@ router.patch("/tickets/:id", validate(updateTicketStatusSchema), async (req, res
       where: { id: existing.id },
       data,
     });
+
+    if (becomingResolved && existing.category === "addon") {
+      const updatedTicket = await tx.supportTicket.findUnique({ where: { id: existing.id } });
+      await markAddonUtilizedOnTicketResolvedTx(tx, updatedTicket ?? existing, {
+        workCompleted: treatAsCompleted,
+      });
+    }
   });
 
   const ticket = await prisma.supportTicket.findUnique({ where: { id: existing.id } });

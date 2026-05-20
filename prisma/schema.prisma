@@ -60,6 +60,18 @@ enum TicketPriority {
   urgent
 }
 
+enum SupportTicketCategory {
+  general
+  edit
+  addon
+}
+
+enum AddonRecurringType {
+  monthly
+  yearly
+  one_time
+}
+
 enum AddonBillingKind {
   recurring
   one_time
@@ -111,6 +123,7 @@ model User {
   funnelEvents      FunnelEvent[]
   moduleAccess      UserModuleAccess[]
   ticketAttachments TicketAttachment[]
+  addonUtilizationTracking AddonUtilizationTracking[]
   formDefinitions   FormDefinition[]   @relation("FormCreatedBy")
   crmStatusChanges  CrmLeadStatusLog[] @relation("CrmStatusChangedBy")
   convertedLeads    CrmLead[]          @relation("CrmLeadConvertedCustomer")
@@ -201,6 +214,8 @@ model SubscriptionAddon {
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   projectEntitlements ProjectAddonEntitlement[]
+  supportTickets      SupportTicket[]
+  utilizationTracking AddonUtilizationTracking[]
 
   @@index([isActive])
   @@map("subscription_addons")
@@ -233,6 +248,7 @@ model Subscription {
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   plan     Plan      @relation(fields: [planId], references: [id])
   payments Payment[]
+  addonUtilizationTracking AddonUtilizationTracking[]
 
   @@unique([userId, projectId])
   @@index([userId])
@@ -289,8 +305,10 @@ model SupportTicket {
   status      TicketStatus   @default(open)
   priority    TicketPriority @default(medium)
   department  String         @default("General")
+  category    SupportTicketCategory @default(general) @map("category")
   userPlan    String?        @map("user_plan")
   editTypeId  String?        @map("edit_type_id")
+  subscriptionAddonId String? @map("subscription_addon_id")
   creditsCharged Int         @default(0) @map("credits_charged")
   creditsFromIncluded Int    @default(0) @map("credits_from_included")
   creditsFromPurchased Int   @default(0) @map("credits_from_purchased")
@@ -303,14 +321,18 @@ model SupportTicket {
   user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   project     Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
   editType    EditType?          @relation(fields: [editTypeId], references: [id], onDelete: SetNull)
+  addon       SubscriptionAddon? @relation(fields: [subscriptionAddonId], references: [id], onDelete: SetNull)
   messages    TicketMessage[]
   attachments TicketAttachment[]
+  activeAddonUtilization AddonUtilizationTracking? @relation("ActiveAddonUtilizationTicket")
 
   @@index([userId])
   @@index([projectId])
   @@index([status])
   @@index([priority])
   @@index([editTypeId])
+  @@index([subscriptionAddonId])
+  @@index([category])
   @@map("support_tickets")
 }
 
@@ -363,6 +385,38 @@ model ProjectRecurringAddonStripe {
   @@unique([projectId, addonCode])
   @@index([projectId])
   @@map("project_recurring_addon_stripe")
+}
+
+/// Per user/project/add-on/billing-cycle utilization for support-ticket–gated add-on delivery.
+model AddonUtilizationTracking {
+  id                  String             @id @default(cuid())
+  userId              String             @map("user_id")
+  projectId           String             @map("project_id")
+  subscriptionId      String             @map("subscription_id")
+  subscriptionAddonId String             @map("subscription_addon_id")
+  isRecurring         Boolean            @default(false) @map("is_recurring")
+  recurringType       AddonRecurringType @map("recurring_type")
+  hasSetupFee         Boolean            @default(false) @map("has_setup_fee")
+  isBundled           Boolean            @default(false) @map("is_bundled")
+  currentCycleStart   DateTime           @map("current_cycle_start")
+  currentCycleEnd     DateTime           @map("current_cycle_end")
+  isUtilized          Boolean            @default(false) @map("is_utilized")
+  lastUtilizedAt      DateTime?          @map("last_utilized_at")
+  activeSupportTicketId String?          @unique @map("active_support_ticket_id")
+  utilizationHistory  Json               @default("[]") @map("utilization_history")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project      Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  subscription Subscription      @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  addon        SubscriptionAddon @relation(fields: [subscriptionAddonId], references: [id], onDelete: Cascade)
+  activeTicket SupportTicket?    @relation("ActiveAddonUtilizationTicket", fields: [activeSupportTicketId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, projectId, subscriptionAddonId, currentCycleStart])
+  @@index([projectId, subscriptionAddonId])
+  @@index([subscriptionId])
+  @@map("addon_utilization_tracking")
 }
 
 model TicketMessage {
@@ -541,6 +595,7 @@ model Project {
   supportTickets SupportTicket[]
   addonEntitlements ProjectAddonEntitlement[]
   recurringAddonStripe ProjectRecurringAddonStripe[]
+  addonUtilizationTracking AddonUtilizationTracking[]
 
   @@index([ownerUserId, createdAt(sort: Desc)])
   @@index([subscriptionStatus])

@@ -6,6 +6,7 @@ import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { RichTextContent } from "@/components/RichTextContent";
 import { Skeleton } from "@/components/Skeleton";
 import { StatusBadge } from "@/components/StatusBadge";
+import { TicketLinkedMeta } from "@/components/support/TicketLinkedMeta";
 import { useToast } from "@/components/Toast";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { isTicketClosedByUser } from "@/lib/supportTicketLifecycle";
@@ -173,6 +174,12 @@ export function AdminTicketDetailPage() {
           <StatusBadge status={detail.status} />
         </div>
         <h1 className="text-2xl font-bold text-white sm:text-3xl">{detail.subject}</h1>
+        <TicketLinkedMeta
+          editType={detail.editType}
+          addon={detail.addon}
+          creditsCharged={detail.creditsCharged}
+          className="mt-1"
+        />
         <p className="text-sm text-ink-muted">
           Customer: <strong className="text-white/90">{detail.user.name}</strong> &lt;{detail.user.email}&gt;
         </p>

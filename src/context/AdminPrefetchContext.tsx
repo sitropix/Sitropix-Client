@@ -106,7 +106,7 @@ export function AdminPrefetchProvider({ children }: { children: ReactNode }) {
       fetchAdminUserManagement(),
       fetchAnalytics(),
       fetchTransactions(),
-      fetchAdminTickets({ limit: 100 }),
+      fetchAdminTickets({ limit: 100, categoryScope: "general" }),
       fetchAdminInvites(),
       fetchFeatureFlagsAdmin(),
       fetchAdminEmailSettings(),

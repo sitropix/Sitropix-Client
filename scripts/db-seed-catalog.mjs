@@ -357,12 +357,13 @@ const addons = [
   {
     code: "addon_rush_edit_surcharge",
     label: "Rush edit surcharge",
-    desc: "Per-use — billed as 2× credit cost at fulfillment (placeholder).",
+    desc: "Optional on any plan — website edit tickets for this project queue as urgent while active.",
     billingKind: "per_use",
     priceCents: 0,
     billingMonthlyEnabled: false,
     billingYearlyEnabled: false,
     deliveryMode: "manual",
+    eligiblePlanCodes: [],
     catalogJson: { effectKind: "per_ticket", creditMultiplier: 2 },
   },
 ];

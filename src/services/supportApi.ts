@@ -1,8 +1,10 @@
 import type {
+  AdminTicketCategoryScope,
   AdminSupportTicketListItem,
   CreateTicketInput,
   KBArticle,
   KBCategory,
+  AddonTicketOption,
   SupportEditType,
   SupportTicket,
   SupportTicketDetail,
@@ -11,8 +13,37 @@ import type {
 import { api, apiBlob, ApiRequestError, userFacingApiError } from "@/services/http";
 
 /** User-visible copy when POST /api/support/tickets fails. */
+const ADDON_TICKET_ERROR_CODES = new Set([
+  "addon_not_owned",
+  "addon_already_utilized",
+  "addon_ticket_already_open",
+  "subscription_inactive",
+  "subscription_payment_pending",
+  "addon_payment_failed",
+  "addon_required",
+  "project_required_for_addon",
+  "project_required_for_edit",
+]);
+
 export function messageForTicketSubmitError(err: unknown): string {
   const fallback = "Could not submit the ticket. Please try again.";
+  if (err instanceof ApiRequestError && err.code && ADDON_TICKET_ERROR_CODES.has(err.code)) {
+    const msg = err.message.trim();
+    if (msg && !msg.includes("_")) return msg;
+    const friendly: Record<string, string> = {
+      addon_not_owned: "This add-on is not on the selected project.",
+      addon_already_utilized:
+        "This add-on is not available for a new request in the current billing cycle.",
+      addon_ticket_already_open: "You already have an open request for this add-on.",
+      subscription_inactive: "An active subscription is required for add-on requests.",
+      subscription_payment_pending: "Resolve subscription billing before opening an add-on request.",
+      addon_payment_failed: "The latest add-on payment failed. Update billing first.",
+      addon_required: "Select an add-on for this request.",
+      project_required_for_addon: "Select a project for add-on requests.",
+      project_required_for_edit: "Select a project for website edit requests.",
+    };
+    return friendly[err.code] ?? fallback;
+  }
   if (err instanceof ApiRequestError && err.code === "insufficient_credits") {
     const { needed, available } = err;
     if (typeof needed === "number" && typeof available === "number") {
@@ -37,6 +68,12 @@ export function fetchTicketById(id: string) {
 
 export function fetchSupportEditTypes() {
   return api<SupportEditType[]>("/api/support/edit-types");
+}
+
+export function fetchAddonTicketOptions(projectId: string) {
+  return api<{ addons: AddonTicketOption[]; subscriptionActive: boolean }>(
+    `/api/support/projects/${encodeURIComponent(projectId)}/addon-ticket-options`,
+  );
 }
 
 export function postTicketReply(id: string, body: string) {
@@ -77,9 +114,11 @@ export function createTicket(input: CreateTicketInput) {
     form.set("description", input.description);
     if (input.departmentId) form.set("departmentId", input.departmentId);
     if (input.priority) form.set("priority", input.priority);
+    if (input.ticketCategory) form.set("ticketCategory", input.ticketCategory);
     if (input.projectId?.trim()) {
       form.set("projectId", input.projectId.trim());
       if (input.editTypeId?.trim()) form.set("editTypeId", input.editTypeId.trim());
+      if (input.subscriptionAddonId?.trim()) form.set("subscriptionAddonId", input.subscriptionAddonId.trim());
     }
     for (const file of input.attachments ?? []) {
       form.append("attachments", file);
@@ -96,10 +135,14 @@ export function createTicket(input: CreateTicketInput) {
       description: input.description,
       departmentId: input.departmentId,
       priority: input.priority,
+      ...(input.ticketCategory ? { ticketCategory: input.ticketCategory } : {}),
       ...(input.projectId?.trim()
         ? {
             projectId: input.projectId.trim(),
             ...(input.editTypeId?.trim() ? { editTypeId: input.editTypeId.trim() } : {}),
+            ...(input.subscriptionAddonId?.trim()
+              ? { subscriptionAddonId: input.subscriptionAddonId.trim() }
+              : {}),
           }
         : {}),
     }),
@@ -124,12 +167,15 @@ export function fetchKBArticleById(id: string) {
 export function fetchAdminTickets(params?: {
   status?: string;
   priority?: string;
+  /** general | non_general (edit + add-on tickets) */
+  categoryScope?: AdminTicketCategoryScope;
   offset?: number;
   limit?: number;
 }) {
   const q = new URLSearchParams();
   if (params?.status) q.set("status", params.status);
   if (params?.priority) q.set("priority", params.priority);
+  if (params?.categoryScope) q.set("categoryScope", params.categoryScope);
   if (params?.offset != null) q.set("offset", String(params.offset));
   if (params?.limit != null) q.set("limit", String(params.limit));
   const suffix = q.toString() ? `?${q.toString()}` : "";

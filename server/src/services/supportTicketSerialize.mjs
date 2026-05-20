@@ -16,6 +16,8 @@ export function mapSupportTicketListRow(t, projectNames) {
     projectId: t.projectId ?? null,
     projectName: (t.projectId && projectNames.get(t.projectId)) || null,
     editTypeId: t.editTypeId ?? null,
+    category: t.category ?? "general",
+    subscriptionAddonId: t.subscriptionAddonId ?? null,
     creditsCharged: t.creditsCharged ?? 0,
     threadCount: t._count?.messages ?? 0,
     createdAt: t.createdAt,

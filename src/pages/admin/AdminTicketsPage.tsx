@@ -4,14 +4,34 @@ import { Breadcrumb } from "@/components/Breadcrumb";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { NoModuleAccess } from "@/components/NoModuleAccess";
 import { StatusBadge } from "@/components/StatusBadge";
+import { TicketLinkedMeta } from "@/components/support/TicketLinkedMeta";
 import { Skeleton } from "@/components/Skeleton";
 import { isModuleForbiddenError } from "@/services/http";
 import { fetchAdminTickets } from "@/services/supportApi";
-import type { AdminSupportTicketListItem, TicketPriority, TicketStatus } from "@/types/support";
+import type {
+  AdminSupportTicketListItem,
+  AdminTicketCategoryScope,
+  SupportTicketCategory,
+  TicketPriority,
+  TicketStatus,
+} from "@/types/support";
 
 function formatDate(iso: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
 }
+
+const categoryTabs: { label: string; value: AdminTicketCategoryScope; description: string }[] = [
+  {
+    label: "General",
+    value: "general",
+    description: "Account, billing, and other requests without a project or add-on",
+  },
+  {
+    label: "Non-general",
+    value: "non_general",
+    description: "Edit and add-on requests tied to a project",
+  },
+];
 
 const filters: { label: string; value: "all" | TicketStatus }[] = [
   { label: "All", value: "all" },
@@ -30,8 +50,15 @@ const priorityFilters: { label: string; value: "all" | TicketPriority }[] = [
   { label: "Urgent", value: "urgent" },
 ];
 
+function categoryLabel(category: SupportTicketCategory | undefined): string {
+  if (category === "edit") return "Edit";
+  if (category === "addon") return "Add-on";
+  return "General";
+}
+
 export function AdminTicketsPage() {
   const { cache, updateCache } = useAdminPrefetch();
+  const [categoryTab, setCategoryTab] = useState<AdminTicketCategoryScope>("general");
   const [status, setStatus] = useState<"all" | TicketStatus>("all");
   const [priorityFilter, setPriorityFilter] = useState<"all" | TicketPriority>("all");
   const [rows, setRows] = useState<AdminSupportTicketListItem[]>([]);
@@ -40,15 +67,18 @@ export function AdminTicketsPage() {
   const [error, setError] = useState<string | null>(null);
   const [noModuleAccess, setNoModuleAccess] = useState(false);
 
+  const canUsePrefetch =
+    categoryTab === "general" && status === "all" && priorityFilter === "all" && Boolean(cache.tickets?.length);
+
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      const usePrefetch = status === "all" && priorityFilter === "all" && Boolean(cache.tickets?.length);
-      setLoading(!usePrefetch);
+      setLoading(!canUsePrefetch);
       setNoModuleAccess(false);
       setError(null);
       try {
         const r = await fetchAdminTickets({
+          categoryScope: categoryTab,
           status: status === "all" ? undefined : status,
           priority: priorityFilter === "all" ? undefined : priorityFilter,
           limit: 100,
@@ -56,7 +86,9 @@ export function AdminTicketsPage() {
         if (!cancelled) {
           setRows(r.items);
           setTotal(r.total);
-          if (status === "all" && priorityFilter === "all") updateCache({ tickets: r.items });
+          if (categoryTab === "general" && status === "all" && priorityFilter === "all") {
+            updateCache({ tickets: r.items });
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -68,19 +100,22 @@ export function AdminTicketsPage() {
       }
     }
     void run();
-    if (status === "all" && priorityFilter === "all" && cache.tickets) {
-      setRows(cache.tickets);
-      setTotal(cache.tickets.length);
+    if (canUsePrefetch && cache.tickets) {
+      const generalOnly = cache.tickets.filter((t) => (t.category ?? "general") === "general");
+      setRows(generalOnly);
+      setTotal(generalOnly.length);
       setLoading(false);
     }
     return () => {
       cancelled = true;
     };
-  }, [status, priorityFilter]);
+  }, [categoryTab, status, priorityFilter]);
 
   if (noModuleAccess) {
     return <NoModuleAccess moduleLabel="Support Tickets" />;
   }
+
+  const activeCategoryMeta = categoryTabs.find((t) => t.value === categoryTab);
 
   return (
     <div className="space-y-8">
@@ -88,9 +123,39 @@ export function AdminTicketsPage() {
       <header>
         <h1 className="text-2xl font-bold text-white sm:text-3xl">Support tickets</h1>
         <p className="mt-2 text-sm text-ink-muted">
-          {total} total — filter by status, priority, and open a thread to reply.
+          {total} in {activeCategoryMeta?.label ?? "this tab"} — filter by status and priority, then open a thread to
+          reply.
         </p>
       </header>
+
+      <div
+        className="inline-flex rounded-full border border-white/10 bg-black/30 p-1"
+        role="tablist"
+        aria-label="Ticket category"
+      >
+        {categoryTabs.map((tab) => {
+          const active = categoryTab === tab.value;
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setCategoryTab(tab.value)}
+              className={[
+                "rounded-full px-5 py-2 text-sm font-semibold transition",
+                active ? "bg-brand-lime text-canvas shadow-glow" : "text-ink-muted hover:text-white",
+              ].join(" ")}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeCategoryMeta && (
+        <p className="text-xs text-ink-muted">{activeCategoryMeta.description}</p>
+      )}
 
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter by status">
         {filters.map((f) => {
@@ -164,6 +229,9 @@ export function AdminTicketsPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs font-mono text-ink-subtle">#{t.id}</span>
                       <StatusBadge status={t.status} />
+                      <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+                        {categoryLabel(t.category)}
+                      </span>
                       {t.priority ? (
                         <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
                           {t.priority}
@@ -171,8 +239,10 @@ export function AdminTicketsPage() {
                       ) : null}
                     </div>
                     <h2 className="mt-2 text-base font-semibold text-white">{t.subject}</h2>
+                    <TicketLinkedMeta editType={t.editType} addon={t.addon} className="mt-2" />
                     <p className="mt-1 text-xs text-ink-muted">
                       {t.user.name} &lt;{t.user.email}&gt; — {t.threadCount} message{t.threadCount === 1 ? "" : "s"}
+                      {t.projectName ? ` — ${t.projectName}` : null}
                     </p>
                   </div>
                   <p className="shrink-0 text-xs text-ink-subtle">Updated {formatDate(t.updatedAt)}</p>

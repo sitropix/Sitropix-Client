@@ -40,4 +40,16 @@ describe("supportTicketPriority", () => {
       }),
     ).toBe("high");
   });
+
+  it("rush edit surcharge forces urgent over plan channel and boost", () => {
+    const future = new Date(Date.now() + 86400000);
+    expect(
+      resolveSupportTicketPriority({
+        planCode: "sitropix_starter",
+        catalogJson: { supportChannel: "email_48h" },
+        boostUntil: future,
+        rushEditActive: true,
+      }),
+    ).toBe("urgent");
+  });
 });

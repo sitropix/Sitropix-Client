@@ -10,7 +10,9 @@ import {
   subscriptionPeriodDates,
 } from "./stripeSyncHelpers.mjs";
 import { isPlanOneTimeOnly } from "./billingProration.mjs";
-import { buildExistingSubscriptionPatchFromStripe } from "./stripeSubscriptionReconcile.mjs";
+import {
+  buildExistingSubscriptionPatchFromStripe,
+} from "./stripeSubscriptionReconcile.mjs";
 import { STRIPE_RECURRING_ADDON_SUB_KIND } from "./recurringAddonStripe.mjs";
 import {
   deleteRecurringAddonStripeRow,
@@ -21,6 +23,10 @@ import {
   upsertRecurringAddonFailedInvoicePayment,
   upsertRecurringAddonInvoicePayment,
 } from "./recurringAddonInvoiceSync.mjs";
+import {
+  maybeResetAddonUtilizationAfterSubscriptionPatch,
+  resetAddonUtilizationOnAddonRenewalTx,
+} from "./addonUtilizationTracking.mjs";
 
 function isRecurringAddonOnlyStripeSubscription(stripeSub) {
   return stripeSub?.metadata?.sitropixKind === STRIPE_RECURRING_ADDON_SUB_KIND;
@@ -402,6 +408,13 @@ export async function handleInvoicePaid(invoice) {
     const addonTarget = await resolveRecurringAddonInvoiceTarget(stripeSubId);
     if (addonTarget) {
       const { invoiceNumber } = await upsertRecurringAddonInvoicePayment(invoice, addonTarget);
+      await prisma.$transaction(async (tx) => {
+        await resetAddonUtilizationOnAddonRenewalTx(tx, {
+          subscription: addonTarget.localSubscription,
+          addonCode: addonTarget.addonCode,
+          reason: "addon_invoice_paid",
+        });
+      });
       logCheckout("invoice_paid_synced_addon", {
         invoiceId: invoice.id,
         stripeSubId,
@@ -454,6 +467,19 @@ export async function handleInvoicePaid(invoice) {
       invoicePdfUrl: pdfUrl,
     },
   });
+  try {
+    const stripeSub = await stripe.subscriptions.retrieve(stripeSubId);
+    const { patch } = await buildExistingSubscriptionPatchFromStripe(stripeSub, sub);
+    await prisma.subscription.update({ where: { id: sub.id }, data: patch });
+    await maybeResetAddonUtilizationAfterSubscriptionPatch(sub, patch);
+  } catch (e) {
+    logCheckout("invoice_paid_period_sync_failed", {
+      invoiceId: invoice.id,
+      stripeSubId,
+      error: e?.message,
+    });
+  }
+
   logCheckout("invoice_paid_synced", { invoiceId: invoice.id, stripeSubId, amountPaid: paidAmount });
 }
 
@@ -567,6 +593,7 @@ export async function handleSubscriptionUpdated(stripeSub) {
       where: { id: existing.id },
       data: patch,
     });
+    await maybeResetAddonUtilizationAfterSubscriptionPatch(existing, patch);
     return;
   }
 

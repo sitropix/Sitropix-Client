@@ -4,6 +4,7 @@ import { Breadcrumb } from "@/components/Breadcrumb";
 import { portal } from "@/components/portal/portalStyles";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge } from "@/components/StatusBadge";
+import { TicketLinkedMetaLight } from "@/components/support/TicketLinkedMetaLight";
 import { TicketRowSkeleton } from "@/components/Skeleton";
 import { useTickets } from "@/hooks/useTickets";
 import type { TicketStatus } from "@/types/support";
@@ -194,6 +195,7 @@ export function MyRequestsPage() {
                       <h2 className="mt-2.5 text-base font-semibold leading-snug text-zinc-900 group-hover:text-zinc-700 sm:text-lg">
                         {t.subject}
                       </h2>
+                      <TicketLinkedMetaLight editType={t.editType} addon={t.addon} />
                       <dl className="mt-4 grid gap-4 text-xs sm:grid-cols-2">
                         <div>
                           <dt className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Created</dt>

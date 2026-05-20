@@ -2,6 +2,7 @@
  * Support ticket queue priority from plan `catalogJson.supportChannel` and optional priority-boost add-on.
  * Channels: email_48h → low, email_chat_24h → medium, priority_4h → high.
  * Active boost (until subscription.supportPriorityBoostUntil) forces high for that project.
+ * Rush edit surcharge on the project forces urgent for website edit tickets.
  * Falls back to legacy plan-code heuristics when supportChannel is missing.
  */
 
@@ -29,11 +30,19 @@ export function basePriorityFromPlanCode(planCode) {
  *   planCode?: string | null;
  *   catalogJson?: unknown;
  *   boostUntil?: Date | string | null;
+ *   rushEditActive?: boolean;
  *   now?: Date;
  * }} p
- * @returns {"low" | "medium" | "high"}
+ * @returns {"low" | "medium" | "high" | "urgent"}
  */
-export function resolveSupportTicketPriority({ planCode, catalogJson, boostUntil, now = new Date() }) {
+export function resolveSupportTicketPriority({
+  planCode,
+  catalogJson,
+  boostUntil,
+  rushEditActive = false,
+  now = new Date(),
+}) {
+  if (rushEditActive) return "urgent";
   if (boostUntil) {
     const t = boostUntil instanceof Date ? boostUntil : new Date(boostUntil);
     if (!Number.isNaN(t.getTime()) && t.getTime() > now.getTime()) return "high";

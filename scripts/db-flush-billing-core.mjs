@@ -15,17 +15,15 @@ async function main() {
   await prisma.ticketAttachment.deleteMany({});
   await prisma.ticketMessage.deleteMany({});
   await prisma.supportTicket.deleteMany({});
-  await prisma.payment.deleteMany({});
-  await prisma.subscription.deleteMany({});
-  await prisma.projectAddonEntitlement.deleteMany({});
-  await prisma.projectRecurringAddonStripe.deleteMany({});
-  await prisma.project.deleteMany({});
+  // await prisma.payment.deleteMany({});
+  // await prisma.subscription.deleteMany({});
+  // await prisma.projectAddonEntitlement.deleteMany({});
+  // await prisma.projectRecurringAddonStripe.deleteMany({});
+  // await prisma.project.deleteMany({});
   // await prisma.subscriptionAddon.deleteMany({});
   // await prisma.plan.deleteMany({});
   // await prisma.editType.deleteMany({});
-  console.log(
-    "Flushed: ticket_attachments, ticket_messages, support_tickets, payments, subscriptions, project_addon_entitlements, project_recurring_addon_stripe, projects.",
-  );
+  console.log("Flushed: ticket_attachments, ticket_messages, support_tickets.");
 }
 
 main()

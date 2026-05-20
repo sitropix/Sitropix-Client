@@ -29,7 +29,14 @@ import {
   canUserReopenTicket,
   refundTicketCreditsIfNeeded,
 } from "../services/supportTicketLifecycle.mjs";
-import { mapSupportTicketListRow, ticketStatusForApi } from "../services/supportTicketSerialize.mjs";
+import { enrichSupportTicketsForApi } from "../services/supportTicketEnrichment.mjs";
+import { projectOwnsRushEditSurcharge } from "../services/rushEditSurcharge.mjs";
+import {
+  buildAddonTicketOptionsForProject,
+  linkAddonTicketToTrackingTx,
+  userMessageForAddonTicketError,
+  validateAddonTicketCreation,
+} from "../services/addonUtilizationTracking.mjs";
 
 function insufficientCreditsMessage(needed, available) {
   const creditWord = needed === 1 ? "credit" : "credits";
@@ -42,6 +49,19 @@ router.use(requireAuth);
 const ticketUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 12 * 1024 * 1024, files: 5 },
+});
+
+router.get("/projects/:projectId/addon-ticket-options", async (req, res) => {
+  const projectId = String(req.params.projectId ?? "").trim();
+  if (!projectId) return res.status(400).json({ error: "invalid_project" });
+  const result = await buildAddonTicketOptionsForProject({
+    userId: req.auth.userId,
+    projectId,
+  });
+  if (!result) {
+    return res.status(404).json({ error: "invalid_project", message: "Project not found or not owned by you." });
+  }
+  return res.json(result);
 });
 
 router.get("/edit-types", async (_req, res) => {
@@ -72,7 +92,7 @@ router.get("/tickets", async (req, res) => {
       },
     });
     const projectNames = await projectNameByIdForTickets(tickets);
-    return res.json(tickets.map((t) => mapSupportTicketListRow(t, projectNames)));
+    return res.json(await enrichSupportTicketsForApi(tickets, projectNames));
   } catch (e) {
     log.error("support.tickets.list_failed", { userId: req.auth.userId, error: e?.message });
     return res.status(500).json({
@@ -92,40 +112,8 @@ router.get("/tickets/:id", async (req, res) => {
   });
   if (!ticket) return res.status(404).json({ error: "not_found" });
   const projectNames = await projectNameByIdForTickets([ticket]);
-  return res.json({
-    id: ticket.id,
-    subject: ticket.subject,
-    description: ticket.description,
-    status: ticketStatusForApi(ticket.status),
-    priority: ticket.priority,
-    department: ticket.department,
-    userPlan: ticket.userPlan,
-    projectId: ticket.projectId ?? null,
-    projectName: (ticket.projectId && projectNames.get(ticket.projectId)) || null,
-    editTypeId: ticket.editTypeId ?? null,
-    creditsCharged: ticket.creditsCharged ?? 0,
-    workCompleted: ticket.workCompleted ?? null,
-    creditsRefunded: ticket.creditsRefunded ?? false,
-    createdAt: ticket.createdAt,
-    updatedAt: ticket.updatedAt,
-    messages: ticket.messages.map((m) => ({
-      id: m.id,
-      body: m.body,
-      isStaff: m.isStaff,
-      createdAt: m.createdAt,
-      author: m.user ? { id: m.user.id, name: m.user.name, email: m.user.email } : null,
-      attachments: ticket.attachments
-        .filter((a) => a.messageId === m.id)
-        .map((a) => ({
-          id: a.id,
-          fileName: a.fileName,
-          mimeType: a.mimeType,
-          sizeBytes: a.sizeBytes,
-          createdAt: a.createdAt,
-          downloadUrl: `/api/support/tickets/${ticket.id}/attachments/${a.id}/download`,
-        })),
-    })),
-  });
+  const [enriched] = await enrichSupportTicketsForApi([ticket], projectNames);
+  return res.json(enriched);
 });
 
 router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) => {
@@ -134,14 +122,18 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
     description: req.body?.description,
     departmentId: req.body?.departmentId,
     priority: req.body?.priority,
+    ticketCategory: req.body?.ticketCategory,
     projectId: req.body?.projectId,
     editTypeId: req.body?.editTypeId,
+    subscriptionAddonId: req.body?.subscriptionAddonId,
   });
   if (!payloadResult.success) {
     return res.status(400).json({ error: "validation_error", issues: payloadResult.error.issues });
   }
   const payload = payloadResult.data;
   const files = Array.isArray(req.files) ? req.files : [];
+  const ticketCategory =
+    payload.ticketCategory ?? (payload.editTypeId?.trim() ? "edit" : payload.subscriptionAddonId?.trim() ? "addon" : "general");
 
   let linkedProjectId = null;
   if (payload.projectId?.trim()) {
@@ -182,17 +174,85 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
   }
 
   let ticketPriority = payload.priority ?? "medium";
+  let projectRowForRush = null;
+  if (linkedProjectId) {
+    projectRowForRush = await prisma.project.findUnique({
+      where: { id: linkedProjectId },
+      select: { addonsJson: true },
+    });
+  }
   if (linkedProjectId && projectSub && ["active", "trialing"].includes(projectSub.status)) {
+    const rushEditActive =
+      ticketCategory === "edit" && projectOwnsRushEditSurcharge(projectRowForRush?.addonsJson);
     ticketPriority = resolveSupportTicketPriority({
       planCode: projectSub.plan?.code ?? "",
       catalogJson: projectSub.plan?.catalogJson,
       boostUntil: projectSub.supportPriorityBoostUntil,
+      rushEditActive,
     });
+  }
+
+  if (ticketCategory === "edit" && !linkedProjectId) {
+    return res.status(400).json({
+      error: "project_required_for_edit",
+      message: "Select a project for website edit requests.",
+    });
+  }
+
+  let addonRow = null;
+  let addonTracking = null;
+  if (ticketCategory === "addon") {
+    if (!linkedProjectId) {
+      return res.status(400).json({
+        error: "project_required_for_addon",
+        message: userMessageForAddonTicketError("project_required_for_addon"),
+      });
+    }
+    if (!payload.subscriptionAddonId?.trim()) {
+      return res.status(400).json({
+        error: "addon_required",
+        message: userMessageForAddonTicketError("addon_required"),
+      });
+    }
+    if (!projectSub || !["active", "trialing"].includes(projectSub.status)) {
+      return res.status(400).json({
+        error: "subscription_inactive",
+        message: userMessageForAddonTicketError("subscription_inactive"),
+      });
+    }
+    addonRow = await prisma.subscriptionAddon.findFirst({
+      where: { id: payload.subscriptionAddonId.trim(), isActive: true },
+    });
+    if (!addonRow) {
+      return res.status(400).json({ error: "invalid_addon", message: "Unknown or inactive add-on." });
+    }
+    const project =
+      projectRowForRush ??
+      (await prisma.project.findUnique({
+        where: { id: linkedProjectId },
+        select: { addonsJson: true },
+      }));
+    const addonCheck = await validateAddonTicketCreation({
+      userId: req.auth.userId,
+      projectId: linkedProjectId,
+      subscriptionAddonId: addonRow.id,
+      addonRow,
+      subscription: projectSub,
+      project,
+      plan: projectSub.plan,
+    });
+    if (!addonCheck.ok) {
+      return res.status(400).json({
+        error: addonCheck.error,
+        message: addonCheck.message ?? userMessageForAddonTicketError(addonCheck.error),
+      });
+    }
+    addonTracking = addonCheck.tracking;
   }
 
   let editTypeRow = null;
   let creditCost = 0;
-  if (linkedProjectId && payload.editTypeId?.trim()) {
+  if (linkedProjectId && payload.editTypeId?.trim() && ticketCategory !== "addon") {
     editTypeRow = await prisma.editType.findFirst({
       where: { id: payload.editTypeId.trim(), isActive: true },
     });
@@ -243,16 +303,18 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
           }
         }
 
-        return tx.supportTicket.create({
+        const created = await tx.supportTicket.create({
           data: {
             userId: req.auth.userId,
             projectId: linkedProjectId,
             subject: payload.subject,
             description: payload.description,
             department: payload.departmentId ?? "General",
+            category: ticketCategory,
             priority: ticketPriority,
             userPlan,
             editTypeId,
+            subscriptionAddonId: ticketCategory === "addon" && addonRow ? addonRow.id : null,
             creditsCharged,
             creditsFromIncluded,
             creditsFromPurchased,
@@ -268,6 +330,15 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
             messages: { orderBy: { createdAt: "asc" } },
           },
         });
+
+        if (ticketCategory === "addon" && addonTracking) {
+          await linkAddonTicketToTrackingTx(tx, {
+            trackingId: addonTracking.id,
+            ticketId: created.id,
+          });
+        }
+
+        return created;
       },
       { maxWait: 10_000, timeout: 20_000 },
     );
@@ -334,6 +405,8 @@ router.post("/tickets", ticketUpload.array("attachments", 5), async (req, res) =
     projectId: ticket.projectId ?? null,
     projectName: (ticket.projectId && projectNames.get(ticket.projectId)) || null,
     editTypeId: ticket.editTypeId ?? null,
+    category: ticket.category ?? "general",
+    subscriptionAddonId: ticket.subscriptionAddonId ?? null,
     creditsCharged: ticket.creditsCharged ?? 0,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
@@ -407,6 +480,12 @@ router.post("/tickets/:id/close", async (req, res) => {
       creditsRefunded = true;
     }
     await tx.supportTicket.update({ where: { id: existing.id }, data });
+    if (existing.category === "addon") {
+      await tx.addonUtilizationTracking.updateMany({
+        where: { activeSupportTicketId: existing.id },
+        data: { activeSupportTicketId: null },
+      });
+    }
   });
 
   const ticket = await prisma.supportTicket.findUnique({ where: { id: existing.id } });

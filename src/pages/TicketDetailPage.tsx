@@ -6,6 +6,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { RichTextContent } from "@/components/RichTextContent";
 import { Skeleton } from "@/components/Skeleton";
 import { StatusBadge } from "@/components/StatusBadge";
+import { TicketLinkedMeta } from "@/components/support/TicketLinkedMeta";
 import { useToast } from "@/components/Toast";
 import { ApiRequestError } from "@/services/http";
 import { useTickets } from "@/hooks/useTickets";
@@ -237,6 +238,12 @@ export function TicketDetailPage() {
           )}
         </div>
         <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">{detail.subject}</h1>
+        <TicketLinkedMeta
+          editType={detail.editType}
+          addon={detail.addon}
+          creditsCharged={detail.creditsCharged}
+          className="mt-1"
+        />
         {detail.projectName && detail.projectId ? (
           <p className="text-sm text-ink-muted">
             Linked project:{" "}
