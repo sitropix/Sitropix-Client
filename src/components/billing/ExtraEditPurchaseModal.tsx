@@ -1,14 +1,14 @@
-import { EXTRA_EDIT_BUNDLE_CODE, EXTRA_EDIT_SINGLE_CODE } from "@/constants/extraEditAddons";
 import {
   maxPurchasableExtraEditCredits,
   totalWebsiteEditCreditsAvailable,
 } from "@/lib/websiteEditCreditsLimit";
-import { createAddonCheckoutSession } from "@/services/subscriptionsApi";
+import { buildExtraEditCheckoutCart, saveAddonCheckoutCart } from "@/services/addonCheckoutCart";
 import type { ProjectUsageSnapshot } from "@/types/project";
 import type { Plan, SubscriptionAddon } from "@/types/subscription";
 import { portal } from "@/components/portal/portalStyles";
 import { PortalOverlay } from "@/components/ui/PortalOverlay";
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 function money(cents: number, currency = "USD") {
   return new Intl.NumberFormat(undefined, {
@@ -51,11 +51,12 @@ export function ExtraEditPurchaseModal({
   bundleCredits,
   bundleCents,
   busy,
-  setBusy,
+  setBusy: _setBusy,
   onNotice,
-  baseReturnUrl,
+  baseReturnUrl: _baseReturnUrl,
   companionAddonCodes = [],
 }: Props) {
+  const navigate = useNavigate();
   const canSingle = Boolean(singleAddon);
   const canBundle = Boolean(bundleAddon);
   const [mode, setMode] = useState<"per_edit" | "bundle">("per_edit");
@@ -88,55 +89,35 @@ export function ExtraEditPurchaseModal({
   const perEditTotalCents = perEditCents * effectiveQty;
   const dueTodayCents = mode === "per_edit" ? perEditTotalCents : bundleCents;
 
-  async function startCheckout() {
+  function addToCheckout() {
     onNotice(null);
     if (mode === "per_edit") {
       if (!canSingle || perEditCents <= 0) {
         onNotice("Per-edit purchases are not available for this plan.");
         return;
       }
-    } else {
-      if (!canBundle || bundleCredits <= 0 || bundleCents <= 0) {
-        onNotice("The edit bundle is not available for this plan.");
-        return;
-      }
+    } else if (!canBundle || bundleCredits <= 0 || bundleCents <= 0) {
+      onNotice("The edit bundle is not available for this plan.");
+      return;
     }
 
-    setBusy(true);
-    try {
-      const companion = companionAddonCodes.filter(Boolean);
-      if (mode === "per_edit") {
-        const singleCode = singleAddon?.code ?? EXTRA_EDIT_SINGLE_CODE;
-        const codes = Array.from(new Set([...companion, singleCode]));
-        const { url } = await createAddonCheckoutSession(projectId, codes, {
-          successUrl: baseReturnUrl,
-          cancelUrl: baseReturnUrl,
-          extraEditCheckout: { mode: "per_edit", perEditQuantity: effectiveQty },
-        });
-        if (!url) {
-          onNotice("Could not start checkout for extra edits.");
-          return;
-        }
-        window.location.assign(url);
-        return;
-      }
-      const bundleCode = bundleAddon?.code ?? EXTRA_EDIT_BUNDLE_CODE;
-      const codes = Array.from(new Set([...companion, bundleCode]));
-      const { url } = await createAddonCheckoutSession(projectId, codes, {
-        successUrl: baseReturnUrl,
-        cancelUrl: baseReturnUrl,
-        extraEditCheckout: { mode: "bundle" },
-      });
-      if (!url) {
-        onNotice("Could not start checkout for the edit bundle.");
-        return;
-      }
-      window.location.assign(url);
-    } catch (err) {
-      onNotice(err instanceof Error ? err.message : "Could not start checkout.");
-    } finally {
-      setBusy(false);
-    }
+    const checkoutReturnUrl = `${window.location.origin}/projects/${projectId}/add-ons/checkout`;
+    const cart = buildExtraEditCheckoutCart({
+      projectId,
+      mode,
+      quantity: effectiveQty,
+      perEditCents,
+      bundleCredits,
+      bundleCents,
+      currency,
+      singleAddon: singleAddon ?? null,
+      bundleAddon: bundleAddon ?? null,
+      companionAddonCodes,
+      returnUrl: checkoutReturnUrl,
+    });
+    saveAddonCheckoutCart(cart);
+    onClose();
+    navigate(`/projects/${projectId}/add-ons/checkout`);
   }
 
   return (
@@ -328,7 +309,7 @@ export function ExtraEditPurchaseModal({
             <button
               type="button"
               disabled={busy || (!canSingle && !canBundle)}
-              onClick={() => void startCheckout()}
+              onClick={() => addToCheckout()}
               className={
                 portal.btnPrimary +
                 " inline-flex items-center gap-2 !px-5 !py-2.5 !text-sm"

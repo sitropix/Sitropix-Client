@@ -72,6 +72,7 @@ function pageTitleForPath(pathname: string) {
   if (segments.length === 0) return "Dashboard";
   const key = `/${segments[0]}`;
   if (PAGE_TITLES[key]) return PAGE_TITLES[key];
+  if (pathname.includes("/add-ons/checkout")) return "Review order";
   if (pathname.includes("/add-ons")) return "Manage Add-ons";
   if (pathname.startsWith("/projects/")) return "My Projects";
   if (pathname.startsWith("/workspace/")) return "Files";
