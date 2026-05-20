@@ -11,7 +11,11 @@ import {
 import { formatBillingApiError } from "@/lib/billingErrors";
 import {
   addonCardDisplayCents,
+  addonRecurringUnitCents,
+  defaultAddonRecurringCycle,
   extraEditAddonCaption,
+  projectAddonCardPriceCents,
+  projectAddonPriceSuffix,
 } from "@/lib/addonDisplayHelpers";
 import {
   confirmAddonCheckoutSession,
@@ -19,7 +23,11 @@ import {
   ensureBillingCustomer,
 } from "@/services/subscriptionsApi";
 import { AddonPurchaseDialog } from "@/components/billing/AddonPurchaseDialog";
-import { AddonOfferCard, AddonRecurringPriceBreakdown } from "@/components/billing/addonDisplay";
+import {
+  AddonBillingCycleToggle,
+  AddonOfferCard,
+  AddonRecurringPriceBreakdown,
+} from "@/components/billing/addonDisplay";
 import { ExtraEditPurchaseModal } from "@/components/billing/ExtraEditPurchaseModal";
 import { portal as portalUi } from "@/components/portal/portalStyles";
 import { isCreditPackAddon } from "@/constants/extraEditAddons";
@@ -31,7 +39,8 @@ import {
   uploadProjectAssetFile,
   type ProjectAssetUploadRow,
 } from "@/services/subscriptionsApi";
-import type { ProjectRecord, ProjectRequirementType } from "@/types/project";
+import type { BillingCycle } from "@/types/subscription";
+import type { ProjectAddonCard, ProjectRecord, ProjectRequirementType } from "@/types/project";
 import type { SubscriptionAddon } from "@/types/subscription";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -139,6 +148,7 @@ export function ProjectDashboardPage() {
   const [assetDeleteBusyType, setAssetDeleteBusyType] =
     useState<ProjectRequirementType | null>(null);
   const [setupOverlayDismissed, setSetupOverlayDismissed] = useState(false);
+  const [addonRecurringCycle, setAddonRecurringCycle] = useState<BillingCycle>("monthly");
   const addonReturnHandledRef = useRef<string | null>(null);
   const ownedProject =
     rawProject && rawProject.ownerUserId === userId ? rawProject : null;
@@ -245,11 +255,46 @@ export function ProjectDashboardPage() {
   const needsOnboarding = assetsReady && completedCoreCount < coreRequired.length;
   const hasValidPlan = ownedProject ? hasValidProjectPlan(ownedProject) : false;
   const showSetupOverlay = assetsReady && !hasValidPlan && !setupOverlayDismissed;
-  const ownedAddonCodes = ownedProject?.addons ?? [];
-  const availableAddons = useMemo(
-    () => purchasableAddons.filter((addon) => !ownedAddonCodes.includes(addon.code)),
-    [purchasableAddons, ownedAddonCodes],
+  const accessible = ownedProject?.accessibleAddons;
+  const purchasableCards = accessible?.purchasable ?? [];
+  const existingCards = accessible?.existing ?? [];
+  const canChooseAddonCycle = accessible?.billingContext?.canChooseRecurringAddonCycle ?? false;
+
+  const addonByCode = useMemo(
+    () => new Map(purchasableAddons.map((a) => [a.code, a])),
+    [purchasableAddons],
   );
+
+  const cardByCode = useMemo(() => {
+    const map = new Map<string, ProjectAddonCard>();
+    for (const card of [...existingCards, ...purchasableCards]) {
+      map.set(card.code, card);
+    }
+    return map;
+  }, [existingCards, purchasableCards]);
+
+  const availableAddons = useMemo(
+    () =>
+      purchasableCards
+        .map((card) => addonByCode.get(card.code))
+        .filter((a): a is SubscriptionAddon => Boolean(a)),
+    [purchasableCards, addonByCode],
+  );
+
+  const ownedAddonCards = useMemo(
+    () =>
+      existingCards
+        .map((card) => addonByCode.get(card.code))
+        .filter((a): a is SubscriptionAddon => Boolean(a)),
+    [existingCards, addonByCode],
+  );
+
+  useEffect(() => {
+    if (!ownedProject) return;
+    setAddonRecurringCycle(
+      defaultAddonRecurringCycle(ownedProject.billingCycle, purchasableCards),
+    );
+  }, [ownedProject?.id, ownedProject?.billingCycle, purchasableCards]);
   const addonPageCount = Math.max(1, Math.ceil(availableAddons.length / ADDONS_PAGE_SIZE));
   const addonPageSafe = Math.min(addonPage, addonPageCount - 1);
   const pagedAvailableAddons = availableAddons.slice(
@@ -277,6 +322,11 @@ export function ProjectDashboardPage() {
   const pagesProgress =
     pagesMax != null && pagesMax > 0 ? Math.min(100, Math.round((pagesUsed / pagesMax) * 100)) : 0;
   const planForProject = plans.find((p) => p.id === project.planId) ?? null;
+  const effectiveAddonCycle: BillingCycle = canChooseAddonCycle
+    ? addonRecurringCycle
+    : project.billingCycle === "yearly"
+      ? "yearly"
+      : "monthly";
   const extraEditPurchase = project.extraEditPurchase;
   const modalPerEditCents = extraEditPurchase?.perEditCents ?? 0;
   const modalBundleCredits = extraEditPurchase?.bundleCredits ?? 0;
@@ -709,28 +759,40 @@ export function ProjectDashboardPage() {
           </div>
         ) : null}
 
-        {addonCatalog.filter((addon) => project.addons.includes(addon.code)).length > 0 ? (
+        {ownedAddonCards.length > 0 ? (
           <div className="mt-6">
             <h3 className={portalUi.addonSectionEyebrow}>Existing add-ons</h3>
             <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {addonCatalog
-                .filter((addon) => project.addons.includes(addon.code))
-                .map((addon) => (
+              {ownedAddonCards.map((addon) => {
+                const card = cardByCode.get(addon.code);
+                const ownedCycle =
+                  project.billingCycle === "yearly" ? "yearly" : "monthly";
+                const priceCents = card
+                  ? projectAddonCardPriceCents(card, addon, planForProject, ownedCycle)
+                  : addonCardDisplayCents(addon, plans, project.planId, ownedCycle);
+                return (
                   <AddonOfferCard
                     key={addon.code}
                     mode="owned"
                     label={addon.label}
                     description={addon.desc}
-                    priceLabel={money(
-                      addonCardDisplayCents(addon, plans, project.planId),
-                      addon.currency || "USD",
-                    )}
+                    priceLabel={money(priceCents, addon.currency || "USD")}
                     caption={extraEditAddonCaption(addon, plans, project.planId)}
                     breakdown={
-                      <AddonRecurringPriceBreakdown addon={addon} currency={addon.currency || "USD"} />
+                      <AddonRecurringPriceBreakdown
+                        addon={addon}
+                        currency={addon.currency || "USD"}
+                        billingCycle={ownedCycle}
+                        recurringCents={addonRecurringUnitCents(
+                          addon,
+                          planForProject,
+                          ownedCycle,
+                        )}
+                      />
                     }
                   />
-                ))}
+                );
+              })}
             </div>
           </div>
         ) : null}
@@ -739,46 +801,78 @@ export function ProjectDashboardPage() {
           <div className="mt-8">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 className={portalUi.addonSectionEyebrow}>Available add-ons</h3>
-              {addonPageCount > 1 ? (
-                <p className="font-body-sm text-body-sm text-on-surface-variant">
-                  Page {addonPageSafe + 1} of {addonPageCount}
-                </p>
-              ) : null}
+              <div className="flex flex-wrap items-center gap-3">
+                {canChooseAddonCycle ? (
+                  <AddonBillingCycleToggle
+                    value={addonRecurringCycle}
+                    onChange={setAddonRecurringCycle}
+                    disabled={addonCheckoutBusy}
+                  />
+                ) : null}
+                {addonPageCount > 1 ? (
+                  <p className="font-body-sm text-body-sm text-on-surface-variant">
+                    Page {addonPageSafe + 1} of {addonPageCount}
+                  </p>
+                ) : null}
+              </div>
             </div>
             <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {pagedAvailableAddons.map((addon) => (
-                <AddonOfferCard
-                  key={addon.code}
-                  mode="purchase"
-                  label={addon.label}
-                  description={addon.desc}
-                  priceLabel={money(
-                    addonCardDisplayCents(addon, plans, project.planId),
-                    addon.currency || "USD",
-                  )}
-                  caption={extraEditAddonCaption(addon, plans, project.planId)}
-                  breakdown={
-                    <AddonRecurringPriceBreakdown addon={addon} currency={addon.currency || "USD"} />
-                  }
-                  disabled={addonCheckoutBusy}
-                  actionLabel={
-                    addonCheckoutBusy
-                      ? "Starting checkout…"
-                      : hasValidPlan
-                        ? "Purchase add-on"
-                        : "Subscribe to enable"
-                  }
-                  onPress={() => {
-                    if (!hasValidPlan) {
-                      navigate(`/projects/${project.id}/subscription`);
-                      return;
+              {pagedAvailableAddons.map((addon) => {
+                const card = cardByCode.get(addon.code);
+                const priceCents = card
+                  ? projectAddonCardPriceCents(
+                      card,
+                      addon,
+                      planForProject,
+                      effectiveAddonCycle,
+                    )
+                  : addonCardDisplayCents(
+                      addon,
+                      plans,
+                      project.planId,
+                      effectiveAddonCycle,
+                    );
+                return (
+                  <AddonOfferCard
+                    key={addon.code}
+                    mode="purchase"
+                    label={addon.label}
+                    description={addon.desc}
+                    priceLabel={money(priceCents, addon.currency || "USD")}
+                    priceSuffix={projectAddonPriceSuffix(addon, effectiveAddonCycle)}
+                    caption={extraEditAddonCaption(addon, plans, project.planId)}
+                    breakdown={
+                      <AddonRecurringPriceBreakdown
+                        addon={addon}
+                        currency={addon.currency || "USD"}
+                        billingCycle={effectiveAddonCycle}
+                        recurringCents={addonRecurringUnitCents(
+                          addon,
+                          planForProject,
+                          effectiveAddonCycle,
+                        )}
+                      />
                     }
-                    setAddonCheckoutError(null);
-                    setNotice(null);
-                    setAddonPurchaseTarget(addon);
-                  }}
-                />
-              ))}
+                    disabled={addonCheckoutBusy}
+                    actionLabel={
+                      addonCheckoutBusy
+                        ? "Starting checkout…"
+                        : hasValidPlan
+                          ? "Purchase add-on"
+                          : "Subscribe to enable"
+                    }
+                    onPress={() => {
+                      if (!hasValidPlan) {
+                        navigate(`/projects/${project.id}/subscription`);
+                        return;
+                      }
+                      setAddonCheckoutError(null);
+                      setNotice(null);
+                      setAddonPurchaseTarget(addon);
+                    }}
+                  />
+                );
+              })}
 
             </div>
             {addonPageCount > 1 ? (
@@ -805,7 +899,7 @@ export function ProjectDashboardPage() {
         ) : null}
 
         {!canBuyExtraEdits &&
-        addonCatalog.filter((addon) => project.addons.includes(addon.code)).length === 0 &&
+        ownedAddonCards.length === 0 &&
         availableAddons.length === 0 &&
         hasValidPlan ? (
           <p className="mt-4 rounded-lg border border-on-surface/10 bg-surface-container-low px-4 py-3 font-body-sm text-body-sm text-on-surface-variant">
@@ -821,14 +915,44 @@ export function ProjectDashboardPage() {
         priceLabel={
           addonPurchaseTarget
             ? money(
-                addonCardDisplayCents(addonPurchaseTarget, plans, project.planId),
+                (() => {
+                  const card = cardByCode.get(addonPurchaseTarget.code);
+                  return card
+                    ? projectAddonCardPriceCents(
+                        card,
+                        addonPurchaseTarget,
+                        planForProject,
+                        effectiveAddonCycle,
+                      )
+                    : addonCardDisplayCents(
+                        addonPurchaseTarget,
+                        plans,
+                        project.planId,
+                        effectiveAddonCycle,
+                      );
+                })(),
                 addonPurchaseTarget.currency || "USD",
               )
             : ""
         }
         dueTodayCents={
           addonPurchaseTarget
-            ? addonCardDisplayCents(addonPurchaseTarget, plans, project.planId)
+            ? (() => {
+                const card = cardByCode.get(addonPurchaseTarget.code);
+                return card
+                  ? projectAddonCardPriceCents(
+                      card,
+                      addonPurchaseTarget,
+                      planForProject,
+                      effectiveAddonCycle,
+                    )
+                  : addonCardDisplayCents(
+                      addonPurchaseTarget,
+                      plans,
+                      project.planId,
+                      effectiveAddonCycle,
+                    );
+              })()
             : 0
         }
         currency={addonPurchaseTarget?.currency || "USD"}
@@ -858,6 +982,10 @@ export function ProjectDashboardPage() {
               {
                 successUrl: base,
                 cancelUrl: base,
+                ...(canChooseAddonCycle &&
+                addonPurchaseTarget.billingKind === "recurring"
+                  ? { addonRecurringCycle: effectiveAddonCycle }
+                  : {}),
               },
             );
             if (!url) {

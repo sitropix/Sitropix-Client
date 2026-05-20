@@ -73,8 +73,25 @@ function readCatalogCreditsGranted(catalogJson: Record<string, unknown> | undefi
   return Math.max(0, Math.floor(num || 0));
 }
 
+/** Top-level monthly/yearly list prices when plan-wise map has no entry for the cycle. */
+export function addonTopLevelCycleCents(
+  addon: Pick<SubscriptionAddon, "priceCents" | "priceMinCents" | "priceMaxCents">,
+  billingCycle: "monthly" | "yearly" | null | undefined,
+): number {
+  if (billingCycle === "yearly") {
+    if (addon.priceMaxCents != null && addon.priceMaxCents > 0) return addon.priceMaxCents;
+  }
+  if (billingCycle === "monthly") {
+    if (addon.priceMinCents != null && addon.priceMinCents > 0) return addon.priceMinCents;
+  }
+  return Math.max(0, addon.priceCents ?? 0);
+}
+
 export function resolveAddonPlanPriceCents(
-  addon: Pick<SubscriptionAddon, "code" | "priceCents" | "catalogJson">,
+  addon: Pick<
+    SubscriptionAddon,
+    "code" | "priceCents" | "priceMinCents" | "priceMaxCents" | "catalogJson"
+  >,
   plan: Plan | null | undefined,
   billingCycle: "monthly" | "yearly" | null | undefined,
 ): number {
@@ -86,14 +103,14 @@ export function resolveAddonPlanPriceCents(
     if (billingCycle === "yearly" && entry.yearlyCents != null && entry.yearlyCents > 0) {
       return entry.yearlyCents;
     }
-    if (entry.monthlyCents != null && entry.monthlyCents > 0) {
+    if (billingCycle === "monthly" && entry.monthlyCents != null && entry.monthlyCents > 0) {
       return entry.monthlyCents;
     }
     if (entry.priceCents != null && entry.priceCents > 0) {
       return entry.priceCents;
     }
   }
-  return Math.max(0, addon.priceCents ?? 0);
+  return addonTopLevelCycleCents(addon, billingCycle);
 }
 
 /** Resolved price and credits for an extra-edit add-on on a given plan. */
@@ -262,4 +279,60 @@ export function firstPlanPriceCents(pricing: AddonPlanPricing): number | undefin
   const first = Object.values(pricing)[0];
   if (!first) return undefined;
   return first.priceCents ?? first.monthlyCents ?? first.yearlyCents;
+}
+
+/** Mirrors catalog "from" price: lowest monthly / yearly across plan rows. */
+export function aggregatePlanPricingListBounds(pricing: AddonPlanPricing): {
+  priceMinCents: number | null;
+  priceMaxCents: number | null;
+} {
+  const monthlies: number[] = [];
+  const yearlies: number[] = [];
+  for (const entry of Object.values(pricing)) {
+    if (entry.monthlyCents != null && entry.monthlyCents > 0) {
+      monthlies.push(entry.monthlyCents);
+    }
+    if (entry.yearlyCents != null && entry.yearlyCents > 0) {
+      yearlies.push(entry.yearlyCents);
+    }
+  }
+  return {
+    priceMinCents: monthlies.length > 0 ? Math.min(...monthlies) : null,
+    priceMaxCents: yearlies.length > 0 ? Math.min(...yearlies) : null,
+  };
+}
+
+/** Plans used when computing catalog "from" prices (avoids unrelated tiers pulling in priceCents). */
+export function plansForAddonCatalogPricing(
+  plans: Plan[],
+  addon: Pick<SubscriptionAddon, "eligiblePlanCodes" | "catalogJson">,
+): Plan[] {
+  const active = plans.filter((p) => p.isActive !== false);
+  const planMap = readPlanPricingMap(addon.catalogJson);
+  const withMapEntry = active.filter((p) => planMap[p.code] != null);
+  if (withMapEntry.length > 0) return withMapEntry;
+
+  const eligible = Array.isArray(addon.eligiblePlanCodes)
+    ? addon.eligiblePlanCodes.filter((c) => typeof c === "string" && c.trim())
+    : [];
+  if (eligible.length > 0) {
+    const set = new Set(eligible);
+    const matched = active.filter((p) => set.has(p.code));
+    if (matched.length > 0) return matched;
+  }
+  return active;
+}
+
+export function plansForAddonPricingEditor(
+  plans: Plan[],
+  addon: Pick<SubscriptionAddon, "eligiblePlanCodes">,
+): Plan[] {
+  const active = plans.filter((p) => p.isActive !== false);
+  const eligible = Array.isArray(addon.eligiblePlanCodes)
+    ? addon.eligiblePlanCodes.filter((c) => typeof c === "string" && c.trim())
+    : [];
+  if (eligible.length === 0) return active;
+  const set = new Set(eligible);
+  const matched = active.filter((p) => set.has(p.code));
+  return matched.length > 0 ? matched : active;
 }

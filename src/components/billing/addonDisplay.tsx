@@ -1,4 +1,5 @@
 import { portal } from "@/components/portal/portalStyles";
+import type { BillingCycle } from "@/types/subscription";
 import type { SubscriptionAddon } from "@/types/subscription";
 import type { ReactNode } from "react";
 
@@ -12,13 +13,18 @@ function money(cents: number, currency = "USD") {
 export function AddonRecurringPriceBreakdown({
   addon,
   currency,
+  billingCycle = "monthly",
+  recurringCents,
 }: {
   addon: SubscriptionAddon;
   currency: string;
+  billingCycle?: BillingCycle;
+  recurringCents?: number;
 }) {
   const setup = addon.setupFeeCents ?? 0;
   if (addon.billingKind !== "recurring" || setup <= 0) return null;
-  const rec = addon.priceCents ?? 0;
+  const rec = recurringCents ?? addon.priceCents ?? 0;
+  const cycleLabel = billingCycle === "yearly" ? "per year" : "per month";
   return (
     <div className="mt-3 space-y-1.5 rounded-lg border border-on-surface/8 bg-surface-container-low px-3 py-2.5 text-[11px]">
       <div className="flex justify-between gap-2 text-on-surface-variant">
@@ -26,12 +32,57 @@ export function AddonRecurringPriceBreakdown({
         <span className="tabular-nums font-semibold text-on-surface">{money(setup, currency)}</span>
       </div>
       <div className="flex justify-between gap-2 text-on-surface-variant">
-        <span>Recurring (per month)</span>
+        <span>Recurring ({cycleLabel})</span>
         <span className="tabular-nums font-semibold text-on-surface">{money(rec, currency)}</span>
       </div>
       <p className="border-t border-on-surface/8 pt-1.5 text-[10px] leading-snug text-on-surface-variant">
         First checkout charges setup plus the first billing cycle; renewals bill the recurring amount only.
       </p>
+    </div>
+  );
+}
+
+export function AddonBillingCycleToggle({
+  value,
+  onChange,
+  disabled = false,
+  className = "",
+}: {
+  value: BillingCycle;
+  onChange: (cycle: BillingCycle) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`inline-flex rounded-full border border-on-surface/10 bg-surface-container-low p-1 ${className}`}
+      role="group"
+      aria-label="Add-on billing cycle"
+    >
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange("monthly")}
+        className={`rounded-full px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+          value === "monthly"
+            ? "bg-on-surface text-surface"
+            : "text-on-surface-variant hover:text-on-surface"
+        }`}
+      >
+        Monthly
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange("yearly")}
+        className={`rounded-full px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+          value === "yearly"
+            ? "bg-on-surface text-surface"
+            : "text-on-surface-variant hover:text-on-surface"
+        }`}
+      >
+        Yearly
+      </button>
     </div>
   );
 }
@@ -164,7 +215,12 @@ export function AddonOfferCard({
     <>
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 font-body text-body-lg font-semibold text-on-surface">{label}</p>
-        <span className={portal.addonPriceBadge}>{priceLabel}</span>
+        <span className={portal.addonPriceBadge}>
+          {priceLabel}
+          {priceSuffix ? (
+            <span className="ml-0.5 font-normal text-on-surface-variant">{priceSuffix}</span>
+          ) : null}
+        </span>
       </div>
       <p className="mt-2 flex-1 font-body-sm text-body-sm leading-relaxed text-on-surface-variant">
         {description}
