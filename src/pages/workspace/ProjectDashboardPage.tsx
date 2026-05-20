@@ -8,7 +8,6 @@ import {
   getProjectById,
   hasValidProjectPlan,
 } from "@/services/projectsStore";
-import { formatBillingApiError } from "@/lib/billingErrors";
 import {
   addonCardDisplayCents,
   addonRecurringUnitCents,
@@ -18,11 +17,10 @@ import {
   projectAddonPriceSuffix,
 } from "@/lib/addonDisplayHelpers";
 import {
-  confirmAddonCheckoutSession,
-  createAddonCheckoutSession,
-  ensureBillingCustomer,
-} from "@/services/subscriptionsApi";
-import { AddonPurchaseDialog } from "@/components/billing/AddonPurchaseDialog";
+  buildAddonCheckoutCartFromAddons,
+  saveAddonCheckoutCart,
+} from "@/services/addonCheckoutCart";
+import { confirmAddonCheckoutSession } from "@/services/subscriptionsApi";
 import {
   AddonBillingCycleToggle,
   AddonOfferCard,
@@ -136,11 +134,6 @@ export function ProjectDashboardPage() {
   const [projectLoading, setProjectLoading] = useState(true);
   const [addonCheckoutBusy, setAddonCheckoutBusy] = useState(false);
   const [extraEditModalOpen, setExtraEditModalOpen] = useState(false);
-  const [addonPurchaseTarget, setAddonPurchaseTarget] = useState<SubscriptionAddon | null>(
-    null,
-  );
-  const [addonCheckoutError, setAddonCheckoutError] = useState<string | null>(null);
-  const [addonBillingPreparing, setAddonBillingPreparing] = useState(false);
   const [assetFormUploadBusy, setAssetFormUploadBusy] = useState(false);
   const assetUploadBusy = assetFormUploadBusy;
   const [assetDownloadBusyType, setAssetDownloadBusyType] =
@@ -169,29 +162,7 @@ export function ProjectDashboardPage() {
   useEffect(() => {
     setSetupOverlayDismissed(false);
     setNotice(null);
-    setAddonCheckoutError(null);
   }, [projectId]);
-
-  useEffect(() => {
-    if (!addonPurchaseTarget || !ownedProject || !hasValidProjectPlan(ownedProject)) return;
-    let cancelled = false;
-    setAddonBillingPreparing(true);
-    setAddonCheckoutError(null);
-    void ensureBillingCustomer(ownedProject.id)
-      .catch((err) => {
-        if (!cancelled) {
-          setAddonCheckoutError(
-            formatBillingApiError(err, "Could not prepare billing for this purchase."),
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setAddonBillingPreparing(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [addonPurchaseTarget?.code, ownedProject?.id]);
 
   const addonFunnel = searchParams.get("subscriptionFunnel");
   const addonSessionId = searchParams.get("session_id");
@@ -866,9 +837,21 @@ export function ProjectDashboardPage() {
                         navigate(`/projects/${project.id}/subscription`);
                         return;
                       }
-                      setAddonCheckoutError(null);
                       setNotice(null);
-                      setAddonPurchaseTarget(addon);
+                      const checkoutReturnUrl = `${window.location.origin}/projects/${project.id}/add-ons/checkout`;
+                      const cart = buildAddonCheckoutCartFromAddons({
+                        project,
+                        addons: [addon],
+                        plans,
+                        returnUrl: checkoutReturnUrl,
+                      });
+                      saveAddonCheckoutCart({
+                        ...cart,
+                        ...(canChooseAddonCycle
+                          ? { addonRecurringCycle: effectiveAddonCycle }
+                          : {}),
+                      });
+                      navigate(`/projects/${project.id}/add-ons/checkout`);
                     }}
                   />
                 );
@@ -907,101 +890,6 @@ export function ProjectDashboardPage() {
           </p>
         ) : null}
       </section>
-
-      <AddonPurchaseDialog
-        open={addonPurchaseTarget !== null}
-        addon={addonPurchaseTarget}
-        project={project}
-        priceLabel={
-          addonPurchaseTarget
-            ? money(
-                (() => {
-                  const card = cardByCode.get(addonPurchaseTarget.code);
-                  return card
-                    ? projectAddonCardPriceCents(
-                        card,
-                        addonPurchaseTarget,
-                        planForProject,
-                        effectiveAddonCycle,
-                      )
-                    : addonCardDisplayCents(
-                        addonPurchaseTarget,
-                        plans,
-                        project.planId,
-                        effectiveAddonCycle,
-                      );
-                })(),
-                addonPurchaseTarget.currency || "USD",
-              )
-            : ""
-        }
-        dueTodayCents={
-          addonPurchaseTarget
-            ? (() => {
-                const card = cardByCode.get(addonPurchaseTarget.code);
-                return card
-                  ? projectAddonCardPriceCents(
-                      card,
-                      addonPurchaseTarget,
-                      planForProject,
-                      effectiveAddonCycle,
-                    )
-                  : addonCardDisplayCents(
-                      addonPurchaseTarget,
-                      plans,
-                      project.planId,
-                      effectiveAddonCycle,
-                    );
-              })()
-            : 0
-        }
-        currency={addonPurchaseTarget?.currency || "USD"}
-        caption={
-          addonPurchaseTarget
-            ? extraEditAddonCaption(addonPurchaseTarget, plans, project.planId)
-            : null
-        }
-        breakdownAddon={addonPurchaseTarget}
-        busy={addonCheckoutBusy}
-        preparing={addonBillingPreparing}
-        errorMessage={addonCheckoutError}
-        onClose={() => {
-          setAddonPurchaseTarget(null);
-          setAddonCheckoutError(null);
-        }}
-        onConfirm={async () => {
-          if (!addonPurchaseTarget || !hasValidPlan) return;
-          setAddonCheckoutBusy(true);
-          setAddonCheckoutError(null);
-          try {
-            await ensureBillingCustomer(project.id);
-            const base = `${window.location.origin}/projects/${project.id}`;
-            const { url } = await createAddonCheckoutSession(
-              project.id,
-              [addonPurchaseTarget.code],
-              {
-                successUrl: base,
-                cancelUrl: base,
-                ...(canChooseAddonCycle &&
-                addonPurchaseTarget.billingKind === "recurring"
-                  ? { addonRecurringCycle: effectiveAddonCycle }
-                  : {}),
-              },
-            );
-            if (!url) {
-              setAddonCheckoutError("Could not start checkout for this add-on.");
-              return;
-            }
-            window.location.assign(url);
-          } catch (err) {
-            setAddonCheckoutError(
-              formatBillingApiError(err, "Could not start add-on checkout."),
-            );
-          } finally {
-            setAddonCheckoutBusy(false);
-          }
-        }}
-      />
 
       <ExtraEditPurchaseModal
         open={extraEditModalOpen}

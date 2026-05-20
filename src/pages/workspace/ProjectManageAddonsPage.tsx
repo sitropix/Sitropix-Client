@@ -3,7 +3,6 @@ import {
   AddonBillingCycleToggle,
   AddonOfferCard,
 } from "@/components/billing/addonDisplay";
-import { AddonPurchaseDialog } from "@/components/billing/AddonPurchaseDialog";
 import { ExtraEditPurchaseModal } from "@/components/billing/ExtraEditPurchaseModal";
 import { MaterialIcon } from "@/components/MaterialIcon";
 import { portal as portalUi } from "@/components/portal/portalStyles";
@@ -13,7 +12,6 @@ import {
   readExtraEditPricingForPlan,
   resolveExtraEditPurchaseAddons,
 } from "@/constants/extraEditAddons";
-import { formatBillingApiError } from "@/lib/billingErrors";
 import {
   addonCardDisplayCents,
   addonCategoryLabel,
@@ -29,10 +27,10 @@ import {
 import { maxPurchasableExtraEditCredits } from "@/lib/websiteEditCreditsLimit";
 import { getProjectById, hasValidProjectPlan } from "@/services/projectsStore";
 import {
-  confirmAddonCheckoutSession,
-  createAddonCheckoutSession,
-  ensureBillingCustomer,
-} from "@/services/subscriptionsApi";
+  buildAddonCheckoutCartFromAddons,
+  saveAddonCheckoutCart,
+} from "@/services/addonCheckoutCart";
+import { confirmAddonCheckoutSession } from "@/services/subscriptionsApi";
 import type { BillingCycle } from "@/types/subscription";
 import type { ProjectAddonCard, ProjectRecord } from "@/types/project";
 import type { SubscriptionAddon } from "@/types/subscription";
@@ -57,10 +55,6 @@ export function ProjectManageAddonsPage() {
   const [selectedCart, setSelectedCart] = useState<string[]>([]);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [extraEditModalOpen, setExtraEditModalOpen] = useState(false);
-  const [purchaseTarget, setPurchaseTarget] = useState<SubscriptionAddon | null>(null);
-  const [purchaseTargets, setPurchaseTargets] = useState<SubscriptionAddon[]>([]);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [billingPreparing, setBillingPreparing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [addonRecurringCycle, setAddonRecurringCycle] = useState<BillingCycle>("monthly");
   const addonReturnHandledRef = useRef<string | null>(null);
@@ -106,28 +100,6 @@ export function ProjectManageAddonsPage() {
     })();
   }, [addonFunnel, addonSessionId, addonProjectParam, projectId, navigate, setSearchParams]);
 
-  useEffect(() => {
-    const target = purchaseTarget ?? (purchaseTargets.length === 1 ? purchaseTargets[0] : null);
-    if (!target || !ownedProject || !hasValidProjectPlan(ownedProject)) return;
-    let cancelled = false;
-    setBillingPreparing(true);
-    setCheckoutError(null);
-    void ensureBillingCustomer(ownedProject.id)
-      .catch((err) => {
-        if (!cancelled) {
-          setCheckoutError(
-            formatBillingApiError(err, "Could not prepare billing for this purchase."),
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setBillingPreparing(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [purchaseTarget?.code, purchaseTargets.map((a) => a.code).join(","), ownedProject?.id]);
-
   const purchasableAddons = useMemo(
     () => addonCatalog.filter((a) => !isCreditPackAddon(a)),
     [addonCatalog],
@@ -158,7 +130,6 @@ export function ProjectManageAddonsPage() {
     );
   }, [ownedProject?.id, ownedProject?.billingCycle, purchasableCards]);
 
-  /** Purchasable add-ons eligible for cart checkout (one-time + recurring). */
   const availableForCart = useMemo(
     () =>
       purchasableCards
@@ -191,8 +162,7 @@ export function ProjectManageAddonsPage() {
   );
 
   const cartTotalCents = useMemo(() => {
-    const plan =
-      plans.find((p) => p.id === ownedProject?.planId) ?? null;
+    const plan = plans.find((p) => p.id === ownedProject?.planId) ?? null;
     return selectedCartAddons.reduce((sum, addon) => {
       const card = cardByCode.get(addon.code);
       return (
@@ -229,56 +199,24 @@ export function ProjectManageAddonsPage() {
     canOfferExtraEditPurchases(planForProject, addonCatalog) &&
     maxExtraEdits > 0;
 
-  const reviewOpen = purchaseTarget !== null || purchaseTargets.length > 0;
-  const reviewAddons = purchaseTargets.length > 0 ? purchaseTargets : purchaseTarget ? [purchaseTarget] : [];
-  const reviewPrimary = purchaseTarget ?? reviewAddons[0] ?? null;
-  const reviewDueCents = reviewAddons.reduce((sum, a) => {
-    const card = cardByCode.get(a.code);
-    return (
-      sum +
-      (card
-        ? projectAddonCardPriceCents(card, a, planForProject, effectiveAddonCycle)
-        : addonCardDisplayCents(a, plans, project.planId, effectiveAddonCycle))
-    );
-  }, 0);
-  const reviewCurrency = reviewPrimary?.currency || "USD";
-
-  async function startStripeCheckout(codes: string[]) {
-    if (!hasValidPlan || codes.length === 0) return;
-    setCheckoutBusy(true);
-    setCheckoutError(null);
-    try {
-      await ensureBillingCustomer(project.id);
-      const base = `${window.location.origin}/projects/${project.id}/add-ons`;
-      const hasRecurring = codes.some((code) => {
-        const row = addonByCode.get(code);
-        return row != null && isAddonRecurring(row);
-      });
-      const { url } = await createAddonCheckoutSession(project.id, codes, {
-        successUrl: base,
-        cancelUrl: base,
-        ...(canChooseAddonCycle && hasRecurring
-          ? { addonRecurringCycle: effectiveAddonCycle }
-          : {}),
-      });
-      if (!url) {
-        setCheckoutError("Could not start checkout.");
-        return;
-      }
-      window.location.assign(url);
-    } catch (err) {
-      setCheckoutError(formatBillingApiError(err, "Could not start checkout."));
-    } finally {
-      setCheckoutBusy(false);
-    }
-  }
-
   function toggleCartSelection(code: string) {
     const addon = addonByCode.get(code);
     if (!addon) return;
 
     setSelectedCart((prev) => {
       if (prev.includes(code)) return prev.filter((c) => c !== code);
+
+      if (isRecurringSetupAddon(addon)) {
+        return [code];
+      }
+
+      const hasRecurringSetup = prev.some((c) => {
+        const row = addonByCode.get(c);
+        return row != null && isRecurringSetupAddon(row);
+      });
+      if (hasRecurringSetup) {
+        return [code];
+      }
 
       if (isAddonRecurring(addon)) {
         const withoutRecurring = prev.filter((c) => {
@@ -298,9 +236,18 @@ export function ProjectManageAddonsPage() {
       return;
     }
     if (selectedCartAddons.length === 0) return;
-    setPurchaseTarget(null);
-    setPurchaseTargets(selectedCartAddons);
-    setCheckoutError(null);
+    const checkoutReturnUrl = `${window.location.origin}/projects/${project.id}/add-ons/checkout`;
+    const cart = buildAddonCheckoutCartFromAddons({
+      project,
+      addons: selectedCartAddons,
+      plans,
+      returnUrl: checkoutReturnUrl,
+    });
+    saveAddonCheckoutCart({
+      ...cart,
+      ...(canChooseAddonCycle ? { addonRecurringCycle: effectiveAddonCycle } : {}),
+    });
+    navigate(`/projects/${project.id}/add-ons/checkout`);
   }
 
   return (
@@ -424,7 +371,7 @@ export function ProjectManageAddonsPage() {
               <h2 className="font-h2 text-h2 font-bold text-on-surface">Available Upgrades</h2>
               <p className="mt-1 font-body-sm text-body-sm text-on-surface-variant">
                 Select add-ons, then checkout. One-time add-ons can be combined; only one recurring
-                add-on per checkout.
+                add-on per checkout (setup-fee add-ons must be purchased alone).
               </p>
             </div>
             {canChooseAddonCycle ? (
@@ -459,7 +406,7 @@ export function ProjectManageAddonsPage() {
                   priceSuffix={suffix}
                   caption={
                     recurringSetup
-                      ? "Setup + first billing cycle"
+                      ? "Setup + first billing cycle · select alone"
                       : isAddonRecurring(addon)
                         ? "One recurring add-on per checkout"
                         : extraEditAddonCaption(addon, plans, project.planId) ||
@@ -512,29 +459,6 @@ export function ProjectManageAddonsPage() {
           </button>
         </div>
       ) : null}
-
-      <AddonPurchaseDialog
-        open={reviewOpen}
-        addon={reviewPrimary}
-        addons={reviewAddons.length > 1 ? reviewAddons : undefined}
-        project={project}
-        priceLabel={formatAddonMoney(reviewDueCents, reviewCurrency)}
-        dueTodayCents={reviewDueCents}
-        currency={reviewCurrency}
-        breakdownAddon={reviewPrimary}
-        busy={checkoutBusy}
-        preparing={billingPreparing}
-        errorMessage={checkoutError}
-        onClose={() => {
-          setPurchaseTarget(null);
-          setPurchaseTargets([]);
-          setCheckoutError(null);
-        }}
-        onConfirm={() => {
-          const codes = reviewAddons.map((a) => a.code);
-          void startStripeCheckout(codes);
-        }}
-      />
 
       <ExtraEditPurchaseModal
         open={extraEditModalOpen}
