@@ -601,7 +601,7 @@ export function ProjectSubscriptionPage() {
     canOfferExtraEditPurchases(planForExtraEditModal, addonCatalog);
 
   return (
-    <div className="client-workspace-view space-y-6 text-zinc-900">
+    <div className="client-workspace-view space-y-5 text-zinc-900">
       <Breadcrumb
         items={[
           { label: "Home", to: "/dashboard" },
@@ -610,16 +610,16 @@ export function ProjectSubscriptionPage() {
         ]}
       />
 
-      <header className="rounded-2xl border border-transparent bg-transparent p-2 text-center sm:p-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-          Project Checkout
+      <header className="subscription-mgmt-hero relative overflow-hidden rounded-2xl border border-zinc-200/90 px-4 py-4 sm:px-6 sm:py-5">
+        <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+          Project checkout
         </p>
-        <h1 className="subscription-hero-title mt-1.5 text-4xl font-bold tracking-tight text-zinc-900">
-          Choose the right plan for your project
+        <h1 className="subscription-hero-title mt-1 text-xl font-bold tracking-tight text-zinc-900 sm:text-2xl">
+          Choose a plan for {ownedProject.name}
         </h1>
-        <p className="mt-3 text-sm text-zinc-400">
-          Unlock all features and activate your workspace by selecting a
-          subscription. Cancel or upgrade anytime.
+        <p className="mt-1.5 max-w-2xl text-sm leading-snug text-zinc-600">
+          Select a tier and optional add-ons, then complete secure checkout. You can change or cancel later from Payment
+          Management.
         </p>
       </header>
       {checkoutReturnBanner?.phase === "confirming" ? (
@@ -710,7 +710,7 @@ export function ProjectSubscriptionPage() {
         </section>
       ) : (
         <div aria-busy={checkoutReturnLocksUI ? true : undefined}>
-          <div className="mx-auto inline-flex rounded-full border border-on-surface/10 bg-surface-container-low p-1 mb-4">
+          <div className="mb-3 inline-flex rounded-full border border-on-surface/10 bg-surface-container-low p-1">
             {showBillingCycleToggle ? (
               <>
                 {anyMonthly ? (
@@ -749,7 +749,7 @@ export function ProjectSubscriptionPage() {
             )}
           </div>
 
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <section className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3 xl:gap-4">
             {plans.map((plan) => {
               const active = selectedPlanId === plan.id;
               const amount = planDisplayAmount(plan, billingCycle);
@@ -762,7 +762,7 @@ export function ProjectSubscriptionPage() {
               return (
                 <article
                   key={plan.id}
-                  className={`rounded-2xl border p-5 shadow-glass transition ${
+                  className={`flex flex-col rounded-2xl border p-4 shadow-glass transition sm:p-5 ${
                     locked
                       ? "cursor-not-allowed border-[#2A3037] bg-[#101317] opacity-45"
                       : active
@@ -782,7 +782,7 @@ export function ProjectSubscriptionPage() {
                   <p className="mt-2 text-sm text-zinc-400">
                     {plan.description}
                   </p>
-                  <ul className="mt-3 space-y-1 text-sm text-zinc-300">
+                  <ul className="mt-2.5 space-y-1 text-sm text-zinc-300">
                     {plan.features.slice(0, 5).map((feature) => (
                       <li key={feature}>• {feature}</li>
                     ))}
@@ -794,7 +794,7 @@ export function ProjectSubscriptionPage() {
                       if (!locked && !checkoutReturnLocksUI)
                         setSelectedPlanId(plan.id);
                     }}
-                    className={`mt-4 w-full rounded-lg px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                    className={`mt-3 w-full rounded-lg px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                       locked
                         ? "cursor-not-allowed opacity-50"
                         : active
@@ -813,7 +813,7 @@ export function ProjectSubscriptionPage() {
             })}
           </section>
 
-          <section className="grid gap-4 mt-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <section className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
             <div className={portalUi.panel}>
               <h3 className="font-body text-body-lg font-semibold text-on-surface">
                 Enhance your plan

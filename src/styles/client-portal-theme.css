@@ -294,10 +294,16 @@ html:not([data-theme="dark"]) .client-portal-main .client-workspace-view :is(p, 
 
 .client-portal-main input.border-white\/10,
 .client-portal-main textarea.border-white\/10,
-.client-portal-main select.border-white\/10 {
+.client-portal-main select.border-white\/10,
+.client-portal-main select {
   border-color: rgba(28, 27, 27, 0.1) !important;
   background-color: var(--portal-surface-container-low) !important;
   color: var(--portal-on-surface) !important;
+}
+
+.client-portal-main select option {
+  background-color: var(--portal-surface-container-lowest);
+  color: var(--portal-on-surface);
 }
 
 .client-portal-main input.border-white\/10:focus,

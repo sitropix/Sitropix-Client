@@ -171,7 +171,7 @@ export function AdminTicketDetailPage() {
       <header className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-mono text-xs text-ink-subtle">#{detail.id}</span>
-          <StatusBadge status={detail.status} />
+          <StatusBadge variant="dark" status={detail.status} />
         </div>
         <h1 className="text-2xl font-bold text-white sm:text-3xl">{detail.subject}</h1>
         <TicketLinkedMeta

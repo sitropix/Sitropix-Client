@@ -94,8 +94,14 @@ const PublicEmbedFormPage = lazy(() =>
 
 function AppRouteFallback() {
   return (
-    <div className="flex min-h-[30vh] items-center justify-center px-4">
-      <p className="text-sm text-ink-muted">Loading…</p>
+    <div className="flex min-h-[40vh] items-center justify-center bg-background px-4">
+      <div className="flex flex-col items-center gap-3">
+        <div className="relative h-9 w-9" role="status" aria-label="Loading">
+          <div className="absolute inset-0 rounded-full border-2 border-outline-variant/40" />
+          <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-accent-gold" />
+        </div>
+        <p className="font-body-sm text-body-sm text-on-surface-variant">Loading…</p>
+      </div>
     </div>
   );
 }
