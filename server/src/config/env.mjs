@@ -46,22 +46,17 @@ function optionalPositiveInt(name) {
   return value;
 }
 
-const DEFAULT_LOCAL_DATABASE_URL =
-  "postgresql://postgres:Vamsi%401432@localhost:5432/postgres";
-
 function resolveDatabaseUrl() {
-  const useLocal =
-    (process.env.USE_LOCAL_DATABASE ?? "").toLowerCase() === "true";
-  const localUrl = String(process.env.DATABASE_URL_LOCAL ?? "").trim();
-  if (useLocal && localUrl) return localUrl;
-  return required("DATABASE_URL", DEFAULT_LOCAL_DATABASE_URL);
+  return required("DATABASE_URL", "");
 }
 
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? process.env.API_SERVER_PORT ?? 8787),
   databaseUrl: resolveDatabaseUrl(),
-  prismaPoolConnectionLimit: optionalPositiveInt("PRISMA_POOL_CONNECTION_LIMIT"),
+  prismaPoolConnectionLimit: optionalPositiveInt(
+    "PRISMA_POOL_CONNECTION_LIMIT",
+  ),
   prismaPoolTimeoutSeconds: optionalPositiveInt("PRISMA_POOL_TIMEOUT_SECONDS"),
   jwtAccessSecret: required("JWT_ACCESS_SECRET", DEV_ACCESS_SECRET),
   jwtRefreshSecret: required("JWT_REFRESH_SECRET", DEV_REFRESH_SECRET),
