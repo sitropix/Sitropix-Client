@@ -643,3 +643,125 @@ export function userMessageForAddonTicketError(code) {
   };
   return map[code] ?? "Cannot create this add-on request.";
 }
+
+/**
+ * Dashboard fulfillment state for ticket-gated add-ons (manual / consumable_service delivery).
+ */
+export function computeAddonFulfillmentStatus({ tracking, openTicket }) {
+  if (tracking?.isUtilized) {
+    return {
+      status: "setup_completed",
+      tracksFulfillment: true,
+      activeTicketId: null,
+      activeTicketSubject: null,
+    };
+  }
+
+  const ticket =
+    openTicket && OPEN_TICKET_STATUSES.includes(String(openTicket.status ?? "").toLowerCase())
+      ? openTicket
+      : null;
+
+  if (ticket) {
+    return {
+      status: "in_progress",
+      tracksFulfillment: true,
+      activeTicketId: ticket.id,
+      activeTicketSubject: ticket.subject ?? null,
+    };
+  }
+
+  return {
+    status: "not_used",
+    tracksFulfillment: true,
+    activeTicketId: null,
+    activeTicketSubject: null,
+  };
+}
+
+export async function resolveFulfillmentForOwnedAddon({
+  userId,
+  projectId,
+  subscription,
+  project,
+  plan,
+  addonRow,
+}) {
+  if (!subscription || !["active", "trialing"].includes(subscription.status)) {
+    return null;
+  }
+  if (!isAddonEligibleForSupportTickets(addonRow)) {
+    return null;
+  }
+
+  const bundled = bundledAddonCodesForPlan(plan).some((b) => b.code === addonRow.code);
+  const tracking = await prisma.$transaction((tx) =>
+    getOrCreateTrackingRow(tx, {
+      userId,
+      projectId,
+      subscriptionId: subscription.id,
+      subscriptionAddonId: addonRow.id,
+      addonRow,
+      subscription,
+      isBundled: bundled,
+    }),
+  );
+
+  let openTicket = null;
+  if (tracking.activeSupportTicketId) {
+    openTicket = await prisma.supportTicket.findFirst({
+      where: { id: tracking.activeSupportTicketId, userId, projectId },
+      select: { id: true, status: true, subject: true },
+    });
+  }
+  if (!openTicket || !OPEN_TICKET_STATUSES.includes(String(openTicket.status ?? "").toLowerCase())) {
+    openTicket = await prisma.supportTicket.findFirst({
+      where: {
+        userId,
+        projectId,
+        subscriptionAddonId: addonRow.id,
+        category: "addon",
+        status: { in: OPEN_TICKET_STATUSES },
+      },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, status: true, subject: true },
+    });
+  }
+
+  return computeAddonFulfillmentStatus({ tracking, openTicket });
+}
+
+/** Attach fulfillment status to each owned add-on card on GET /api/projects/:id. */
+export async function enrichProjectAccessibleAddonsWithFulfillment({
+  accessibleAddons,
+  catalog,
+  userId,
+  projectId,
+  subscription,
+  project,
+  plan,
+}) {
+  if (!accessibleAddons?.existing?.length) return accessibleAddons;
+
+  const codeToRow = new Map(catalog.map((row) => [row.code, row]));
+  const existing = [];
+
+  for (const card of accessibleAddons.existing) {
+    const addonRow = codeToRow.get(card.code);
+    if (!addonRow) {
+      existing.push(card);
+      continue;
+    }
+    const fulfillment = await resolveFulfillmentForOwnedAddon({
+      userId,
+      projectId,
+      subscription,
+      project,
+      plan,
+      addonRow,
+    });
+    existing.push(fulfillment ? { ...card, fulfillment } : card);
+  }
+
+  return { ...accessibleAddons, existing };
+}

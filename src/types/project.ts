@@ -6,6 +6,19 @@ export interface ProjectAddonRecurringPriceOptions {
   yearlyPriceCents?: number;
 }
 
+/** Ticket-gated add-on delivery on the project dashboard (from utilization tracking). */
+export type ProjectAddonFulfillmentStatus =
+  | "not_used"
+  | "in_progress"
+  | "setup_completed";
+
+export interface ProjectAddonFulfillment {
+  status: ProjectAddonFulfillmentStatus;
+  tracksFulfillment: boolean;
+  activeTicketId: string | null;
+  activeTicketSubject: string | null;
+}
+
 export interface ProjectAddonCard {
   code: string;
   label: string;
@@ -20,6 +33,7 @@ export interface ProjectAddonCard {
   recurringPriceOptions?: ProjectAddonRecurringPriceOptions;
   canChooseRecurringCycle?: boolean;
   defaultRecurringCycle?: BillingCycle;
+  fulfillment?: ProjectAddonFulfillment | null;
 }
 
 export interface ProjectAddonBillingContext {

@@ -437,14 +437,7 @@
       0 0 28px rgba(255, 255, 255, 0.04) !important;
   }
 
-  /* Dark-mode-only polish for left portal navigation. */
-  html[data-theme="dark"] .portal-sidebar {
-    background: #0a0a0a !important;
-    border-right-color: rgba(58, 58, 58, 0.9) !important;
-    box-shadow:
-      inset -1px 0 0 rgba(255, 255, 255, 0.03),
-      8px 0 28px rgba(0, 0, 0, 0.5) !important;
-  }
+  /* Portal sidebar nav: styled in client-portal-theme.css (client-portal-root .portal-sidebar). */
 
   html[data-theme="dark"] .portal-sidebar-card {
     background: rgba(18, 18, 18, 0.98) !important;
@@ -459,28 +452,6 @@
   html[data-theme="dark"] .portal-sidebar-header {
     background: rgba(16, 16, 16, 0.9) !important;
     border-bottom-color: rgba(46, 46, 46, 0.55) !important;
-  }
-
-  html[data-theme="dark"] .portal-nav-link {
-    color: #c6c6c6 !important;
-    border-left-color: transparent !important;
-    border-radius: 0.75rem !important;
-    margin: 0.1rem 0.15rem !important;
-    background: rgba(16, 16, 16, 0.55) !important;
-  }
-
-  html[data-theme="dark"] .portal-nav-link:hover {
-    color: #f4f4f5 !important;
-    border-left-color: rgba(120, 120, 120, 0.85) !important;
-    background: rgba(30, 30, 30, 0.98) !important;
-    box-shadow: none !important;
-  }
-
-  html[data-theme="dark"] .portal-nav-link[aria-current="page"] {
-    color: #f9fafb !important;
-    border-left-color: rgba(163, 163, 163, 0.95) !important;
-    background: rgba(26, 26, 26, 0.99) !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
   }
 
   html[data-theme="dark"] .portal-nav-badge {

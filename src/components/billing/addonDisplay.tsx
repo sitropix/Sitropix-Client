@@ -1,4 +1,9 @@
 import { portal } from "@/components/portal/portalStyles";
+import {
+  addonFulfillmentBadgeClass,
+  addonFulfillmentStatusLabel,
+} from "@/lib/addonUtilizationDisplay";
+import type { ProjectAddonFulfillment } from "@/types/project";
 import type { BillingCycle } from "@/types/subscription";
 import type { SubscriptionAddon } from "@/types/subscription";
 import type { ReactNode } from "react";
@@ -123,6 +128,8 @@ export type AddonOfferCardProps = {
   categoryTag?: string;
   actionLabel?: string;
   ownedLabel?: string;
+  fulfillment?: ProjectAddonFulfillment | null;
+  fulfillmentAction?: ReactNode;
   onPress?: () => void;
   onManage?: () => void;
 };
@@ -141,6 +148,8 @@ export function AddonOfferCard({
   categoryTag,
   actionLabel = "Purchase add-on",
   ownedLabel = "On your plan",
+  fulfillment = null,
+  fulfillmentAction = null,
   onPress,
   onManage,
 }: AddonOfferCardProps) {
@@ -233,9 +242,40 @@ export function AddonOfferCard({
   );
 
   if (mode === "owned") {
+    if (!fulfillment?.tracksFulfillment) {
+      return (
+        <div className={portal.addonCardMuted} aria-disabled>
+          {body}
+          <span
+            className={
+              portal.btnSecondary +
+              " mt-4 w-full !cursor-default !py-2.5 !text-sm opacity-70"
+            }
+          >
+            {ownedLabel}
+          </span>
+        </div>
+      );
+    }
+
     return (
       <div className={portal.addonCardMuted} aria-disabled>
-        {body}
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <p className="min-w-0 font-body text-body-lg font-semibold text-on-surface">{label}</p>
+          <span
+            className={`shrink-0 rounded px-2 py-0.5 font-caption text-[10px] font-bold uppercase tracking-wider ${addonFulfillmentBadgeClass(fulfillment.status)}`}
+          >
+            {addonFulfillmentStatusLabel(fulfillment.status)}
+          </span>
+        </div>
+        <p className="mt-2 font-body-sm text-body-sm leading-relaxed text-on-surface-variant">
+          {description}
+        </p>
+        {caption ? (
+          <p className="mt-1 font-caption text-caption font-medium text-on-surface-variant">{caption}</p>
+        ) : null}
+        {breakdown}
+        {fulfillmentAction ? <div className="mt-3">{fulfillmentAction}</div> : null}
         <span
           className={
             portal.btnSecondary +

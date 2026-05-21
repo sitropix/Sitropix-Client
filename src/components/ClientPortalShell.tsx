@@ -56,15 +56,13 @@ const PAGE_TITLES: Record<string, string> = {
 
 function sidebarNavClass({ isActive }: { isActive: boolean }) {
   return [
-    "portal-nav-link flex items-center gap-4 bg-transparent py-3 px-4 font-body text-body text-white transition-colors duration-200 ease-in-out",
-    isActive
-      ? "portal-nav-link--active border-l-2 border-accent-gold font-semibold"
-      : "border-l-2 border-transparent",
+    "portal-nav-link flex items-center gap-4 py-3 px-4 font-body text-body",
+    isActive ? "portal-nav-link--active" : "",
   ].join(" ");
 }
 
 function lockedSidebarClass() {
-  return "flex w-full cursor-not-allowed items-center gap-4 border-l-2 border-transparent py-3 px-4 text-left font-body text-body text-white/40";
+  return "portal-nav-link portal-nav-link--locked flex w-full cursor-not-allowed items-center gap-4 py-3 px-4 text-left font-body text-body";
 }
 
 function pageTitleForPath(pathname: string) {
@@ -92,16 +90,16 @@ function PortalSidebarBrand({ onNavigate }: { onNavigate?: () => void }) {
     <Link
       to="/dashboard"
       onClick={onNavigate}
-      className="mb-10 block px-2 outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/50"
+      className="portal-sidebar-brand mb-10 block px-2 outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/50"
     >
-      <h1 className="flex items-center gap-1 font-h1 text-h2 font-bold leading-none text-accent-gold">
+      <h1 className="portal-sidebar-brand-title flex items-center gap-1 font-h1 text-h2 font-bold leading-none">
         Sitropix
         <span
-          className="inline-block h-2 w-2 translate-y-1 rounded-full bg-accent-gold"
+          className="portal-sidebar-brand-dot inline-block h-2 w-2 translate-y-1 rounded-full"
           aria-hidden
         />
       </h1>
-      <p className="mt-1 font-caption text-caption uppercase tracking-wider text-white/55">
+      <p className="portal-sidebar-brand-subtitle mt-1 font-caption text-caption uppercase tracking-wider">
         Client Portal
       </p>
     </Link>
@@ -135,10 +133,7 @@ function SidebarNavItems({
               title={`${item.label} is locked until onboarding is complete`}
               className={lockedSidebarClass()}
             >
-              <MaterialIcon
-                name={item.icon}
-                className="!text-[22px] text-white/40"
-              />
+              <MaterialIcon name={item.icon} className="!text-[22px]" />
               <span>{item.label}</span>
               <MaterialIcon name="lock" className="ml-auto !text-[18px]" />
             </button>
@@ -457,7 +452,7 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
           onNavigate={closeMobileNav}
         />
       </nav>
-      <div className="mt-auto space-y-4 border-t border-white/10 pt-6">
+      <div className="portal-sidebar-footer mt-auto space-y-4 border-t pt-6">
         {/* {nextPlan ? (
           <Link
             to="/subscription"
@@ -471,14 +466,14 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
           <Link
             to="/profile"
             onClick={closeMobileNav}
-            className="flex items-center gap-4 bg-transparent py-3 px-4 font-body text-body text-white transition-colors duration-200 ease-in-out hover:text-white"
+            className="portal-sidebar-footer-link flex items-center gap-4 py-3 px-4 font-body text-body"
           >
             <MaterialIcon name="settings" className="!text-[22px]" />
             Settings
           </Link>
           <button
             type="button"
-            className="flex w-full items-center gap-4 bg-transparent py-3 px-4 text-left font-body text-body text-white transition-colors duration-200 ease-in-out hover:text-white"
+            className="portal-sidebar-footer-link portal-sidebar-footer-link--logout flex w-full items-center gap-4 py-3 px-4 text-left font-body text-body"
             onClick={() => {
               closeMobileNav();
               void logout();
@@ -493,13 +488,13 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
   );
 
   const sidebarClassName = [
-    "portal-sidebar fixed inset-y-0 left-0 z-50 flex h-screen w-64 flex-col border-r border-white/10 bg-black px-4 py-6 text-white shadow-xl",
+    "portal-sidebar fixed inset-y-0 left-0 z-50 flex h-screen w-64 flex-col px-4 py-6 shadow-xl",
     "transition-transform duration-200 ease-out md:translate-x-0",
     open ? "translate-x-0" : "-translate-x-full md:translate-x-0",
   ].join(" ");
 
   return (
-    <div className="client-portal-root min-h-screen bg-background text-on-background">
+    <div className="client-portal-root min-h-screen text-on-background">
       {open ? (
         <button
           type="button"
@@ -511,7 +506,7 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
 
       <aside className={sidebarClassName}>{sidebarNav}</aside>
 
-      <div className="client-portal-canvas flex min-h-screen flex-col bg-background md:ml-64">
+      <div className="client-portal-canvas flex min-h-screen flex-col md:ml-64">
         <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-outline-variant/10 bg-surface/85 px-gutter shadow-sm backdrop-blur-md">
           <button
             type="button"

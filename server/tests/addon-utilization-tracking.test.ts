@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  computeAddonFulfillmentStatus,
   resolveUtilizationCycleBounds,
   resolveAddonRecurringProfile,
   bundledAddonCodesForPlan,
@@ -85,5 +86,28 @@ describe("addonUtilizationTracking", () => {
         catalogJson: { effectKind: "consumable_service" },
       }),
     ).toBe(true);
+  });
+
+  it("maps utilization + tickets to dashboard fulfillment labels", () => {
+    expect(
+      computeAddonFulfillmentStatus({
+        tracking: { isUtilized: true },
+        openTicket: null,
+      }).status,
+    ).toBe("setup_completed");
+
+    expect(
+      computeAddonFulfillmentStatus({
+        tracking: { isUtilized: false },
+        openTicket: { id: "t1", status: "in_progress", subject: "GBP setup" },
+      }).status,
+    ).toBe("in_progress");
+
+    expect(
+      computeAddonFulfillmentStatus({
+        tracking: { isUtilized: false, activeSupportTicketId: "t1" },
+        openTicket: null,
+      }).status,
+    ).toBe("not_used");
   });
 });
