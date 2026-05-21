@@ -10,6 +10,10 @@ import {
 } from "../services/subscriptionLookup.mjs";
 import { fetchSubscriptionAddonCatalog } from "../services/addonCatalogStore.mjs";
 import {
+  bundledAddonCodesForPlan,
+  enrichProjectAccessibleAddonsWithFulfillment,
+} from "../services/addonUtilizationTracking.mjs";
+import {
   resolveExtraEditPurchaseSummary,
   resolveProjectAccessibleAddons,
 } from "../services/projectAccessibleAddons.mjs";
@@ -242,17 +246,35 @@ router.get("/:id", async (req, res) => {
 
   const billingCycle = sub?.billingCycle ?? normalized.billingCycle ?? null;
   const addonCatalogRows = await fetchSubscriptionAddonCatalog();
-  normalized.accessibleAddons = resolveProjectAccessibleAddons({
+  const ownedAddonCodes = [...normalized.addons];
+  if (sub?.plan) {
+    for (const { code } of bundledAddonCodesForPlan(sub.plan)) {
+      if (!ownedAddonCodes.includes(code)) ownedAddonCodes.push(code);
+    }
+  }
+  let accessibleAddons = resolveProjectAccessibleAddons({
     catalog: addonCatalogRows,
     plan: sub?.plan ?? null,
     billingCycle,
-    ownedAddonCodes: normalized.addons,
+    ownedAddonCodes,
     periodStartIso: sub?.currentPeriodStart
       ? sub.currentPeriodStart instanceof Date
         ? sub.currentPeriodStart.toISOString()
         : String(sub.currentPeriodStart)
       : null,
   });
+  if (sub) {
+    accessibleAddons = await enrichProjectAccessibleAddonsWithFulfillment({
+      accessibleAddons,
+      catalog: addonCatalogRows,
+      userId: req.auth.userId,
+      projectId: row.id,
+      subscription: sub,
+      project: row,
+      plan: sub.plan,
+    });
+  }
+  normalized.accessibleAddons = accessibleAddons;
   normalized.extraEditPurchase = resolveExtraEditPurchaseSummary(
     addonCatalogRows,
     sub?.plan ?? null,

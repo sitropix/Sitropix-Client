@@ -28,7 +28,7 @@ import {
   filterFilesWithinLimits,
 } from "@/lib/documentLimits";
 import { FormEvent, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 const TICKET_CATEGORIES: {
   id: SupportTicketCategory;
@@ -70,6 +70,7 @@ function stripHtml(html: string): string {
 
 export function SubmitTicketPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const { submitTicket } = useTickets();
   const { subscription, portal } = useUser();
@@ -89,6 +90,17 @@ export function SubmitTicketPage() {
   const [addonOptions, setAddonOptions] = useState<AddonTicketOption[]>([]);
   const [addonOptionsLoading, setAddonOptionsLoading] = useState(false);
   const [subscriptionAddonId, setSubscriptionAddonId] = useState("");
+
+  useEffect(() => {
+    const category = searchParams.get("category");
+    const project = searchParams.get("projectId");
+    const addonId = searchParams.get("subscriptionAddonId");
+    if (category === "general" || category === "edit" || category === "addon") {
+      setTicketCategory(category);
+    }
+    if (project?.trim()) setProjectId(project.trim());
+    if (addonId?.trim()) setSubscriptionAddonId(addonId.trim());
+  }, [searchParams]);
 
   useEffect(() => {
     if (!userId) return;

@@ -110,34 +110,134 @@ html[data-theme="dark"] .client-portal-root :is(h1, h2, h3, h4, h5, h6) {
   color: inherit !important;
 }
 
-/* Sidebar: black rail, white labels only (no option row fill) */
+/* ── Portal sidebar (light rail + dark rail) ── */
+
 .client-portal-root .portal-sidebar {
-  background-color: #000000 !important;
+  background-color: var(--portal-surface-container) !important;
+  border-right: 1px solid rgba(61, 60, 58, 0.14) !important;
+  color: var(--portal-on-surface);
+  box-shadow: 4px 0 24px rgba(28, 27, 27, 0.05) !important;
+}
+
+.client-portal-root .portal-sidebar-footer {
+  border-top-color: rgba(61, 60, 58, 0.14) !important;
+}
+
+.client-portal-root .portal-sidebar-brand-title,
+.client-portal-root .portal-sidebar .portal-sidebar-brand h1 {
+  color: var(--portal-accent-gold) !important;
+}
+
+.client-portal-root .portal-sidebar-brand-dot {
+  background-color: var(--portal-accent-gold) !important;
+}
+
+.client-portal-root .portal-sidebar-brand-subtitle {
+  color: var(--portal-on-surface-variant) !important;
 }
 
 .client-portal-root .portal-sidebar .portal-nav-link,
-.client-portal-root .portal-sidebar .portal-nav-link--active,
-.client-portal-root .portal-sidebar .portal-nav-link:hover,
-html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link,
-html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link:hover,
-html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link[aria-current="page"] {
+.client-portal-root .portal-sidebar .portal-sidebar-footer-link {
+  color: var(--portal-on-surface) !important;
   background-color: transparent !important;
   background-image: none !important;
+  border-left: 2px solid transparent !important;
+  border-radius: 0.75rem;
+  margin: 0.1rem 0.15rem;
   box-shadow: none !important;
-  color: #ffffff !important;
+  transition:
+    color 0.2s ease-in-out,
+    background-color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out;
+}
+
+.client-portal-root .portal-sidebar .portal-nav-link .material-symbols-outlined,
+.client-portal-root .portal-sidebar .portal-sidebar-footer-link .material-symbols-outlined {
+  color: inherit !important;
+}
+
+.client-portal-root .portal-sidebar .portal-nav-link:hover,
+.client-portal-root .portal-sidebar .portal-sidebar-footer-link:hover {
+  color: var(--portal-on-surface) !important;
+  background-color: rgba(28, 27, 27, 0.06) !important;
+  border-left-color: rgba(120, 118, 114, 0.75) !important;
 }
 
 .client-portal-root .portal-sidebar .portal-nav-link--active,
-html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link[aria-current="page"] {
+.client-portal-root .portal-sidebar .portal-nav-link[aria-current="page"] {
+  color: var(--portal-on-surface) !important;
+  font-weight: 600 !important;
   border-left-color: var(--portal-accent-gold) !important;
+  background-color: rgba(196, 163, 90, 0.14) !important;
 }
 
-.client-portal-root .portal-sidebar .portal-nav-link .material-symbols-outlined {
-  color: #ffffff !important;
+.client-portal-root .portal-sidebar .portal-nav-link--locked,
+.client-portal-root .portal-sidebar .portal-nav-link--locked .material-symbols-outlined {
+  color: var(--portal-on-surface-variant) !important;
+  opacity: 0.55;
+}
+
+.client-portal-root .portal-sidebar .portal-sidebar-footer-link--logout:hover {
+  color: var(--portal-error) !important;
+  background-color: var(--portal-error-bg) !important;
+  border-left-color: rgba(163, 48, 48, 0.35) !important;
 }
 
 html[data-theme="dark"] .client-portal-root .portal-sidebar {
-  background-color: #000000 !important;
+  background: #0a0a0a !important;
+  border-right-color: rgba(58, 58, 58, 0.9) !important;
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.03),
+    8px 0 28px rgba(0, 0, 0, 0.5) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar-footer {
+  border-top-color: rgba(46, 46, 46, 0.55) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar-brand-title,
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-sidebar-brand h1 {
+  color: var(--portal-accent-gold) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar-brand-dot {
+  background-color: var(--portal-accent-gold) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar-brand-subtitle {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link,
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-sidebar-footer-link {
+  color: #c6c6c6 !important;
+  background-color: transparent !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link:hover,
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-sidebar-footer-link:hover {
+  color: #f4f4f5 !important;
+  background-color: rgba(30, 30, 30, 0.98) !important;
+  border-left-color: rgba(120, 120, 120, 0.85) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link--active,
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link[aria-current="page"] {
+  color: #f9fafb !important;
+  border-left-color: var(--portal-accent-gold) !important;
+  background-color: rgba(26, 26, 26, 0.99) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link--locked,
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link--locked .material-symbols-outlined {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-sidebar-footer-link--logout:hover {
+  color: #fca5a5 !important;
+  background-color: rgba(163, 48, 48, 0.12) !important;
+  border-left-color: rgba(248, 113, 113, 0.45) !important;
 }
 
 /* ── Portal page UX (align inner routes with home dashboard) ── */

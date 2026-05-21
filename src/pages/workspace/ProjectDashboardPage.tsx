@@ -17,6 +17,10 @@ import {
   projectAddonPriceSuffix,
 } from "@/lib/addonDisplayHelpers";
 import {
+  addonFulfillmentCaption,
+  submitTicketUrlForAddon,
+} from "@/lib/addonUtilizationDisplay";
+import {
   buildAddonCheckoutCartFromAddons,
   saveAddonCheckoutCart,
 } from "@/services/addonCheckoutCart";
@@ -28,7 +32,6 @@ import {
 } from "@/components/billing/addonDisplay";
 import { ExtraEditPurchaseModal } from "@/components/billing/ExtraEditPurchaseModal";
 import { portal as portalUi } from "@/components/portal/portalStyles";
-import { isCreditPackAddon } from "@/constants/extraEditAddons";
 import {
   DOCUMENT_MAX_BYTES,
   PROJECT_ASSET_MAX_PER_TYPE,
@@ -46,7 +49,7 @@ import {
 import type { BillingCycle } from "@/types/subscription";
 import type { ProjectAddonCard, ProjectRecord, ProjectRequirementType } from "@/types/project";
 import type { SubscriptionAddon } from "@/types/subscription";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 const ADDONS_PAGE_SIZE = 6;
@@ -122,11 +125,6 @@ export function ProjectDashboardPage() {
   const { portal } = useUser();
   const [searchParams, setSearchParams] = useSearchParams();
   const plans = useMemo(() => portal?.plans ?? [], [portal?.plans]);
-  const addonCatalog = useMemo(() => portal?.addons ?? [], [portal?.addons]);
-  const purchasableAddons = useMemo(
-    () => addonCatalog.filter((a) => !isCreditPackAddon(a)),
-    [addonCatalog],
-  );
   const [addonPage, setAddonPage] = useState(0);
   const userId = user?.id ?? portal?.user?.id ?? "guest-user";
   const [, setTick] = useState(0);
@@ -238,8 +236,8 @@ export function ProjectDashboardPage() {
   const canChooseAddonCycle = accessible?.billingContext?.canChooseRecurringAddonCycle ?? false;
 
   const addonByCode = useMemo(
-    () => new Map(purchasableAddons.map((a) => [a.code, a])),
-    [purchasableAddons],
+    () => new Map((portal?.addons ?? []).map((a) => [a.code, a])),
+    [portal?.addons],
   );
 
   const cardByCode = useMemo(() => {
@@ -256,14 +254,6 @@ export function ProjectDashboardPage() {
         .map((card) => addonByCode.get(card.code))
         .filter((a): a is SubscriptionAddon => Boolean(a)),
     [purchasableCards, addonByCode],
-  );
-
-  const ownedAddonCards = useMemo(
-    () =>
-      existingCards
-        .map((card) => addonByCode.get(card.code))
-        .filter((a): a is SubscriptionAddon => Boolean(a)),
-    [existingCards, addonByCode],
   );
 
   useEffect(() => {
@@ -751,25 +741,59 @@ export function ProjectDashboardPage() {
           </div>
         ) : null}
 
-        {ownedAddonCards.length > 0 ? (
+        {existingCards.length > 0 ? (
           <div className="mt-6">
             <h3 className={portalUi.addonSectionEyebrow}>Existing add-ons</h3>
             <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {ownedAddonCards.map((addon) => {
-                const card = cardByCode.get(addon.code);
+              {existingCards.map((card) => {
+                const addon = addonByCode.get(card.code);
+                if (!addon) return null;
                 const ownedCycle =
                   project.billingCycle === "yearly" ? "yearly" : "monthly";
-                const priceCents = card
-                  ? projectAddonCardPriceCents(card, addon, planForProject, ownedCycle)
-                  : addonCardDisplayCents(addon, plans, project.planId, ownedCycle);
+                const priceCents = projectAddonCardPriceCents(
+                  card,
+                  addon,
+                  planForProject,
+                  ownedCycle,
+                );
+                const fulfillment = card.fulfillment ?? null;
+                const statusCaption = fulfillment?.tracksFulfillment
+                  ? addonFulfillmentCaption(fulfillment, project.id)
+                  : extraEditAddonCaption(addon, plans, project.planId);
+                const addonId = addon.id ?? "";
+                let fulfillmentAction: ReactNode = null;
+                if (fulfillment?.status === "not_used" && addonId) {
+                  fulfillmentAction = (
+                    <Link
+                      to={submitTicketUrlForAddon(project.id, addonId)}
+                      className={portalUi.btnPrimary + " inline-flex !px-3 !py-1.5 !text-xs"}
+                    >
+                      Start add-on request
+                    </Link>
+                  );
+                } else if (fulfillment?.status === "in_progress" && fulfillment.activeTicketId) {
+                  fulfillmentAction = (
+                    <Link
+                      to={`/support/tickets/${fulfillment.activeTicketId}`}
+                      className={
+                        portalUi.btnSecondary +
+                        " inline-flex !px-3 !py-1.5 !text-xs"
+                      }
+                    >
+                      View request
+                    </Link>
+                  );
+                }
                 return (
                   <AddonOfferCard
-                    key={addon.code}
+                    key={card.code}
                     mode="owned"
                     label={addon.label}
                     description={addon.desc}
                     priceLabel={money(priceCents, addon.currency || "USD")}
-                    caption={extraEditAddonCaption(addon, plans, project.planId)}
+                    caption={statusCaption}
+                    fulfillment={fulfillment}
+                    fulfillmentAction={fulfillmentAction}
                     breakdown={
                       <AddonRecurringPriceBreakdown
                         addon={addon}
@@ -903,7 +927,7 @@ export function ProjectDashboardPage() {
         ) : null}
 
         {!canBuyExtraEdits &&
-        ownedAddonCards.length === 0 &&
+        existingCards.length === 0 &&
         availableAddons.length === 0 &&
         hasValidPlan ? (
           <p className="mt-4 rounded-lg border border-on-surface/10 bg-surface-container-low px-4 py-3 font-body-sm text-body-sm text-on-surface-variant">
