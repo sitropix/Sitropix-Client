@@ -445,14 +445,14 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
   const sidebarNav = (
     <>
       <PortalSidebarBrand onNavigate={closeMobileNav} />
-      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]">
+      <nav className="min-h-0 min-w-0 flex-1 space-y-1 overflow-x-hidden overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]">
         <SidebarNavItems
           shouldRestrictNav={shouldRestrictNav}
           matchesAllowedPath={matchesAllowedPath}
           onNavigate={closeMobileNav}
         />
       </nav>
-      <div className="portal-sidebar-footer mt-auto space-y-4 border-t pt-6">
+      <div className="portal-sidebar-footer mt-auto min-w-0 space-y-4 border-t pt-6">
         {/* {nextPlan ? (
           <Link
             to="/subscription"
@@ -488,7 +488,7 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
   );
 
   const sidebarClassName = [
-    "portal-sidebar fixed inset-y-0 left-0 z-50 flex h-screen w-64 flex-col px-4 py-6 shadow-xl",
+    "portal-sidebar fixed inset-y-0 left-0 z-50 flex h-screen w-64 min-w-0 flex-col overflow-x-hidden px-4 py-6 shadow-xl",
     "transition-transform duration-200 ease-out md:translate-x-0",
     open ? "translate-x-0" : "-translate-x-full md:translate-x-0",
   ].join(" ");
@@ -507,7 +507,7 @@ export function ClientPortalShell({ children }: { children: ReactNode }) {
       <aside className={sidebarClassName}>{sidebarNav}</aside>
 
       <div className="client-portal-canvas flex min-h-screen flex-col md:ml-64">
-        <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-outline-variant/10 bg-surface/85 px-gutter shadow-sm backdrop-blur-md">
+        <header className="portal-top-header sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between gap-4 border-b px-gutter shadow-sm backdrop-blur-md">
           <button
             type="button"
             className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-outline-variant/50 bg-surface-container-lowest text-on-surface outline-none transition hover:bg-surface-container md:hidden"

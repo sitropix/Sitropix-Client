@@ -112,7 +112,13 @@ html[data-theme="dark"] .client-portal-root :is(h1, h2, h3, h4, h5, h6) {
 
 /* ── Portal sidebar (light rail + dark rail) ── */
 
+.client-portal-root .portal-top-header {
+  background-color: color-mix(in srgb, var(--portal-background) 88%, transparent) !important;
+  border-bottom-color: color-mix(in srgb, var(--portal-outline-variant) 35%, transparent) !important;
+}
+
 .client-portal-root .portal-sidebar {
+  overflow-x: hidden;
   background-color: var(--portal-surface-container) !important;
   border-right: 1px solid rgba(61, 60, 58, 0.14) !important;
   color: var(--portal-on-surface);
@@ -143,7 +149,8 @@ html[data-theme="dark"] .client-portal-root :is(h1, h2, h3, h4, h5, h6) {
   background-image: none !important;
   border-left: 2px solid transparent !important;
   border-radius: 0.75rem;
-  margin: 0.1rem 0.15rem;
+  margin: 0.1rem 0;
+  max-width: 100%;
   box-shadow: none !important;
   transition:
     color 0.2s ease-in-out,
@@ -473,6 +480,10 @@ html:not([data-theme="dark"]) .client-portal-main .client-workspace-view :is(p, 
 
 .client-portal-root .bg-background {
   background-color: var(--portal-background) !important;
+}
+
+.client-portal-root .bg-surface {
+  background-color: var(--portal-surface) !important;
 }
 
 .client-portal-root .bg-surface-container-lowest,
