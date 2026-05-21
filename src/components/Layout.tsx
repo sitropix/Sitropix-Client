@@ -9,7 +9,7 @@ import { SubscriptionPortalProvider } from "@/context/SubscriptionPortalContext"
 
 export function Layout() {
   const { pathname } = useLocation();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, loading: authLoading } = useAuth();
   const { isAdmin } = useAuthz();
 
   const isAuthPage = pathname === "/login" || pathname === "/signup";
@@ -32,7 +32,8 @@ export function Layout() {
   const isClientPortalPath = clientPortalPaths.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   );
-  const useClientPortalShell = isAuthenticated && isClientPortalPath;
+  const useClientPortalShell =
+    isClientPortalPath && (isAuthenticated || authLoading);
   const useAdminShell =
     isAuthenticated &&
     isAdmin &&

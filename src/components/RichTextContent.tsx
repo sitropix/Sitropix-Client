@@ -3,6 +3,8 @@ import { useMemo } from "react";
 interface RichTextContentProps {
   content: string;
   className?: string;
+  /** `portal` = light client portal; `dark` = legacy dark panels */
+  variant?: "portal" | "dark";
 }
 
 const HTML_TAG_RE = /<\/?[a-z][\s\S]*>/i;
@@ -39,8 +41,10 @@ function sanitizeHtml(input: string) {
   return template.innerHTML;
 }
 
-export function RichTextContent({ content, className }: RichTextContentProps) {
+export function RichTextContent({ content, className, variant = "dark" }: RichTextContentProps) {
   const safeHtml = useMemo(() => sanitizeHtml(content), [content]);
+  const prose =
+    variant === "portal" ? "prose prose-sm max-w-none text-zinc-800" : "prose prose-invert prose-sm max-w-none";
 
   if (!hasHtml(content)) {
     return <p className={["whitespace-pre-wrap", className].filter(Boolean).join(" ")}>{content}</p>;
@@ -48,7 +52,7 @@ export function RichTextContent({ content, className }: RichTextContentProps) {
 
   return (
     <div
-      className={["prose prose-invert prose-sm max-w-none", className].filter(Boolean).join(" ")}
+      className={[prose, className].filter(Boolean).join(" ")}
       dangerouslySetInnerHTML={{ __html: safeHtml }}
     />
   );

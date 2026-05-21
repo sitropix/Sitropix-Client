@@ -180,7 +180,7 @@ export function MyRequestsPage() {
                     <div className="min-w-0 flex-1 border-b border-zinc-300 p-5 md:border-b-0 md:border-r md:p-6">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono text-[11px] text-zinc-500">#{t.id}</span>
-                        <StatusBadge status={t.status} />
+                        <StatusBadge variant="portal" status={t.status} />
                         {t.department ? (
                           <span className="rounded-full border border-zinc-300 bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">
                             {t.department}

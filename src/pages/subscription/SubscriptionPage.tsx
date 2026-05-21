@@ -46,26 +46,21 @@ export function SubscriptionPage() {
   }, [anyMonthly, anyYearly]);
 
   return (
-    <div className="space-y-6 text-zinc-900 opacity-0 animate-fade-up [animation-fill-mode:forwards] lg:space-y-7">
+    <div className="space-y-5 text-zinc-900 opacity-0 animate-fade-up [animation-fill-mode:forwards]">
       <Breadcrumb items={[{ label: "Home", to: "/dashboard" }, { label: "Plan catalog" }]} />
 
-      <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-        <div className="relative min-w-0 overflow-hidden rounded-2xl border border-zinc-200/90 bg-gradient-to-br from-white via-zinc-50/80 to-zinc-100/50 px-5 py-5 shadow-sm sm:flex-1 sm:px-7 sm:py-6">
-          <div aria-hidden className="pointer-events-none absolute -right-10 top-0 h-32 w-32 rounded-full bg-brand-lime/[0.07] blur-3xl" />
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="subscription-mgmt-hero relative min-w-0 overflow-hidden rounded-2xl border border-zinc-200/90 bg-gradient-to-br from-white via-zinc-50/80 to-zinc-100/50 px-4 py-4 shadow-sm sm:flex-1 sm:px-6 sm:py-5">
+          <div aria-hidden className="pointer-events-none absolute -right-10 top-0 h-24 w-24 rounded-full bg-brand-lime/[0.07] blur-3xl" />
           <div className="relative">
             <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Plan &amp; add-on catalog</p>
-            <h1 className="mt-1.5 text-balance text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl">
+            <h1 className="mt-1 text-balance text-xl font-bold tracking-tight text-zinc-900 sm:text-2xl">
               Compare plans and add-ons
             </h1>
-            <p className="mt-2 max-w-2xl text-pretty text-sm leading-relaxed text-zinc-600">
-              This area is a reference catalog only — it does not reflect which project is currently billed. To subscribe
-              or change a plan, open a project, complete intake, and use that project&apos;s checkout or Payment Management
-              for billing changes.
+            <p className="mt-1.5 max-w-2xl text-pretty text-sm leading-snug text-zinc-600">
+              Reference pricing only — not tied to a billed project. Subscribe or change plans from a project&apos;s
+              checkout or Payment Management.
             </p>
-            <ul className="mt-3 list-inside list-disc space-y-1 text-xs text-zinc-600 sm:text-sm">
-              <li>Each project can have its own active plan and renewal date.</li>
-              <li>Add-ons are selected during project checkout or managed from the project workspace.</li>
-            </ul>
           </div>
         </div>
         <div
@@ -115,19 +110,19 @@ export function SubscriptionPage() {
       )}
 
       {loading && (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6">
-          <Skeleton className="h-[420px] w-full rounded-2xl" />
-          <Skeleton className="h-[420px] w-full rounded-2xl" />
-          <Skeleton className="h-[420px] w-full rounded-2xl" />
+        <div className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Skeleton className="h-[300px] w-full rounded-2xl" />
+          <Skeleton className="h-[300px] w-full rounded-2xl" />
+          <Skeleton className="h-[300px] w-full rounded-2xl" />
         </div>
       )}
 
       {!loading && visiblePlans.length > 0 && (
-        <section className="rounded-2xl border border-zinc-200/90 bg-white/40 p-4 shadow-sm ring-1 ring-zinc-100/80 sm:p-6">
-          <div className="mb-5 flex flex-col gap-2 border-b border-zinc-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <section className="rounded-2xl border border-zinc-200/90 bg-white/40 p-4 shadow-sm ring-1 ring-zinc-100/80 sm:p-5">
+          <div className="mb-4 flex flex-col gap-1 border-b border-zinc-200/80 pb-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Plans</h2>
-              <p className="mt-1 text-sm font-medium text-zinc-800">Tiers and included capabilities</p>
+              <p className="mt-0.5 text-sm font-medium text-zinc-800">Tiers and included capabilities</p>
             </div>
             <p className="text-xs text-zinc-600">
               {showBillingToggle
@@ -135,7 +130,7 @@ export function SubscriptionPage() {
                 : "One-time plans show the purchase price from the monthly price field."}
             </p>
           </div>
-          <div className="grid auto-rows-fr gap-5 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6">
+          <div className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-5">
             {visiblePlans.map((plan) => (
               <PricingCard
                 key={plan.id}
@@ -152,15 +147,11 @@ export function SubscriptionPage() {
       )}
 
       {!loading && addons.length > 0 && (
-        <section className="rounded-2xl border border-zinc-200/90 bg-white/40 p-4 shadow-sm ring-1 ring-zinc-100/80 sm:p-6">
-          <div className="mb-4 flex flex-col gap-2 border-b border-zinc-200/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <section className="rounded-2xl border border-zinc-200/90 bg-white/40 p-4 shadow-sm ring-1 ring-zinc-100/80 sm:p-5">
+          <div className="mb-3 flex flex-col gap-1 border-b border-zinc-200/80 pb-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Add-ons</h2>
-              <p className="mt-1 text-sm font-medium text-zinc-800">Optional extras you can add at checkout</p>
-              <p className="mt-1 text-xs text-zinc-600">
-                Add-ons are attached per subscription when you pay for a project. Your admin team can also adjust entitlements
-                where applicable.
-              </p>
+              <p className="mt-0.5 text-sm font-medium text-zinc-800">Optional extras at project checkout</p>
             </div>
             <p className="text-xs text-zinc-600">
               {showBillingToggle && (anyAddonMonthly || anyAddonYearly)
@@ -168,15 +159,15 @@ export function SubscriptionPage() {
                 : "One-time add-ons show the purchase price."}
             </p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
             {addons.map((addon: SubscriptionAddon) => (
               <article
                 key={addon.code}
-                className="flex h-full flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-sm ring-1 ring-zinc-100/80"
+                className="flex flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-sm ring-1 ring-zinc-100/80"
               >
                 <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{addon.code}</p>
                 <h3 className="mt-1 text-lg font-semibold text-zinc-900">{addon.label}</h3>
-                <p className="mt-2 flex-1 text-sm leading-relaxed text-zinc-600">
+                <p className="mt-2 text-sm leading-snug text-zinc-600">
                   {addonCatalogDisplayDesc(addon, billingCycle, visiblePlans)}
                 </p>
                 <p className="mt-3 text-lg font-bold text-zinc-900">

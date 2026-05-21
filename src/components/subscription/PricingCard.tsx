@@ -44,7 +44,7 @@ export function PricingCard({
   return (
     <article
       className={[
-        "group relative flex h-full flex-col overflow-hidden rounded-2xl border p-6 shadow-glass transition duration-300",
+        "group relative flex flex-col overflow-hidden rounded-2xl border p-5 shadow-glass transition duration-300 sm:p-6",
         isCurrent
           ? "border-sky-300/90 bg-gradient-to-b from-white via-sky-50/40 to-white ring-2 ring-sky-400/35"
           : "border-zinc-200/90 bg-white ring-1 ring-zinc-100 hover:-translate-y-1 hover:border-zinc-300 hover:shadow-[0_20px_40px_-12px_rgba(39,42,53,0.18)] hover:ring-zinc-200/80",
@@ -89,14 +89,14 @@ export function PricingCard({
 
       <div
         className={[
-          "mt-5 flex-1 rounded-xl border p-4",
+          "mt-4 rounded-xl border p-3.5 sm:p-4",
           isCurrent
             ? "border-sky-200/70 bg-white/80 backdrop-blur-[2px]"
             : "border-zinc-200/90 bg-zinc-50/90 group-hover:bg-zinc-50",
         ].join(" ")}
       >
         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Includes</p>
-        <ul className="mt-3 space-y-2.5 text-sm text-zinc-800">
+        <ul className="mt-2.5 space-y-2 text-sm text-zinc-800">
           {plan.features.map((feature) => (
             <li key={feature} className="flex gap-2.5">
               <span
@@ -115,7 +115,7 @@ export function PricingCard({
 
       {isCurrent ? (
         <div
-          className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-300/70 bg-emerald-50/90 px-5 py-2.5 text-sm font-semibold text-emerald-900 shadow-sm ring-1 ring-emerald-200/70"
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-300/70 bg-emerald-50/90 px-5 py-2.5 text-sm font-semibold text-emerald-900 shadow-sm ring-1 ring-emerald-200/70"
           role="status"
         >
           <span className="flex h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.25)]" aria-hidden />
@@ -127,7 +127,7 @@ export function PricingCard({
           onClick={() => onSelect(plan.id)}
           disabled={loading}
           className={[
-            "mt-6 inline-flex w-full min-h-[44px] items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold transition",
+            "mt-4 inline-flex w-full min-h-[44px] items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold transition",
             isDowngrade
               ? "border border-dashed border-zinc-300 bg-white text-zinc-700 shadow-sm hover:border-zinc-400 hover:bg-zinc-50 disabled:opacity-50"
               : "bg-zinc-900 text-white shadow-md hover:bg-zinc-800 hover:shadow-lg disabled:opacity-50",

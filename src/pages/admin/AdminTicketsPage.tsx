@@ -228,7 +228,7 @@ export function AdminTicketsPage() {
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs font-mono text-ink-subtle">#{t.id}</span>
-                      <StatusBadge status={t.status} />
+                      <StatusBadge variant="dark" status={t.status} />
                       <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
                         {categoryLabel(t.category)}
                       </span>

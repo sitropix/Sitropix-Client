@@ -1,9 +1,18 @@
-export function Skeleton({ className = "" }: { className?: string }) {
+export function Skeleton({
+  className = "",
+  variant = "legacy",
+}: {
+  className?: string;
+  variant?: "legacy" | "portal" | "admin";
+}) {
+  const tone =
+    variant === "portal"
+      ? "bg-on-surface/8"
+      : variant === "admin"
+        ? "bg-white/[0.06]"
+        : "bg-white/[0.06]";
   return (
-    <div
-      className={`rounded-lg bg-white/[0.06] animate-pulse ${className}`}
-      aria-hidden
-    />
+    <div className={`animate-pulse rounded-lg ${tone} ${className}`} aria-hidden />
   );
 }
 

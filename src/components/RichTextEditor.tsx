@@ -10,6 +10,8 @@ interface RichTextEditorProps {
   onChange: (html: string) => void;
   placeholder?: string;
   minHeight?: string;
+  /** `portal` = light client portal; `dark` = legacy dark panels */
+  variant?: "portal" | "dark";
 }
 
 function ToolbarButton({
@@ -17,12 +19,18 @@ function ToolbarButton({
   onClick,
   children,
   title,
+  variant,
 }: {
   active?: boolean;
   onClick: () => void;
   children: ReactNode;
   title: string;
+  variant: "portal" | "dark";
 }) {
+  const inactive =
+    variant === "portal"
+      ? "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+      : "text-ink-muted hover:bg-white/10 hover:text-white";
   return (
     <button
       type="button"
@@ -30,9 +38,7 @@ function ToolbarButton({
       title={title}
       className={[
         "rounded p-1.5 transition",
-        active
-          ? "bg-brand-lime/20 text-brand-lime"
-          : "text-ink-muted hover:bg-white/10 hover:text-white",
+        active ? "bg-accent-gold/20 text-accent-gold" : inactive,
       ].join(" ")}
     >
       {children}
@@ -40,7 +46,13 @@ function ToolbarButton({
   );
 }
 
-export function RichTextEditor({ value, onChange, placeholder, minHeight = "200px" }: RichTextEditorProps) {
+export function RichTextEditor({
+  value,
+  onChange,
+  placeholder,
+  minHeight = "200px",
+  variant = "dark",
+}: RichTextEditorProps) {
   const [linkPopoverOpen, setLinkPopoverOpen] = useState(false);
   const [linkInput, setLinkInput] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -65,7 +77,10 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = "200p
     },
     editorProps: {
       attributes: {
-        class: "prose prose-invert prose-sm max-w-none focus:outline-none",
+        class:
+          variant === "portal"
+            ? "prose prose-sm max-w-none text-zinc-900 focus:outline-none"
+            : "prose prose-invert prose-sm max-w-none focus:outline-none",
         style: `min-height: ${minHeight}`,
       },
     },
@@ -110,10 +125,41 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = "200p
     setLinkPopoverOpen(false);
   }
 
+  const shell =
+    variant === "portal"
+      ? "overflow-hidden rounded-xl border border-zinc-300 bg-white"
+      : "overflow-hidden rounded-xl border border-white/10 bg-black/30";
+  const toolbar =
+    variant === "portal"
+      ? "relative flex flex-wrap items-center gap-0.5 border-b border-zinc-200 bg-zinc-50 px-2 py-1.5"
+      : "relative flex flex-wrap items-center gap-0.5 border-b border-white/10 bg-black/20 px-2 py-1.5";
+  const divider = variant === "portal" ? "mx-1 h-4 w-px bg-zinc-300" : "mx-1 h-4 w-px bg-white/20";
+  const linkPopoverShell =
+    variant === "portal"
+      ? "absolute right-2 top-[calc(100%+0.4rem)] z-20 w-full max-w-sm rounded-xl border border-zinc-300 bg-white p-3 shadow-lg"
+      : "absolute right-2 top-[calc(100%+0.4rem)] z-20 w-full max-w-sm rounded-xl border border-white/10 bg-[#12181f] p-3 shadow-glass ring-1 ring-black/40";
+  const linkLabel =
+    variant === "portal"
+      ? "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-zinc-600"
+      : "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-ink-subtle";
+  const linkInputClass =
+    variant === "portal"
+      ? "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-accent-gold focus:ring-1 focus:ring-accent-gold/30"
+      : "w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35 focus:ring-2 focus:ring-brand-lime/25";
+  const linkGhostBtn =
+    variant === "portal"
+      ? "rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900"
+      : "rounded-lg border border-white/15 px-3 py-1.5 text-xs font-medium text-ink-muted transition hover:bg-white/[0.06] hover:text-white";
+  const linkApplyBtn =
+    variant === "portal"
+      ? "rounded-lg bg-accent-gold px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
+      : "rounded-lg bg-brand-lime px-3 py-1.5 text-xs font-semibold text-canvas transition hover:bg-brand-lime-dim";
+
   return (
-    <div className="overflow-hidden rounded-xl border border-white/10 bg-black/30">
-      <div className="relative flex flex-wrap items-center gap-0.5 border-b border-white/10 bg-black/20 px-2 py-1.5">
+    <div className={shell}>
+      <div className={toolbar}>
         <ToolbarButton
+          variant={variant}
           active={editor.isActive("bold")}
           onClick={() => editor.chain().focus().toggleBold().run()}
           title="Bold"
@@ -123,6 +169,7 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = "200p
           </svg>
         </ToolbarButton>
         <ToolbarButton
+          variant={variant}
           active={editor.isActive("italic")}
           onClick={() => editor.chain().focus().toggleItalic().run()}
           title="Italic"
@@ -132,6 +179,7 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = "200p
           </svg>
         </ToolbarButton>
         <ToolbarButton
+          variant={variant}
           active={editor.isActive("underline")}
           onClick={() => editor.chain().focus().toggleUnderline().run()}
           title="Underline"
@@ -141,9 +189,10 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = "200p
           </svg>
         </ToolbarButton>
 
-        <div className="mx-1 h-4 w-px bg-white/20" />
+        <div className={divider} />
 
         <ToolbarButton
+          variant={variant}
           active={editor.isActive("heading", { level: 1 })}
           onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
           title="Heading 1"
@@ -151,6 +200,7 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = "200p
           <span className="text-xs font-bold">H1</span>
         </ToolbarButton>
         <ToolbarButton
+          variant={variant}
           active={editor.isActive("heading", { level: 2 })}
           onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
           title="Heading 2"
@@ -158,9 +208,10 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = "200p
           <span className="text-xs font-bold">H2</span>
         </ToolbarButton>
 
-        <div className="mx-1 h-4 w-px bg-white/20" />
+        <div className={divider} />
 
         <ToolbarButton
+          variant={variant}
           active={editor.isActive("bulletList")}
           onClick={() => editor.chain().focus().toggleBulletList().run()}
           title="Bullet List"
@@ -170,6 +221,7 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = "200p
           </svg>
         </ToolbarButton>
         <ToolbarButton
+          variant={variant}
           active={editor.isActive("orderedList")}
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
           title="Numbered List"
@@ -179,9 +231,10 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = "200p
           </svg>
         </ToolbarButton>
 
-        <div className="mx-1 h-4 w-px bg-white/20" />
+        <div className={divider} />
 
         <ToolbarButton
+          variant={variant}
           active={editor.isActive("blockquote")}
           onClick={() => editor.chain().focus().toggleBlockquote().run()}
           title="Quote"
@@ -191,6 +244,7 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = "200p
           </svg>
         </ToolbarButton>
         <ToolbarButton
+          variant={variant}
           active={editor.isActive("link")}
           onClick={openLinkPopover}
           title="Insert Link"
@@ -201,8 +255,8 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = "200p
         </ToolbarButton>
 
         {linkPopoverOpen ? (
-          <div className="absolute right-2 top-[calc(100%+0.4rem)] z-20 w-full max-w-sm rounded-xl border border-white/10 bg-[#12181f] p-3 shadow-glass ring-1 ring-black/40">
-            <label htmlFor="editor-link-input" className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
+          <div className={linkPopoverShell}>
+            <label htmlFor="editor-link-input" className={linkLabel}>
               Link URL
             </label>
             <input
@@ -220,29 +274,17 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = "200p
                 }
               }}
               placeholder="https://example.com"
-              className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-brand-lime/35 focus:ring-2 focus:ring-brand-lime/25"
+              className={linkInputClass}
             />
             <div className="mt-2 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={removeLink}
-                className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-medium text-ink-muted transition hover:bg-white/[0.06] hover:text-white"
-              >
+              <button type="button" onClick={removeLink} className={linkGhostBtn}>
                 Remove
               </button>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setLinkPopoverOpen(false)}
-                  className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-medium text-ink-muted transition hover:bg-white/[0.06] hover:text-white"
-                >
+                <button type="button" onClick={() => setLinkPopoverOpen(false)} className={linkGhostBtn}>
                   Cancel
                 </button>
-                <button
-                  type="button"
-                  onClick={saveLink}
-                  className="rounded-lg bg-brand-lime px-3 py-1.5 text-xs font-semibold text-canvas transition hover:bg-brand-lime-dim"
-                >
+                <button type="button" onClick={saveLink} className={linkApplyBtn}>
                   Apply
                 </button>
               </div>
