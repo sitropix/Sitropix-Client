@@ -16,7 +16,7 @@ import { refundSubscriptionCreditsTx } from "../services/subscriptionCredits.mjs
 import { markAddonUtilizedOnTicketResolvedTx } from "../services/addonUtilizationTracking.mjs";
 
 const router = express.Router();
-router.use(requireAuth, requireRole("admin", "master_admin"), requireModuleAccess("tickets"));
+router.use(requireAuth, requireRole("admin", "master_admin", "support"), requireModuleAccess("tickets"));
 
 router.get("/tickets", async (req, res) => {
   const { status, userId, priority, categoryScope, limit = "50", offset = "0" } = req.query;

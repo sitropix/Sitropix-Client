@@ -125,13 +125,16 @@ export function CustomerManagementPage() {
       .finally(() => setProfileLoading(false));
   }, [selectedUserId]);
 
+  const customerUsers = useMemo(() => users.filter((u) => u.role === "user"), [users]);
+
   const filteredUsers = useMemo(() => {
-    if (filter === "all") return users;
-    return users.filter((u) => {
+    const base = customerUsers;
+    if (filter === "all") return base;
+    return base.filter((u) => {
       const s = subs.find((x) => x.userId === u.id);
       return s?.status === filter;
     });
-  }, [users, subs, filter]);
+  }, [customerUsers, subs, filter]);
 
   const totalCustomersPages = Math.ceil(filteredUsers.length / CUSTOMERS_PAGE_SIZE);
   const paginatedUsers = filteredUsers.slice(

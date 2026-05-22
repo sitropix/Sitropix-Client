@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { Logo } from "@/components/Logo";
 import { SmartSearch } from "@/components/SmartSearch";
+import { adminHomePath } from "@/lib/adminAccess";
 import { useAuthz } from "@/context/AuthzContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/context/UserContext";
@@ -82,7 +83,8 @@ export function Navbar() {
   const { pathname } = useLocation();
   const { contact, loading } = useUser();
   const { logout, isAuthenticated, loading: authLoading } = useAuth();
-  const { isAdmin } = useAuthz();
+  const { isAdmin, canAccessAdminPortal, role } = useAuthz();
+  const staffPortalPath = adminHomePath(role);
   const [open, setOpen] = useState(false);
   const isHomeScreen = pathname === "/";
   /** Public marketing landing: no search, no Home nav (Sign in / Sign up only). */
@@ -142,9 +144,9 @@ export function Navbar() {
               )}
             </>
           )}
-          {isAuthenticated && isAdmin && (
-            <NavLink to="/admin" className={navLinkClass}>
-              Admin
+          {isAuthenticated && canAccessAdminPortal && (
+            <NavLink to={staffPortalPath} className={navLinkClass}>
+              {isAdmin ? "Admin" : "Support"}
             </NavLink>
           )}
         </nav>
@@ -174,7 +176,7 @@ export function Navbar() {
               <ProfileMenu />
             </>
           )}
-          {isAuthenticated && isAdmin && (
+          {isAuthenticated && canAccessAdminPortal && (
             <button
               type="button"
               onClick={() => void logout()}
@@ -268,12 +270,12 @@ export function Navbar() {
                     </button>
                   </>
                 )}
-                {isAdmin && (
-                  <NavLink to="/admin" className={navLinkClass} onClick={() => setOpen(false)}>
-                    Admin
+                {canAccessAdminPortal && (
+                  <NavLink to={staffPortalPath} className={navLinkClass} onClick={() => setOpen(false)}>
+                    {isAdmin ? "Admin" : "Support"}
                   </NavLink>
                 )}
-                {isAdmin && (
+                {canAccessAdminPortal && (
                   <button
                     type="button"
                     className="rounded-lg px-3 py-2 text-left text-sm text-ink-muted"

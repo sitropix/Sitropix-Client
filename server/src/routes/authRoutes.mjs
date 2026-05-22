@@ -22,6 +22,7 @@ import {
 } from "../services/auditLogService.mjs";
 import { sendTransactionalEmail } from "../services/emailService.mjs";
 import { deleteInviteRowIfExpiredPending } from "../services/inviteCleanup.mjs";
+import { ensureStaffModuleAccess } from "../services/staffModuleAccess.mjs";
 import { randomToken, sha256 } from "../utils/crypto.mjs";
 import {
   signAccessToken,
@@ -139,12 +140,14 @@ router.post("/signup", validate(signupSchema), async (req, res) => {
 
   const passwordHash = await bcrypt.hash(password, 12);
   const verificationToken = randomToken(24);
+  const staffRole = invite?.invitedRole ?? null;
   const user = await prisma.user.create({
     data: {
       name,
       email: emailLower,
       passwordHash,
       emailVerificationToken: sha256(verificationToken),
+      ...(staffRole ? { role: staffRole } : {}),
     },
   });
   const auditCtx = requestAuditContext(req);
@@ -160,10 +163,17 @@ router.post("/signup", validate(signupSchema), async (req, res) => {
       actorRole: user.role,
       targetType: "invite",
       targetId: invite.id,
-      metadata: { email: user.email, planId: invite.planId ?? null },
+      metadata: {
+        email: user.email,
+        planId: invite.planId ?? null,
+        invitedRole: staffRole,
+      },
       ...auditCtx,
     });
-    if (invite.planId) {
+    if (staffRole) {
+      await ensureStaffModuleAccess(prisma, user.id, staffRole);
+    }
+    if (invite.planId && !staffRole) {
       const hasSub = await prisma.subscription.findFirst({
         where: { userId: user.id },
       });

@@ -3,6 +3,7 @@ import { MaterialIcon } from "@/components/MaterialIcon";
 import { SmartSearch } from "@/components/SmartSearch";
 import { PortalOverlay } from "@/components/ui/PortalOverlay";
 import { ProjectCreateForm } from "@/components/workspace/ProjectCreateForm";
+import { adminHomePath } from "@/lib/adminAccess";
 import { useAuth } from "@/context/AuthContext";
 import { useAuthz } from "@/context/AuthzContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -115,7 +116,8 @@ function SidebarNavItems({
   matchesAllowedPath: (target: string, candidate: string) => boolean;
   onNavigate?: () => void;
 }) {
-  const { isAdmin } = useAuthz();
+  const { isAdmin, canAccessAdminPortal, role } = useAuthz();
+  const staffPortalPath = adminHomePath(role);
 
   return (
     <>
@@ -153,10 +155,10 @@ function SidebarNavItems({
           </NavLink>
         );
       })}
-      {isAdmin ? (
-        <NavLink to="/admin" className={sidebarNavClass} onClick={onNavigate}>
+      {canAccessAdminPortal ? (
+        <NavLink to={staffPortalPath} className={sidebarNavClass} onClick={onNavigate}>
           <MaterialIcon name="settings" className="!text-[22px]" />
-          <span className="font-body text-body">Admin</span>
+          <span className="font-body text-body">{isAdmin ? "Admin" : "Support"}</span>
         </NavLink>
       ) : null}
     </>

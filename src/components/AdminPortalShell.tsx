@@ -94,22 +94,26 @@ function AdminProfileMenu() {
               {roleLabel}
             </p>
           </div>
-          <Link
-            role="menuitem"
-            to="/admin/profile"
-            className="block px-4 py-2.5 text-sm font-medium text-white hover:bg-white/[0.06]"
-            onClick={() => setOpen(false)}
-          >
-            Profile
-          </Link>
-          <Link
-            role="menuitem"
-            to="/dashboard"
-            className="block px-4 py-2.5 text-sm font-medium text-ink-muted hover:bg-white/[0.06] hover:text-white"
-            onClick={() => setOpen(false)}
-          >
-            Client Portal
-          </Link>
+          {user?.role !== "support" && (
+            <>
+              <Link
+                role="menuitem"
+                to="/admin/profile"
+                className="block px-4 py-2.5 text-sm font-medium text-white hover:bg-white/[0.06]"
+                onClick={() => setOpen(false)}
+              >
+                Profile
+              </Link>
+              <Link
+                role="menuitem"
+                to="/dashboard"
+                className="block px-4 py-2.5 text-sm font-medium text-ink-muted hover:bg-white/[0.06] hover:text-white"
+                onClick={() => setOpen(false)}
+              >
+                Client Portal
+              </Link>
+            </>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -129,34 +133,43 @@ function AdminProfileMenu() {
 
 export function AdminPortalShell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const isSupportOnly = user?.role === "support";
   const canManageTeamAccess = user?.role === "admin" || user?.role === "master_admin";
-  const adminLinks = [
-    { to: "/admin", label: "Dashboard", end: true },
-    { to: "/admin/customers", label: "Customers" },
-    ...(canManageTeamAccess ? [{ to: "/admin/team-access", label: "Team Access" }] : []),
-    { to: "/admin/plans", label: "Plans" },
-    { to: "/admin/invites", label: "Invites" },
-    { to: "/admin/forms", label: "Forms" },
-    { to: "/admin/crm", label: "CRM" },
-    { to: "/admin/features", label: "Feature Controls" },
-    { to: "/admin/audit-logs", label: "Audit Logs" },
-    { to: "/admin/email", label: "Email" },
-    { to: "/admin/email-templates", label: "Email Templates" },
-    { to: "/admin/environment", label: "Environment" },
-    { to: "/admin/tickets", label: "Support" },
-  ];
+  const adminLinks = isSupportOnly
+    ? [{ to: "/admin/tickets", label: "Support Tickets", end: true }]
+    : [
+        { to: "/admin", label: "Dashboard", end: true },
+        { to: "/admin/customers", label: "Customers" },
+        ...(canManageTeamAccess ? [{ to: "/admin/team-access", label: "Team Access" }] : []),
+        { to: "/admin/plans", label: "Plans" },
+        { to: "/admin/invites", label: "Invites" },
+        { to: "/admin/forms", label: "Forms" },
+        { to: "/admin/crm", label: "CRM" },
+        { to: "/admin/features", label: "Feature Controls" },
+        { to: "/admin/audit-logs", label: "Audit Logs" },
+        { to: "/admin/email", label: "Email" },
+        { to: "/admin/email-templates", label: "Email Templates" },
+        { to: "/admin/environment", label: "Environment" },
+        { to: "/admin/tickets", label: "Support" },
+      ];
 
   return (
     <div className="admin-theme min-h-screen bg-canvas text-white">
-      <header className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between border-b border-white/10 bg-canvas/95 px-6 backdrop-blur">
-        <div className="text-lg font-black tracking-tight text-brand-lime">Sitropix Admin</div>
+      <header className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between border-b border-white/10 bg-[#0a0a0a]/95 px-6 backdrop-blur">
+        <div className="text-lg font-black tracking-tight text-brand-lime">
+          {isSupportOnly ? "Sitropix Support" : "Sitropix Admin"}
+        </div>
         <AdminProfileMenu />
       </header>
 
       <aside className="fixed bottom-0 left-0 top-16 flex w-64 flex-col overflow-hidden border-r border-white/10 bg-[#15191C]">
         <div className="shrink-0 border-b border-white/10 px-6 py-4">
-          <p className="text-base font-bold text-white">Admin Portal</p>
-          <p className="text-xs uppercase tracking-wide text-ink-subtle">Enterprise Tier</p>
+          <p className="text-base font-bold text-white">
+            {isSupportOnly ? "Support Portal" : "Admin Portal"}
+          </p>
+          <p className="text-xs uppercase tracking-wide text-ink-subtle">
+            {isSupportOnly ? "Tickets only" : "Enterprise Tier"}
+          </p>
         </div>
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-y-contain px-4 py-4 [-webkit-overflow-scrolling:touch]">
           {adminLinks.map((item) => (

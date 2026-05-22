@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { useAuthz } from "@/context/AuthzContext";
 import { getAccessToken } from "@/services/http";
 import { profileAndSubscriptionFromPortal } from "@/services/accountApi";
 import { fetchCustomerPortal, syncFromStripe } from "@/services/subscriptionsApi";
@@ -27,6 +28,7 @@ const UserContext = createContext<UserState | undefined>(undefined);
 
 export function UserProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
+  const { canAccessAdminPortal } = useAuthz();
   const [contact, setContact] = useState<AccountProfile | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionSummary | null>(null);
   const [portal, setPortal] = useState<CustomerPortalPayload | null>(null);
@@ -34,7 +36,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!getAccessToken() || !isAuthenticated) {
+    if (!getAccessToken() || !isAuthenticated || canAccessAdminPortal) {
       setContact(null);
       setSubscription(null);
       setPortal(null);
@@ -67,7 +69,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, canAccessAdminPortal]);
 
   useEffect(() => {
     void refresh();

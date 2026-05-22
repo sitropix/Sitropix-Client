@@ -31,14 +31,18 @@ export function requireModuleAccess(moduleKey) {
     if (!req.auth) return res.status(401).json({ error: "unauthorized" });
     const { role, userId } = req.auth;
 
-    if (role === "master_admin" || role === "admin") return next();
-    if (role === "user") return res.status(403).json({ error: "forbidden" });
-
     const forbiddenBody = {
       error: "module_forbidden",
       moduleKey,
       message: "Your account does not currently have access to this admin module.",
     };
+
+    if (role === "master_admin" || role === "admin") return next();
+    if (role === "support") {
+      if (moduleKey === "tickets") return next();
+      return res.status(403).json(forbiddenBody);
+    }
+    if (role === "user") return res.status(403).json({ error: "forbidden" });
 
     try {
       const row = await prisma.userModuleAccess.findUnique({

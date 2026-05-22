@@ -73,11 +73,12 @@ app.use("/api/v1/forms", formPublicRouter);
 app.use("/api/subscriptions", subscriptionRouter);
 app.use("/api/projects", projectRouter);
 app.use("/api/documents", clientDocumentRouter);
+// Tickets router first: other admin routers apply admin-only role guards to all /api/admin paths.
+app.use("/api/admin", adminSupportRouter);
 app.use("/api/admin", adminClientDocumentRouter);
 app.use("/api/admin", adminProjectRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/admin", adminFormCrmRouter);
-app.use("/api/admin", adminSupportRouter);
 app.use("/api/support", supportRouter);
 
 app.use((err, req, res, _next) => {

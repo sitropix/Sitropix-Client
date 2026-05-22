@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthLayout } from "@/components/AuthLayout";
 import { Layout } from "@/components/Layout";
 import { RequireAdmin } from "@/components/RequireAdmin";
+import { RequireAdminPortal } from "@/components/RequireAdminPortal";
 import { RequireAdminRole } from "@/components/RequireAdminRole";
 import { RequireCustomer } from "@/components/RequireCustomer";
 import { ToastProvider } from "@/components/Toast";
@@ -308,17 +309,17 @@ export default function App() {
                     <Route
                       path="/admin/tickets"
                       element={
-                        <RequireAdmin>
+                        <RequireAdminPortal>
                           <AdminTicketsPage />
-                        </RequireAdmin>
+                        </RequireAdminPortal>
                       }
                     />
                     <Route
                       path="/admin/tickets/:id"
                       element={
-                        <RequireAdmin>
+                        <RequireAdminPortal>
                           <AdminTicketDetailPage />
-                        </RequireAdmin>
+                        </RequireAdminPortal>
                       }
                     />
                     <Route

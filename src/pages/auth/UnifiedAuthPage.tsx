@@ -1,3 +1,4 @@
+import { adminHomePath } from "@/lib/adminAccess";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { fetchInviteInfo, type InviteInfoResponse } from "@/services/authApi";
@@ -123,8 +124,8 @@ export function UnifiedAuthPage({ initialMode }: UnifiedAuthPageProps) {
     setLoginError(null);
     setLoginSubmitting(true);
     try {
-      await login(loginEmail, loginPassword);
-      navigate("/dashboard");
+      const loggedInUser = await login(loginEmail, loginPassword);
+      navigate(adminHomePath(loggedInUser.role));
     } catch (err) {
       if (err instanceof ApiRequestError) {
         if (err.status === 401) setLoginError("Invalid email or password.");

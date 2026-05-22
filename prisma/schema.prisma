@@ -610,6 +610,8 @@ model Invite {
   email           String
   tokenHash       String    @unique @map("token_hash")
   planId          String?   @map("plan_id")
+  /// Staff invite: role applied when the invitee completes signup (customer invites leave null).
+  invitedRole     Role?     @map("invited_role")
   message         String    @default("") @db.Text
   expiresAt       DateTime  @map("expires_at")
   acceptedAt      DateTime? @map("accepted_at")

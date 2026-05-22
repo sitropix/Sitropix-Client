@@ -3,6 +3,7 @@ import { Footer } from "@/components/Footer";
 import { Navbar } from "@/components/Navbar";
 import { ClientPortalShell } from "@/components/ClientPortalShell";
 import { AdminPortalShell } from "@/components/AdminPortalShell";
+import { isAdminPath } from "@/lib/adminAccess";
 import { useAuth } from "@/context/AuthContext";
 import { useAuthz } from "@/context/AuthzContext";
 import { SubscriptionPortalProvider } from "@/context/SubscriptionPortalContext";
@@ -10,7 +11,7 @@ import { SubscriptionPortalProvider } from "@/context/SubscriptionPortalContext"
 export function Layout() {
   const { pathname } = useLocation();
   const { isAuthenticated, loading: authLoading } = useAuth();
-  const { isAdmin } = useAuthz();
+  const { canAccessAdminPortal } = useAuthz();
 
   const isAuthPage = pathname === "/login" || pathname === "/signup";
 
@@ -34,10 +35,11 @@ export function Layout() {
   );
   const useClientPortalShell =
     isClientPortalPath && (isAuthenticated || authLoading);
+  const onAdminPath = isAdminPath(pathname);
   const useAdminShell =
-    isAuthenticated &&
-    isAdmin &&
-    (pathname === "/admin" || pathname.startsWith("/admin/"));
+    onAdminPath &&
+    (isAuthenticated || authLoading) &&
+    (authLoading || canAccessAdminPortal);
 
   if (useAdminShell) {
     return (

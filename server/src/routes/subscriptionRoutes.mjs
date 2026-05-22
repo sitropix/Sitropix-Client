@@ -37,6 +37,7 @@ import { getAdminEmailSettingsPayload, saveAdminEmailSettings } from "../service
 import { getSystemConfigPayload, saveSystemConfig } from "../services/systemConfigStore.mjs";
 import { sendTransactionalEmail } from "../services/emailService.mjs";
 import { deleteExpiredPendingInvites } from "../services/inviteCleanup.mjs";
+import { ensureStaffModuleAccess } from "../services/staffModuleAccess.mjs";
 import { assertStripeConfigured, reloadStripeFromSystemConfig, stripe } from "../services/stripeService.mjs";
 import {
   planPatchTriggersCatalogSync,
@@ -2750,6 +2751,7 @@ adminRouter.delete("/plans/:planId/feature-overrides/:key", async (req, res) => 
 
 adminRouter.get("/users", async (_req, res) => {
   const rows = await prisma.user.findMany({
+    where: { role: "user" },
     orderBy: { createdAt: "desc" },
     take: 300,
     select: {
@@ -2774,6 +2776,7 @@ adminRouter.get("/users", async (_req, res) => {
 adminRouter.get("/user-management/users", async (_req, res) => {
   const [users, invites] = await Promise.all([
     prisma.user.findMany({
+      where: { role: { not: "user" } },
       orderBy: { createdAt: "desc" },
       take: 400,
       select: {
@@ -2791,10 +2794,22 @@ adminRouter.get("/user-management/users", async (_req, res) => {
       },
     }),
     prisma.invite.findMany({
-      where: { acceptedAt: null, revokedAt: null, expiresAt: { gte: new Date() } },
+      where: {
+        acceptedAt: null,
+        revokedAt: null,
+        expiresAt: { gte: new Date() },
+        invitedRole: { not: null },
+      },
       orderBy: { createdAt: "desc" },
       take: 200,
-      select: { id: true, email: true, planId: true, createdAt: true, expiresAt: true },
+      select: {
+        id: true,
+        email: true,
+        planId: true,
+        invitedRole: true,
+        createdAt: true,
+        expiresAt: true,
+      },
     }),
   ]);
   return res.json({
@@ -2813,7 +2828,7 @@ adminRouter.post("/user-management/invite", requireMasterAdmin, async (req, res)
   const email = String(req.body?.email ?? "").trim().toLowerCase();
   const role = String(req.body?.role ?? "support");
   if (!name || !email.includes("@")) return res.status(400).json({ error: "invalid_input" });
-  if (!["manager", "admin", "master_admin", "support", "user"].includes(role)) {
+  if (!["manager", "admin", "master_admin", "support"].includes(role)) {
     return res.status(400).json({ error: "invalid_role" });
   }
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -2824,6 +2839,7 @@ adminRouter.post("/user-management/invite", requireMasterAdmin, async (req, res)
       email,
       tokenHash: sha256(plainToken),
       planId: null,
+      invitedRole: role,
       message: `Hi ${name}, your account role will be ${role}.`,
       expiresAt: new Date(Date.now() + 14 * 864e5),
       createdByUserId: req.auth.userId,
@@ -2906,6 +2922,9 @@ adminRouter.patch("/user-management/users/:id/role", requireMasterAdmin, validat
     return res.status(403).json({ error: "forbidden_role_assignment" });
   }
   const updated = await prisma.user.update({ where: { id: userId }, data: { role: req.validatedBody.role } });
+  if (updated.role !== "user") {
+    await ensureStaffModuleAccess(prisma, userId, updated.role);
+  }
   await logAuditEvent({
     action: "admin.user_role_changed",
     actorUserId: req.auth.userId,

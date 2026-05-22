@@ -28,11 +28,20 @@
               : "light";
         document.documentElement.setAttribute("data-theme", theme);
         document.documentElement.classList.toggle("dark", theme === "dark");
+        var path = location.pathname;
+        if (path === "/admin" || path.indexOf("/admin/") === 0) {
+          document.documentElement.setAttribute("data-admin-route", "true");
+        }
       })();
     </script>
     <style>
       html {
         background-color: #fdf8f7;
+      }
+      html[data-admin-route="true"],
+      html[data-admin-route="true"] body {
+        background-color: #0a0a0a !important;
+        background-image: none !important;
       }
       html[data-theme="dark"] {
         background-color: #121110;

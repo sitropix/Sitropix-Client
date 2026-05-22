@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { useAuthz } from "@/context/AuthzContext";
 import { userFacingApiError } from "@/services/http";
 import { createTicket, fetchTickets } from "@/services/supportApi";
 import type { CreateTicketInput, SupportTicket } from "@/types/support";
@@ -29,12 +30,13 @@ function normalizeTickets(payload: unknown): SupportTicket[] {
 
 export function TicketsProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, loading: authLoading } = useAuth();
+  const { canAccessAdminPortal } = useAuthz();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || canAccessAdminPortal) {
       setTickets([]);
       setLoading(false);
       setError(null);
@@ -51,7 +53,7 @@ export function TicketsProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, canAccessAdminPortal]);
 
   useEffect(() => {
     if (authLoading) return;

@@ -18,7 +18,7 @@ interface AuthState {
   loading: boolean;
   isAuthenticated: boolean;
   isFirstLogin: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<AuthUser>;
   signup: (
     name: string,
     email: string,
@@ -63,6 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccessToken(data.accessToken);
     setUser(data.user);
     setIsFirstLogin(Boolean(data.firstLogin));
+    return data.user;
   }
 
   async function signup(

@@ -89,7 +89,7 @@ const emptyCache: AdminPrefetchCache = {
 
 export function AdminPrefetchProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
-  const { isStaff } = useAuthz();
+  const { isAdmin, isSupport } = useAuthz();
   const [cache, setCache] = useState<AdminPrefetchCache>(emptyCache);
   const prefetchedRef = useRef(false);
 
@@ -97,8 +97,14 @@ export function AdminPrefetchProvider({ children }: { children: ReactNode }) {
     setCache((prev) => ({ ...prev, ...patch }));
   }, []);
 
+  const prefetchSupportTickets = useCallback(async () => {
+    if (!isAuthenticated || !isSupport) return;
+    const result = await fetchAdminTickets({ limit: 100, categoryScope: "general" });
+    setCache((prev) => ({ ...prev, tickets: result.items }));
+  }, [isAuthenticated, isSupport]);
+
   const prefetchAll = useCallback(async () => {
-    if (!isAuthenticated || !isStaff) return;
+    if (!isAuthenticated || !isAdmin) return;
     const results = await Promise.allSettled([
       fetchAdminUsers(),
       fetchAdminSubscriptions(),
@@ -131,18 +137,22 @@ export function AdminPrefetchProvider({ children }: { children: ReactNode }) {
       auditLogs: results[11].status === "fulfilled" ? results[11].value : prev.auditLogs,
       auditSummary: results[12].status === "fulfilled" ? results[12].value : prev.auditSummary,
     }));
-  }, [isAuthenticated, isStaff]);
+  }, [isAuthenticated, isAdmin]);
 
   useEffect(() => {
-    if (!isAuthenticated || !isStaff) {
+    if (!isAuthenticated || (!isAdmin && !isSupport)) {
       prefetchedRef.current = false;
       setCache(emptyCache);
       return;
     }
     if (prefetchedRef.current) return;
     prefetchedRef.current = true;
+    if (isSupport) {
+      void prefetchSupportTickets();
+      return;
+    }
     void prefetchAll();
-  }, [isAuthenticated, isStaff, prefetchAll]);
+  }, [isAuthenticated, isAdmin, isSupport, prefetchAll, prefetchSupportTickets]);
 
   const value = useMemo(() => ({ cache, prefetchAll, updateCache }), [cache, prefetchAll, updateCache]);
   return <AdminPrefetchContext.Provider value={value}>{children}</AdminPrefetchContext.Provider>;

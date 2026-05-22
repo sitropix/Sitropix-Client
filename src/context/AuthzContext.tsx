@@ -1,10 +1,14 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { Role } from "@/types/subscription";
+import { canAccessAdminPortal } from "@/lib/adminAccess";
 import { useAuth } from "@/context/AuthContext";
 
 interface AuthzState {
   role: Role;
+  /** Full admin (not support-only). */
   isAdmin: boolean;
+  isSupport: boolean;
+  canAccessAdminPortal: boolean;
   isStaff: boolean;
 }
 
@@ -17,6 +21,8 @@ export function AuthzProvider({ children }: { children: ReactNode }) {
     () => ({
       role,
       isAdmin: role === "admin" || role === "master_admin",
+      isSupport: role === "support",
+      canAccessAdminPortal: canAccessAdminPortal(role),
       isStaff: role !== "user",
     }),
     [role],

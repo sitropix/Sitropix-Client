@@ -179,7 +179,9 @@ export function UserManagementPage() {
     }
   }
 
-  const activeUsers = data.users.filter((u) => u.status === "active" || u.status === "deactivated");
+  const activeUsers = data.users.filter(
+    (u) => u.role !== "user" && (u.status === "active" || u.status === "deactivated"),
+  );
   const totalTeamPages = Math.ceil(activeUsers.length / TEAM_PAGE_SIZE);
   const paginatedUsers = activeUsers.slice(
     (teamPage - 1) * TEAM_PAGE_SIZE,
@@ -315,7 +317,6 @@ export function UserManagementPage() {
                     <option value="manager">Manager</option>
                     <option value="admin">Admin</option>
                     <option value="master_admin">Master Admin</option>
-                    <option value="user">User</option>
                   </select>
                 </div>
                 <div className="col-span-2">
