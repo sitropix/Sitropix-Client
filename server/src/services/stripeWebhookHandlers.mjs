@@ -1,0 +1,762 @@
+import { prisma } from "../db/client.mjs";
+import { sendTransactionalEmail } from "./emailService.mjs";
+import { stripe } from "./stripeService.mjs";
+import { env } from "../config/env.mjs";
+import { log } from "../observability/logger.mjs";
+import {
+  mapStripeStatus,
+  resolvePlanAndBillingCycle,
+  stripePriceIdFromSubscriptionObject,
+  subscriptionPeriodDates,
+} from "./stripeSyncHelpers.mjs";
+import { isPlanOneTimeOnly } from "./billingProration.mjs";
+import {
+  buildExistingSubscriptionPatchFromStripe,
+} from "./stripeSubscriptionReconcile.mjs";
+import { STRIPE_RECURRING_ADDON_SUB_KIND } from "./recurringAddonStripe.mjs";
+import {
+  deleteRecurringAddonStripeRow,
+  findRecurringAddonStripeByStripeSubscriptionId,
+} from "./recurringAddonStripeStore.mjs";
+import {
+  resolveRecurringAddonInvoiceTarget,
+  upsertRecurringAddonFailedInvoicePayment,
+  upsertRecurringAddonInvoicePayment,
+} from "./recurringAddonInvoiceSync.mjs";
+import {
+  maybeResetAddonUtilizationAfterSubscriptionPatch,
+  resetAddonUtilizationOnAddonRenewalTx,
+} from "./addonUtilizationTracking.mjs";
+
+function isRecurringAddonOnlyStripeSubscription(stripeSub) {
+  return stripeSub?.metadata?.sitropixKind === STRIPE_RECURRING_ADDON_SUB_KIND;
+}
+
+function logCheckout(phase, fields = {}) {
+  log.info("billing.stripe_checkout", { phase, ...fields });
+}
+
+function projectIdFromMetadata(...metadataObjects) {
+  for (const md of metadataObjects) {
+    const candidate = md?.projectId;
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return null;
+}
+
+/**
+ * Find the local Subscription row for a Stripe subscription. If none exists, locate
+ * the (userId, projectId) target row (or fall back to the user-level legacy slot when
+ * no projectId is known). Returns null when there is no row to upsert into.
+ */
+async function findSubscriptionTargetRow({ stripeSubscriptionId, userId, projectId }) {
+  if (stripeSubscriptionId) {
+    const byStripeId = await prisma.subscription.findFirst({
+      where: { stripeSubscriptionId },
+    });
+    if (byStripeId) return byStripeId;
+  }
+  if (!userId) return null;
+  if (!projectId) return null;
+  return prisma.subscription.findFirst({ where: { userId, projectId } });
+}
+
+/** Stripe may send `subscription` as an id string or (if expanded) an object. */
+function subscriptionIdFromSession(session) {
+  const s = session.subscription;
+  if (!s) return null;
+  if (typeof s === "string") return s;
+  if (typeof s === "object" && s !== null && typeof s.id === "string") return s.id;
+  return null;
+}
+
+async function findUserIdByStripeCustomerId(customerId) {
+  if (!customerId) return null;
+  const byCol = await prisma.user.findFirst({ where: { stripeCustomerId: customerId } });
+  if (byCol) return byCol.id;
+  try {
+    const c = await stripe.customers.retrieve(customerId);
+    const email = c.email ?? c.metadata?.email;
+    if (!email) return null;
+    const u = await prisma.user.findFirst({
+      where: { email: { equals: email.trim(), mode: "insensitive" } },
+    });
+    return u?.id ?? null;
+  } catch (e) {
+    logCheckout("stripe_customer_lookup_failed", { customerId, error: e?.message });
+    return null;
+  }
+}
+
+async function ensureProjectIdForSubscription({ userId, projectId, stripeSubscriptionId = null }) {
+  if (projectId) {
+    const owned = await prisma.project.findFirst({
+      where: { id: projectId, ownerUserId: userId },
+      select: { id: true },
+    });
+    if (owned?.id) return owned.id;
+    logCheckout("project_id_ignored", { userId, projectId });
+  }
+  const existingProjectSub =
+    stripeSubscriptionId
+      ? await prisma.subscription.findFirst({
+          where: { stripeSubscriptionId, userId },
+          select: { projectId: true },
+        })
+      : null;
+  if (existingProjectSub?.projectId) return existingProjectSub.projectId;
+  const latestProject = await prisma.project.findFirst({
+    where: { ownerUserId: userId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  if (latestProject?.id) return latestProject.id;
+  return null;
+}
+
+async function handleOneTimePlanCheckoutSession(session) {
+  let userId = session.metadata?.userId || session.client_reference_id || null;
+  const planId = session.metadata?.planId || null;
+  const rawProjectId = projectIdFromMetadata(session.metadata);
+  if (!userId || !planId || !rawProjectId) {
+    logCheckout("one_time_skip_missing_meta", { sessionId: session.id, userId: Boolean(userId), planId: Boolean(planId), projectId: Boolean(rawProjectId) });
+    return;
+  }
+  const projectId = await ensureProjectIdForSubscription({ userId, projectId: rawProjectId, stripeSubscriptionId: null });
+  const plan = await prisma.plan.findUnique({ where: { id: planId } });
+  if (!plan || !isPlanOneTimeOnly(plan)) {
+    logCheckout("one_time_skip_plan_mismatch", { sessionId: session.id, planId });
+    return;
+  }
+
+  const userRow = await prisma.user.findUnique({ where: { id: userId } });
+  if (!userRow) {
+    logCheckout("one_time_skip_user_missing", { sessionId: session.id, userId });
+    return;
+  }
+
+  const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
+  const invNum = `chk_${session.id}`;
+  const existingPay = await prisma.payment.findFirst({ where: { invoiceNumber: invNum } });
+  if (existingPay) {
+    logCheckout("one_time_payment_deduped", { sessionId: session.id });
+    return;
+  }
+
+  const periodStart = new Date();
+  const periodEnd = new Date(periodStart);
+  periodEnd.setUTCFullYear(periodEnd.getUTCFullYear() + 25);
+
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { stripeCustomerId: customerId ?? undefined },
+    });
+
+    const target = await findSubscriptionTargetRow({
+      stripeSubscriptionId: null,
+      userId,
+      projectId,
+    });
+    const upsertData = {
+      planId: plan.id,
+      status: "active",
+      billingCycle: "monthly",
+      currentPeriodStart: periodStart,
+      currentPeriodEnd: periodEnd,
+      cancelAtPeriodEnd: false,
+      stripeSubscriptionId: null,
+      stripeCustomerId: customerId,
+      projectId,
+    };
+    let savedSub;
+    if (target) {
+      savedSub = await prisma.subscription.update({ where: { id: target.id }, data: upsertData });
+    } else {
+      savedSub = await prisma.subscription.create({
+        data: { userId, projectId, ...upsertData },
+      });
+    }
+
+    const cap = plan.includedEditCreditsPerPeriod ?? 0;
+    const prevUsed = target?.includedCreditsUsedThisPeriod ?? 0;
+    const prevPurchased = target?.purchasedCreditsBalance ?? 0;
+    await prisma.subscription.update({
+      where: { id: savedSub.id },
+      data: {
+        includedCreditsPerPeriod: Math.max(0, cap),
+        includedCreditsUsedThisPeriod: target ? Math.min(prevUsed, Math.max(0, cap)) : 0,
+        purchasedCreditsBalance: target ? prevPurchased : 0,
+      },
+    });
+
+    await prisma.payment.create({
+      data: {
+        userId,
+        subscriptionId: savedSub.id,
+        invoiceNumber: invNum,
+        amountCents: session.amount_total ?? 0,
+        currency: (session.currency ?? plan.currency ?? "usd").toUpperCase(),
+        status: "succeeded",
+        paidAt: new Date(),
+        stripeInvoiceId: null,
+        invoicePdfUrl: null,
+      },
+    });
+  } catch (e) {
+    logCheckout("one_time_db_failed", { sessionId: session.id, userId, error: e?.message });
+    throw e;
+  }
+
+  logCheckout("one_time_synced", { sessionId: session.id, userId, projectId, planCode: plan.code });
+
+  await sendTransactionalEmail({
+    to: userRow.email,
+    template: "subscription_confirmed",
+    idempotencyKey: `sub_confirmed_onetime_${session.id}`,
+    subject: "Purchase confirmed",
+    html: `<p>Hi ${userRow.name},</p><p>Your purchase of <strong>${plan.name}</strong> is complete.</p><p><a href="${env.appUrl}/billing">Billing dashboard</a></p>`,
+  });
+}
+
+export async function handleCheckoutSessionCompleted(session) {
+  if (session.mode === "payment" && session.metadata?.checkoutKind === "plan_one_time") {
+    await handleOneTimePlanCheckoutSession(session);
+    return;
+  }
+
+  if (session.mode && session.mode !== "subscription") {
+    logCheckout("skip_wrong_mode", { sessionId: session.id, mode: session.mode });
+    return;
+  }
+
+  const subId = subscriptionIdFromSession(session);
+  if (!subId) {
+    logCheckout("skip_no_subscription", { sessionId: session.id, hasField: Boolean(session.subscription) });
+    return;
+  }
+
+  let stripeSub;
+  try {
+    stripeSub = await stripe.subscriptions.retrieve(subId, { expand: ["items.data.price"] });
+  } catch (e) {
+    logCheckout("retrieve_subscription_failed", { sessionId: session.id, subId, error: e?.message });
+    throw e;
+  }
+
+  const customerIdEarly = typeof session.customer === "string" ? session.customer : session.customer?.id;
+  let userId = session.metadata?.userId || session.client_reference_id || null;
+  if (!userId) {
+    const email = session.customer_email || session.customer_details?.email;
+    if (email) {
+      const u = await prisma.user.findFirst({
+        where: { email: { equals: email.trim(), mode: "insensitive" } },
+      });
+      if (u) {
+        userId = u.id;
+        logCheckout("resolved_user_by_email", { sessionId: session.id, userId });
+      }
+    }
+  }
+  if (!userId && customerIdEarly) {
+    const byCust = await findUserIdByStripeCustomerId(customerIdEarly);
+    if (byCust) {
+      userId = byCust;
+      logCheckout("resolved_user_by_customer", { sessionId: session.id, userId, customerId: customerIdEarly });
+    }
+  }
+
+  let planId = session.metadata?.planId || null;
+  let billingCycle = session.metadata?.billingCycle === "yearly" ? "yearly" : "monthly";
+  if (!planId) {
+    planId = stripeSub.metadata?.planId || null;
+  }
+  if (session.metadata?.billingCycle !== "yearly" && session.metadata?.billingCycle !== "monthly" && stripeSub.metadata?.billingCycle) {
+    billingCycle = stripeSub.metadata.billingCycle === "yearly" ? "yearly" : "monthly";
+  }
+
+  let plan;
+  if (planId) {
+    plan = await prisma.plan.findUnique({ where: { id: planId } });
+  }
+  if (!plan) {
+    const linePrice = stripePriceIdFromSubscriptionObject(stripeSub);
+    const fromPrice = await resolvePlanAndBillingCycle(linePrice);
+    if (fromPrice.plan) {
+      plan = fromPrice.plan;
+      billingCycle = fromPrice.billingCycle;
+      logCheckout("resolved_plan_by_price", { sessionId: session.id, planId: plan.id, priceId: linePrice });
+    }
+  }
+
+  if (!userId) {
+    logCheckout("skip_no_user", { sessionId: session.id, subId, hasClientRef: Boolean(session.client_reference_id) });
+    return;
+  }
+  if (!plan) {
+    logCheckout("skip_no_plan", { sessionId: session.id, subId, userId, hadPlanId: Boolean(planId) });
+    return;
+  }
+
+  const userRow = await prisma.user.findUnique({ where: { id: userId } });
+  if (!userRow) {
+    logCheckout("skip_user_missing", { sessionId: session.id, userId });
+    return;
+  }
+
+  const customerId = typeof stripeSub.customer === "string" ? stripeSub.customer : stripeSub.customer?.id;
+  const projectId = await ensureProjectIdForSubscription({
+    userId,
+    projectId: projectIdFromMetadata(session.metadata, stripeSub.metadata),
+    stripeSubscriptionId: stripeSub.id,
+  });
+  if (!projectId) {
+    logCheckout("skip_no_project", { sessionId: session.id, userId, subId: stripeSub.id });
+    return;
+  }
+
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { stripeCustomerId: customerId ?? undefined },
+    });
+
+    const { start: periodStart, end: periodEnd } = subscriptionPeriodDates(stripeSub);
+    const target = await findSubscriptionTargetRow({
+      stripeSubscriptionId: stripeSub.id,
+      userId,
+      projectId,
+    });
+    const status = mapStripeStatus(stripeSub);
+    const upsertData = {
+      planId: plan.id,
+      status,
+      pausedAt: status === "paused" ? new Date() : null,
+      billingCycle,
+      currentPeriodStart: periodStart,
+      currentPeriodEnd: periodEnd,
+      cancelAtPeriodEnd: Boolean(stripeSub.cancel_at_period_end),
+      stripeSubscriptionId: stripeSub.id,
+      stripeCustomerId: customerId,
+      projectId,
+    };
+    if (target) {
+      await prisma.subscription.update({ where: { id: target.id }, data: upsertData });
+    } else {
+      await prisma.subscription.create({
+        data: {
+          userId,
+          projectId,
+          ...upsertData,
+        },
+      });
+    }
+
+    const row = await prisma.subscription.findFirst({
+      where: { stripeSubscriptionId: stripeSub.id, userId, projectId },
+    });
+    if (row) {
+      const cap = plan.includedEditCreditsPerPeriod ?? 0;
+      const prevUsed = target?.includedCreditsUsedThisPeriod ?? 0;
+      const prevPurchased = target?.purchasedCreditsBalance ?? 0;
+      await prisma.subscription.update({
+        where: { id: row.id },
+        data: {
+          includedCreditsPerPeriod: Math.max(0, cap),
+          includedCreditsUsedThisPeriod: target ? Math.min(prevUsed, Math.max(0, cap)) : 0,
+          purchasedCreditsBalance: target ? prevPurchased : 0,
+        },
+      });
+    }
+  } catch (e) {
+    logCheckout("db_upsert_failed", { sessionId: session.id, userId, error: e?.message });
+    throw e;
+  }
+
+  logCheckout("synced", {
+    sessionId: session.id,
+    userId,
+    projectId,
+    planCode: plan.code,
+    stripeSubId: stripeSub.id,
+  });
+
+  if (userRow) {
+    await sendTransactionalEmail({
+      to: userRow.email,
+      template: "subscription_confirmed",
+      idempotencyKey: `sub_confirmed_${stripeSub.id}`,
+      subject: "Subscription confirmed",
+      html: `<p>Hi ${userRow.name},</p><p>Your subscription to <strong>${plan.name}</strong> is active.</p><p><a href="${env.appUrl}/billing">Billing dashboard</a></p>`,
+    });
+  }
+}
+
+export async function handleInvoicePaid(invoice) {
+  logCheckout("invoice_paid_received", { invoiceId: invoice.id });
+  if (!invoice.subscription || !invoice.customer) return;
+
+  const stripeSubId = typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription.id;
+  const paidAmount = invoice.amount_paid ?? 0;
+  if (paidAmount <= 0) return;
+
+  let sub = await prisma.subscription.findFirst({
+    where: { stripeSubscriptionId: stripeSubId },
+  });
+
+  if (!sub) {
+    const addonTarget = await resolveRecurringAddonInvoiceTarget(stripeSubId);
+    if (addonTarget) {
+      const { invoiceNumber } = await upsertRecurringAddonInvoicePayment(invoice, addonTarget);
+      await prisma.$transaction(async (tx) => {
+        await resetAddonUtilizationOnAddonRenewalTx(tx, {
+          subscription: addonTarget.localSubscription,
+          addonCode: addonTarget.addonCode,
+          reason: "addon_invoice_paid",
+        });
+      });
+      logCheckout("invoice_paid_synced_addon", {
+        invoiceId: invoice.id,
+        stripeSubId,
+        amountPaid: paidAmount,
+        addonCode: addonTarget.addonCode,
+        invoiceNumber,
+      });
+      return;
+    }
+
+    try {
+      const stripeSub = await stripe.subscriptions.retrieve(stripeSubId);
+      if (!isRecurringAddonOnlyStripeSubscription(stripeSub)) {
+        await handleSubscriptionUpdated(stripeSub);
+        sub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: stripeSubId } });
+      }
+    } catch (e) {
+      logCheckout("invoice_paid_subscription_recover_failed", {
+        invoiceId: invoice.id,
+        stripeSubId,
+        error: e?.message,
+      });
+    }
+  }
+  if (!sub) return;
+
+  const invNum = invoice.number ?? String(invoice.id);
+  const paidAt =
+    invoice.status_transitions?.paid_at != null
+      ? new Date(invoice.status_transitions.paid_at * 1000)
+      : new Date();
+  const pdfUrl = invoice.invoice_pdf ?? invoice.hosted_invoice_url ?? null;
+  await prisma.payment.upsert({
+    where: { stripeInvoiceId: invoice.id },
+    create: {
+      userId: sub.userId,
+      subscriptionId: sub.id,
+      invoiceNumber: invNum,
+      amountCents: paidAmount,
+      currency: (invoice.currency ?? "usd").toUpperCase(),
+      status: "succeeded",
+      paidAt,
+      stripeInvoiceId: invoice.id,
+      invoicePdfUrl: pdfUrl,
+    },
+    update: {
+      amountCents: paidAmount,
+      status: "succeeded",
+      paidAt,
+      invoicePdfUrl: pdfUrl,
+    },
+  });
+  try {
+    const stripeSub = await stripe.subscriptions.retrieve(stripeSubId);
+    const { patch } = await buildExistingSubscriptionPatchFromStripe(stripeSub, sub);
+    await prisma.subscription.update({ where: { id: sub.id }, data: patch });
+    await maybeResetAddonUtilizationAfterSubscriptionPatch(sub, patch);
+  } catch (e) {
+    logCheckout("invoice_paid_period_sync_failed", {
+      invoiceId: invoice.id,
+      stripeSubId,
+      error: e?.message,
+    });
+  }
+
+  logCheckout("invoice_paid_synced", { invoiceId: invoice.id, stripeSubId, amountPaid: paidAmount });
+}
+
+export async function handleInvoicePaymentFailed(invoice) {
+  logCheckout("invoice_payment_failed_received", { invoiceId: invoice.id });
+  const stripeSubId =
+    typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id;
+  if (!stripeSubId) return;
+
+  let sub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: stripeSubId } });
+  let addonTarget = null;
+
+  if (!sub) {
+    addonTarget = await resolveRecurringAddonInvoiceTarget(stripeSubId);
+    if (addonTarget) {
+      sub = addonTarget.localSubscription;
+    } else {
+      try {
+        const stripeSub = await stripe.subscriptions.retrieve(stripeSubId);
+        if (!isRecurringAddonOnlyStripeSubscription(stripeSub)) {
+          await handleSubscriptionUpdated(stripeSub);
+          sub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: stripeSubId } });
+        }
+      } catch (e) {
+        logCheckout("invoice_failed_subscription_recover_failed", {
+          invoiceId: invoice.id,
+          stripeSubId,
+          error: e?.message,
+        });
+      }
+    }
+  }
+  if (!sub) return;
+
+  const isAddonOnlyFailure = Boolean(addonTarget);
+
+  if (!isAddonOnlyFailure) {
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { status: "past_due" },
+    });
+  }
+
+  if (isAddonOnlyFailure) {
+    await upsertRecurringAddonFailedInvoicePayment(invoice, addonTarget);
+  } else {
+    const invNum = invoice.number ?? `failed_${invoice.id}`;
+    await prisma.payment.upsert({
+      where: { stripeInvoiceId: invoice.id },
+      create: {
+        userId: sub.userId,
+        subscriptionId: sub.id,
+        invoiceNumber: invNum,
+        amountCents: invoice.amount_due ?? 0,
+        currency: (invoice.currency ?? "usd").toUpperCase(),
+        status: "failed",
+        failureReason: invoice.last_finalization_error?.message ?? "payment_failed",
+        stripeInvoiceId: invoice.id,
+      },
+      update: {
+        amountCents: invoice.amount_due ?? 0,
+        currency: (invoice.currency ?? "usd").toUpperCase(),
+        status: "failed",
+        failureReason: invoice.last_finalization_error?.message ?? "payment_failed",
+      },
+    });
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: sub.userId } });
+  if (user) {
+    const subject = isAddonOnlyFailure
+      ? "Add-on payment failed — action required"
+      : "Payment failed — action required";
+    const body = isAddonOnlyFailure
+      ? `<p>Hi ${user.name},</p><p>We could not process your recurring add-on payment (${addonTarget.addonLabel}). Please update your payment method.</p><p><a href="${env.appUrl}/billing">Update billing</a></p>`
+      : `<p>Hi ${user.name},</p><p>We could not process your payment. Please update your payment method.</p><p><a href="${env.appUrl}/billing">Update billing</a></p>`;
+    await sendTransactionalEmail({
+      to: user.email,
+      template: "payment_failed",
+      idempotencyKey: `pay_fail_${invoice.id}`,
+      subject,
+      html: body,
+    });
+  }
+  logCheckout("invoice_payment_failed_synced", {
+    invoiceId: invoice.id,
+    stripeSubId,
+    addonOnly: isAddonOnlyFailure,
+  });
+}
+
+export async function handleSubscriptionUpdated(stripeSub) {
+  logCheckout("subscription_updated_received", { stripeSubId: stripeSub.id, status: stripeSub.status });
+
+  if (isRecurringAddonOnlyStripeSubscription(stripeSub)) {
+    logCheckout("recurring_addon_subscription_updated", {
+      stripeSubId: stripeSub.id,
+      status: stripeSub.status,
+      addonCode: stripeSub.metadata?.sitropixAddon ?? null,
+    });
+    return;
+  }
+
+  const existing = await prisma.subscription.findFirst({
+    where: { stripeSubscriptionId: stripeSub.id },
+  });
+
+  if (existing) {
+    const { patch } = await buildExistingSubscriptionPatchFromStripe(stripeSub, existing);
+    await prisma.subscription.update({
+      where: { id: existing.id },
+      data: patch,
+    });
+    await maybeResetAddonUtilizationAfterSubscriptionPatch(existing, patch);
+    return;
+  }
+
+  const customerId = typeof stripeSub.customer === "string" ? stripeSub.customer : stripeSub.customer?.id;
+  let userId = stripeSub.metadata?.userId || null;
+  let plan;
+  let billingCycle = stripeSub.metadata?.billingCycle === "yearly" ? "yearly" : "monthly";
+
+  const fromMetaPlanId = stripeSub.metadata?.planId;
+  if (fromMetaPlanId) {
+    plan = await prisma.plan.findUnique({ where: { id: fromMetaPlanId } });
+  }
+  if (!plan) {
+    const linePrice = stripePriceIdFromSubscriptionObject(stripeSub);
+    const fromPrice = await resolvePlanAndBillingCycle(linePrice);
+    if (fromPrice.plan) {
+      plan = fromPrice.plan;
+      billingCycle = fromPrice.billingCycle;
+      logCheckout("sub_event_resolved_plan_by_price", { stripeSubId: stripeSub.id, planId: plan.id });
+    }
+  }
+
+  if (!userId && customerId) {
+    const resolved = await findUserIdByStripeCustomerId(customerId);
+    if (resolved) {
+      userId = resolved;
+      logCheckout("sub_event_resolved_user_by_customer", { stripeSubId: stripeSub.id, userId });
+    }
+  }
+
+  if (!userId) {
+    logCheckout("sub_event_skip_no_user", { stripeSubId: stripeSub.id, hasMetadata: Boolean(stripeSub.metadata?.userId) });
+    return;
+  }
+  if (!plan) {
+    logCheckout("sub_event_skip_no_plan", { stripeSubId: stripeSub.id, userId });
+    return;
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) {
+    logCheckout("sub_event_skip_user_or_plan", { stripeSubId: stripeSub.id, userId, planId: plan.id });
+    return;
+  }
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { stripeCustomerId: customerId ?? undefined },
+  });
+  const projectId = await ensureProjectIdForSubscription({
+    userId,
+    projectId: projectIdFromMetadata(stripeSub.metadata),
+    stripeSubscriptionId: stripeSub.id,
+  });
+  if (!projectId) {
+    logCheckout("sub_event_skip_no_project", { stripeSubId: stripeSub.id, userId });
+    return;
+  }
+  const { start: periodStart, end: periodEnd } = subscriptionPeriodDates(stripeSub);
+  const status = mapStripeStatus(stripeSub);
+  const pausedAt = status === "paused" ? new Date() : null;
+  try {
+    const target = await findSubscriptionTargetRow({
+      stripeSubscriptionId: stripeSub.id,
+      userId,
+      projectId,
+    });
+    const data = {
+      planId: plan.id,
+      status,
+      pausedAt,
+      billingCycle,
+      currentPeriodStart: periodStart,
+      currentPeriodEnd: periodEnd,
+      cancelAtPeriodEnd: Boolean(stripeSub.cancel_at_period_end),
+      stripeSubscriptionId: stripeSub.id,
+      stripeCustomerId: customerId,
+      projectId,
+    };
+    if (target) {
+      await prisma.subscription.update({ where: { id: target.id }, data });
+    } else {
+      await prisma.subscription.create({
+        data: { userId, projectId, ...data },
+      });
+    }
+
+    const row = await prisma.subscription.findFirst({
+      where: { stripeSubscriptionId: stripeSub.id, userId, projectId },
+    });
+    if (row) {
+      const cap = plan.includedEditCreditsPerPeriod ?? 0;
+      const prevUsed = target?.includedCreditsUsedThisPeriod ?? 0;
+      const prevPurchased = target?.purchasedCreditsBalance ?? 0;
+      await prisma.subscription.update({
+        where: { id: row.id },
+        data: {
+          includedCreditsPerPeriod: Math.max(0, cap),
+          includedCreditsUsedThisPeriod: target ? Math.min(prevUsed, Math.max(0, cap)) : 0,
+          purchasedCreditsBalance: target ? prevPurchased : 0,
+        },
+      });
+    }
+  } catch (e) {
+    logCheckout("sub_event_upsert_failed", { stripeSubId: stripeSub.id, userId, error: e?.message });
+    throw e;
+  }
+  logCheckout("created_from_sub_event", {
+    stripeSubId: stripeSub.id,
+    userId,
+    projectId,
+    planCode: plan.code,
+  });
+}
+
+export async function handleSubscriptionDeleted(stripeSub) {
+  logCheckout("subscription_deleted_received", { stripeSubId: stripeSub.id });
+
+  if (isRecurringAddonOnlyStripeSubscription(stripeSub)) {
+    const { row: addonRow } = await findRecurringAddonStripeByStripeSubscriptionId(stripeSub.id);
+    if (!addonRow) return;
+
+    const project = await prisma.project.findUnique({
+      where: { id: addonRow.projectId },
+      select: { addonsJson: true },
+    });
+    if (project) {
+      const codes = Array.isArray(project.addonsJson)
+        ? project.addonsJson.filter((c) => typeof c === "string" && c !== addonRow.addonCode)
+        : [];
+      await prisma.project.update({
+        where: { id: addonRow.projectId },
+        data: { addonsJson: codes },
+      });
+    }
+    await deleteRecurringAddonStripeRow(addonRow.id);
+    logCheckout("recurring_addon_subscription_deleted", {
+      stripeSubId: stripeSub.id,
+      projectId: addonRow.projectId,
+      addonCode: addonRow.addonCode,
+    });
+    return;
+  }
+
+  const sub = await prisma.subscription.findFirst({
+    where: { stripeSubscriptionId: stripeSub.id },
+  });
+  if (!sub) return;
+
+  await prisma.subscription.update({
+    where: { id: sub.id },
+    data: { status: "canceled", canceledAt: new Date() },
+  });
+
+  const user = await prisma.user.findUnique({ where: { id: sub.userId } });
+  if (user) {
+    await sendTransactionalEmail({
+      to: user.email,
+      template: "subscription_canceled",
+      idempotencyKey: `sub_cancel_${stripeSub.id}`,
+      subject: "Subscription canceled",
+      html: `<p>Hi ${user.name},</p><p>Your subscription has ended. We're sorry to see you go.</p>`,
+    });
+  }
+  logCheckout("subscription_deleted_synced", { stripeSubId: stripeSub.id, userId: sub.userId });
+}

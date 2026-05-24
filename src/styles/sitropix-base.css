@@ -1,0 +1,42 @@
+/* ============================================================
+   Sitropix base styles
+   Applies brand font + focus ring rules globally.
+   Doesn't override existing Tailwind theme — overlays on top.
+   ============================================================ */
+
+html {
+  scroll-padding-top: var(--space-6);
+}
+
+body {
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Headings: brand display font, tighter tracking, used wherever class isn't overridden. */
+h1.sx-display,
+h2.sx-display,
+h3.sx-display {
+  font-family: var(--font-display);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--line-tight);
+}
+
+/* Global focus ring used by new primitives. */
+.sx :focus-visible,
+[data-sx-root] :focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-sx-root] *,
+  [data-sx-root] *::before,
+  [data-sx-root] *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

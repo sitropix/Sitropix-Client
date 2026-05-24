@@ -1,0 +1,9 @@
+node_modules
+dist
+data/client-documents
+.DS_Store
+*.local
+.env
+.env.*
+!.env.example
+.vercel

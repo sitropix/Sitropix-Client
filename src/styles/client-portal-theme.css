@@ -1,0 +1,637 @@
+/**
+ * Sitropix client portal — Figma export palette (code.html).
+ * Isolates the portal from legacy canvas grays and dark-theme remaps.
+ */
+
+.client-portal-root {
+  --portal-background: #fdf8f7;
+  --portal-surface: #fdf8f7;
+  --portal-on-surface: #1c1b1b;
+  --portal-on-background: #1c1b1b;
+  --portal-on-surface-variant: #494740;
+  --portal-outline-variant: #cbc6bd;
+  --portal-stone-6: #3d3c3a;
+  --portal-stone-3: #c9c8c3;
+  --portal-accent-gold: #c4a35a;
+  --portal-gold-light: #f5edd8;
+  --portal-on-accent: #ffffff;
+  --portal-on-secondary-container: #785d1b;
+  --portal-surface-container-low: #f7f3f2;
+  --portal-surface-container: #f1edec;
+  --portal-surface-container-lowest: #ffffff;
+  --portal-success: #2e6b4f;
+  --portal-success-bg: #eaf3ee;
+
+  background-color: var(--portal-background) !important;
+  background-image: none !important;
+  color: var(--portal-on-background);
+  color-scheme: light;
+}
+
+.client-portal-root .client-portal-main,
+.client-portal-root .client-portal-canvas {
+  background-color: var(--portal-background);
+}
+
+.client-portal-root :is(h1, h2, h3, h4, h5, h6) {
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+.client-portal-root ::selection {
+  background-color: #1c1b19;
+  color: #868380;
+}
+
+/* Figma border-radius (lg = 4px) for portal controls */
+.client-portal-root button,
+.client-portal-root input,
+.client-portal-root select,
+.client-portal-root textarea {
+  border-radius: 0.25rem;
+}
+
+.client-portal-root .rounded-full {
+  border-radius: 0.75rem;
+}
+
+.client-portal-root .ink-border-8 {
+  border-color: rgba(61, 60, 58, 0.08);
+}
+
+.client-portal-root .ink-border-10 {
+  border-color: rgba(61, 60, 58, 0.1);
+}
+
+.client-portal-root .ink-border-15 {
+  border-color: rgba(61, 60, 58, 0.15);
+}
+
+.client-portal-root .hover\:ink-border-15:hover {
+  border-color: rgba(61, 60, 58, 0.15);
+}
+
+.client-portal-root .soft-shadow-xl {
+  box-shadow: 0 20px 40px -5px rgba(28, 27, 27, 0.04);
+}
+
+/* Dark portal palette — mirrors light structure with inverted surfaces */
+html[data-theme="dark"] .client-portal-root {
+  --portal-background: #121110;
+  --portal-surface: #121110;
+  --portal-on-surface: #f4f1ec;
+  --portal-on-background: #f4f1ec;
+  --portal-on-surface-variant: #b5b0a6;
+  --portal-outline-variant: #43403a;
+  --portal-stone-6: #e8e4dc;
+  --portal-stone-3: #6a6660;
+  --portal-accent-gold: #d4b06a;
+  --portal-gold-light: #2c2618;
+  --portal-on-accent: #ffffff;
+  --portal-on-secondary-container: #e5c98a;
+  --portal-surface-container-low: #1c1a18;
+  --portal-surface-container: #242120;
+  --portal-surface-container-lowest: #181614;
+  --portal-success: #6bc492;
+  --portal-success-bg: #1a2e24;
+
+  background-color: var(--portal-background) !important;
+  background-image: none !important;
+  color: var(--portal-on-background);
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] .client-portal-root .client-portal-main,
+html[data-theme="dark"] .client-portal-root .client-portal-canvas {
+  background-color: var(--portal-background) !important;
+}
+
+html[data-theme="dark"] .client-portal-root :is(h1, h2, h3, h4, h5, h6) {
+  color: inherit !important;
+}
+
+/* ── Portal sidebar (light rail + dark rail) ── */
+
+.client-portal-root .portal-top-header {
+  background-color: color-mix(in srgb, var(--portal-background) 88%, transparent) !important;
+  border-bottom-color: color-mix(in srgb, var(--portal-outline-variant) 35%, transparent) !important;
+}
+
+.client-portal-root .portal-sidebar {
+  overflow-x: hidden;
+  background-color: var(--portal-surface-container) !important;
+  border-right: 1px solid rgba(61, 60, 58, 0.14) !important;
+  color: var(--portal-on-surface);
+  box-shadow: 4px 0 24px rgba(28, 27, 27, 0.05) !important;
+}
+
+.client-portal-root .portal-sidebar-footer {
+  border-top-color: rgba(61, 60, 58, 0.14) !important;
+}
+
+.client-portal-root .portal-sidebar-brand-title,
+.client-portal-root .portal-sidebar .portal-sidebar-brand h1 {
+  color: var(--portal-accent-gold) !important;
+}
+
+.client-portal-root .portal-sidebar-brand-dot {
+  background-color: var(--portal-accent-gold) !important;
+}
+
+.client-portal-root .portal-sidebar-brand-subtitle {
+  color: var(--portal-on-surface-variant) !important;
+}
+
+.client-portal-root .portal-sidebar .portal-nav-link,
+.client-portal-root .portal-sidebar .portal-sidebar-footer-link {
+  color: var(--portal-on-surface) !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  border-left: 2px solid transparent !important;
+  border-radius: 0.75rem;
+  margin: 0.1rem 0;
+  max-width: 100%;
+  box-shadow: none !important;
+  transition:
+    color 0.2s ease-in-out,
+    background-color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out;
+}
+
+.client-portal-root .portal-sidebar .portal-nav-link .material-symbols-outlined,
+.client-portal-root .portal-sidebar .portal-sidebar-footer-link .material-symbols-outlined {
+  color: inherit !important;
+}
+
+.client-portal-root .portal-sidebar .portal-nav-link:hover,
+.client-portal-root .portal-sidebar .portal-sidebar-footer-link:hover {
+  color: var(--portal-on-surface) !important;
+  background-color: rgba(28, 27, 27, 0.06) !important;
+  border-left-color: rgba(120, 118, 114, 0.75) !important;
+}
+
+.client-portal-root .portal-sidebar .portal-nav-link--active,
+.client-portal-root .portal-sidebar .portal-nav-link[aria-current="page"] {
+  color: var(--portal-on-surface) !important;
+  font-weight: 600 !important;
+  border-left-color: var(--portal-accent-gold) !important;
+  background-color: rgba(196, 163, 90, 0.14) !important;
+}
+
+.client-portal-root .portal-sidebar .portal-nav-link--locked,
+.client-portal-root .portal-sidebar .portal-nav-link--locked .material-symbols-outlined {
+  color: var(--portal-on-surface-variant) !important;
+  opacity: 0.55;
+}
+
+.client-portal-root .portal-sidebar .portal-sidebar-footer-link--logout:hover {
+  color: var(--portal-error) !important;
+  background-color: var(--portal-error-bg) !important;
+  border-left-color: rgba(163, 48, 48, 0.35) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar {
+  background: #0a0a0a !important;
+  border-right-color: rgba(58, 58, 58, 0.9) !important;
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.03),
+    8px 0 28px rgba(0, 0, 0, 0.5) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar-footer {
+  border-top-color: rgba(46, 46, 46, 0.55) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar-brand-title,
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-sidebar-brand h1 {
+  color: var(--portal-accent-gold) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar-brand-dot {
+  background-color: var(--portal-accent-gold) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar-brand-subtitle {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link,
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-sidebar-footer-link {
+  color: #c6c6c6 !important;
+  background-color: transparent !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link:hover,
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-sidebar-footer-link:hover {
+  color: #f4f4f5 !important;
+  background-color: rgba(30, 30, 30, 0.98) !important;
+  border-left-color: rgba(120, 120, 120, 0.85) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link--active,
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link[aria-current="page"] {
+  color: #f9fafb !important;
+  border-left-color: var(--portal-accent-gold) !important;
+  background-color: rgba(26, 26, 26, 0.99) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link--locked,
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-nav-link--locked .material-symbols-outlined {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .portal-sidebar .portal-sidebar-footer-link--logout:hover {
+  color: #fca5a5 !important;
+  background-color: rgba(163, 48, 48, 0.12) !important;
+  border-left-color: rgba(248, 113, 113, 0.45) !important;
+}
+
+/* ── Portal page UX (align inner routes with home dashboard) ── */
+
+.client-portal-root .portal-page {
+  width: 100%;
+}
+
+.client-portal-root nav[aria-label="Breadcrumb"] {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--portal-on-surface-variant);
+}
+
+.client-portal-root nav[aria-label="Breadcrumb"] a {
+  color: var(--portal-on-surface-variant);
+  transition: color 0.15s ease;
+}
+
+.client-portal-root nav[aria-label="Breadcrumb"] a:hover {
+  color: var(--portal-on-surface);
+}
+
+.client-portal-root nav[aria-label="Breadcrumb"] li > span.font-medium,
+.client-portal-root nav[aria-label="Breadcrumb"] li > span:last-child {
+  color: var(--portal-on-surface);
+  font-weight: 600;
+}
+
+.client-portal-root nav[aria-label="Breadcrumb"] li > span.text-zinc-400 {
+  color: var(--portal-outline-variant);
+}
+
+/* Headings only — do not remap button/link label colors globally */
+.client-portal-main :is(h1, h2, h3, h4).text-white:not(.portal-sidebar *) {
+  color: var(--portal-on-surface) !important;
+}
+
+.client-portal-main .text-ink-muted,
+.client-portal-main .text-ink-subtle {
+  color: var(--portal-on-surface-variant) !important;
+}
+
+.client-portal-main .subscription-mgmt-hero {
+  border-color: rgba(61, 60, 58, 0.08) !important;
+  border-radius: 0.5rem !important;
+  background: var(--portal-surface-container-low) !important;
+  background-image: none !important;
+  box-shadow: 0 20px 40px -5px rgba(28, 27, 27, 0.04) !important;
+}
+
+.client-portal-main .subscription-mgmt-hero .text-zinc-900,
+.client-portal-main .subscription-mgmt-hero h1 {
+  color: var(--portal-on-surface) !important;
+}
+
+.client-portal-main .subscription-mgmt-hero .text-zinc-600,
+.client-portal-main .subscription-mgmt-hero .text-zinc-500 {
+  color: var(--portal-on-surface-variant) !important;
+}
+
+.client-portal-main .client-workspace-view {
+  color: var(--portal-on-surface);
+}
+
+html:not([data-theme="dark"]) .client-portal-main .client-workspace-view section.rounded-3xl,
+html:not([data-theme="dark"]) .client-portal-main .client-workspace-view article.rounded-2xl,
+html:not([data-theme="dark"]) .client-portal-main .client-workspace-view .rounded-2xl.border-\[\#2A3037\] {
+  border-color: rgba(61, 60, 58, 0.08) !important;
+  border-radius: 0.5rem !important;
+  background-color: var(--portal-surface-container-lowest) !important;
+  box-shadow: 0 20px 40px -5px rgba(28, 27, 27, 0.04);
+}
+
+html[data-theme="dark"] .client-portal-main .client-workspace-view section.rounded-3xl,
+html[data-theme="dark"] .client-portal-main .client-workspace-view article.rounded-2xl,
+html[data-theme="dark"] .client-portal-main .client-workspace-view .rounded-2xl.border-\[\#2A3037\] {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  border-radius: 0.5rem !important;
+  background-color: var(--portal-surface-container-lowest) !important;
+  box-shadow: 0 20px 40px -5px rgba(0, 0, 0, 0.35);
+}
+
+html:not([data-theme="dark"]) .client-portal-main .client-workspace-view .bg-\[\#15191C\],
+html:not([data-theme="dark"]) .client-portal-main .client-workspace-view .bg-\[\#1C2126\],
+html:not([data-theme="dark"]) .client-portal-main .client-workspace-view .bg-\[\#101317\],
+html:not([data-theme="dark"]) .client-portal-main .client-workspace-view .bg-\[\#111418\] {
+  background-color: var(--portal-surface-container-low) !important;
+}
+
+html[data-theme="dark"] .client-portal-main .client-workspace-view .bg-\[\#15191C\],
+html[data-theme="dark"] .client-portal-main .client-workspace-view .bg-\[\#1C2126\],
+html[data-theme="dark"] .client-portal-main .client-workspace-view .bg-\[\#101317\],
+html[data-theme="dark"] .client-portal-main .client-workspace-view .bg-\[\#111418\] {
+  background-color: var(--portal-surface-container) !important;
+}
+
+.client-portal-main .client-workspace-view input,
+.client-portal-main .client-workspace-view select,
+.client-portal-main .client-workspace-view .border-\[\#2A3037\] {
+  border-color: color-mix(in srgb, var(--portal-on-surface) 12%, transparent) !important;
+  color: var(--portal-on-surface) !important;
+}
+
+.client-portal-main .client-workspace-view input,
+.client-portal-main .client-workspace-view select {
+  background-color: var(--portal-surface-container-low) !important;
+}
+
+.client-portal-main .client-workspace-view input::placeholder {
+  color: var(--portal-on-surface-variant);
+}
+
+.client-portal-main .client-workspace-view .text-zinc-900,
+.client-portal-main .client-workspace-view h1,
+.client-portal-main .client-workspace-view h2,
+.client-portal-main .client-workspace-view h3,
+.client-portal-main .client-workspace-view .text-zinc-100 {
+  color: var(--portal-on-surface) !important;
+}
+
+/* Legacy dark-surface workspace controls → portal surfaces with readable labels */
+html:not([data-theme="dark"]) .client-portal-main .client-workspace-view :is(button, a)[class*="bg-[#1C2126"],
+html:not([data-theme="dark"]) .client-portal-main .client-workspace-view :is(button, a)[class*="bg-[#15191C"],
+html:not([data-theme="dark"]) .client-portal-main .client-workspace-view :is(button, a, label).bg-white:not(.portal-btn-primary):not(.portal-btn-dark) {
+  background-color: var(--portal-surface-container) !important;
+  border-color: color-mix(in srgb, var(--portal-on-surface) 18%, transparent) !important;
+  color: var(--portal-on-surface) !important;
+}
+
+.client-portal-main .client-workspace-view .text-zinc-200,
+.client-portal-main .client-workspace-view .text-zinc-300,
+.client-portal-main .client-workspace-view .text-zinc-400,
+.client-portal-main .client-workspace-view .text-zinc-500,
+.client-portal-main .client-workspace-view .text-zinc-600 {
+  color: var(--portal-on-surface-variant) !important;
+}
+
+/* Dark-tinted panels remapped to light surfaces — fix leftover white labels */
+html:not([data-theme="dark"]) .client-portal-main .client-workspace-view :is(p, span, li, select).text-white:not(.portal-btn-primary):not(.portal-btn-dark) {
+  color: var(--portal-on-surface) !important;
+}
+
+.client-portal-main :is(section, aside).rounded-2xl.border-white\/10,
+.client-portal-main :is(section, aside).border-white\/10.bg-white\/\[0\.03\],
+.client-portal-main form.rounded-3xl.border-white\/10 {
+  border-color: rgba(61, 60, 58, 0.08) !important;
+  border-radius: 0.5rem !important;
+  background-color: var(--portal-surface-container-lowest) !important;
+  background-image: none !important;
+  box-shadow: 0 20px 40px -5px rgba(28, 27, 27, 0.04);
+  color: var(--portal-on-surface);
+}
+
+.client-portal-main input.border-white\/10,
+.client-portal-main textarea.border-white\/10,
+.client-portal-main select.border-white\/10,
+.client-portal-main select {
+  border-color: rgba(28, 27, 27, 0.1) !important;
+  background-color: var(--portal-surface-container-low) !important;
+  color: var(--portal-on-surface) !important;
+}
+
+.client-portal-main select option {
+  background-color: var(--portal-surface-container-lowest);
+  color: var(--portal-on-surface);
+}
+
+.client-portal-main input.border-white\/10:focus,
+.client-portal-main textarea.border-white\/10:focus {
+  border-color: var(--portal-accent-gold) !important;
+}
+
+.client-portal-main .bg-brand-lime,
+.client-portal-main a.bg-brand-lime,
+.client-portal-main button.bg-brand-lime {
+  background-color: var(--portal-accent-gold) !important;
+  color: var(--portal-on-accent) !important;
+  border-radius: 0.5rem !important;
+}
+
+.client-portal-main .bg-brand-lime:hover,
+.client-portal-main button.bg-brand-lime:hover {
+  filter: brightness(1.08);
+}
+
+.client-portal-main .rounded-full.border.border-white\/15,
+.client-portal-main button.rounded-full.border.border-white\/15 {
+  border-color: rgba(61, 60, 58, 0.15) !important;
+  border-radius: 0.5rem !important;
+  background-color: var(--portal-surface-container-lowest) !important;
+  color: var(--portal-on-surface) !important;
+}
+
+.client-portal-main .overflow-hidden.rounded-2xl.border.border-zinc-300,
+.client-portal-main .rounded-2xl.border.border-zinc-300.bg-white,
+.client-portal-main aside.rounded-2xl.border.border-zinc-300 {
+  border-color: rgba(61, 60, 58, 0.08) !important;
+  border-radius: 0.5rem !important;
+  background-color: var(--portal-surface-container-lowest) !important;
+  box-shadow: 0 20px 40px -5px rgba(28, 27, 27, 0.04);
+}
+
+.client-portal-main .border-zinc-300 {
+  border-color: rgba(61, 60, 58, 0.12) !important;
+}
+
+.client-portal-main .bg-zinc-100 {
+  background-color: var(--portal-surface-container-low) !important;
+}
+
+.client-portal-main .bg-zinc-700,
+.client-portal-main button.bg-zinc-700 {
+  background-color: var(--portal-on-surface) !important;
+  color: var(--portal-surface) !important;
+  border-radius: 0.5rem !important;
+}
+
+.client-portal-main .bg-zinc-700:hover {
+  opacity: 0.9;
+}
+
+.client-portal-main .text-zinc-900 {
+  color: var(--portal-on-surface) !important;
+}
+
+.client-portal-main .text-zinc-600,
+.client-portal-main .text-zinc-500 {
+  color: var(--portal-on-surface-variant) !important;
+}
+
+/* ── Semantic Tailwind tokens → portal variables (light & dark) ── */
+
+.client-portal-root .bg-background {
+  background-color: var(--portal-background) !important;
+}
+
+.client-portal-root .bg-surface {
+  background-color: var(--portal-surface) !important;
+}
+
+.client-portal-root .bg-surface-container-lowest,
+.client-portal-root .bg-white {
+  background-color: var(--portal-surface-container-lowest) !important;
+}
+
+.client-portal-root .bg-surface-container-low {
+  background-color: var(--portal-surface-container-low) !important;
+}
+
+.client-portal-root .bg-surface-container {
+  background-color: var(--portal-surface-container) !important;
+}
+
+.client-portal-root .bg-gold-light {
+  background-color: var(--portal-gold-light) !important;
+}
+
+.client-portal-root .bg-accent-gold {
+  background-color: var(--portal-accent-gold) !important;
+}
+
+.client-portal-root .bg-on-surface {
+  background-color: var(--portal-on-surface) !important;
+}
+
+.client-portal-root .text-on-surface,
+.client-portal-root .text-on-background {
+  color: var(--portal-on-surface) !important;
+}
+
+.client-portal-root .text-on-surface-variant {
+  color: var(--portal-on-surface-variant) !important;
+}
+
+.client-portal-root .text-on-secondary-container {
+  color: var(--portal-on-secondary-container) !important;
+}
+
+.client-portal-root .text-stone-6 {
+  color: var(--portal-stone-6) !important;
+}
+
+.client-portal-root .text-surface {
+  color: var(--portal-surface) !important;
+}
+
+.client-portal-root .text-accent-gold {
+  color: var(--portal-accent-gold) !important;
+}
+
+.client-portal-root .border-outline-variant {
+  border-color: var(--portal-outline-variant) !important;
+}
+
+.client-portal-root .border-on-surface\/10 {
+  border-color: color-mix(in srgb, var(--portal-on-surface) 10%, transparent) !important;
+}
+
+.client-portal-root .border-on-surface\/15 {
+  border-color: color-mix(in srgb, var(--portal-on-surface) 15%, transparent) !important;
+}
+
+html[data-theme="dark"] .client-portal-root .ink-border-8 {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .client-portal-root .ink-border-10 {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .client-portal-root .ink-border-15,
+html[data-theme="dark"] .client-portal-root .hover\:ink-border-15:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+html[data-theme="dark"] .client-portal-root .soft-shadow-xl {
+  box-shadow: 0 20px 40px -5px rgba(0, 0, 0, 0.4);
+}
+
+.client-portal-main .subscription-hero-title,
+.client-portal-main .subscription-mgmt-hero .text-zinc-900,
+.client-portal-main .subscription-mgmt-hero h1 {
+  color: var(--portal-on-surface) !important;
+}
+
+.client-portal-main .subscription-mgmt-hero .text-zinc-600,
+.client-portal-main .subscription-mgmt-hero .text-zinc-500,
+.client-portal-main .client-workspace-view > header .text-zinc-500 {
+  color: var(--portal-on-surface-variant) !important;
+}
+
+.client-portal-main .client-ink-on-panel,
+.client-portal-main .client-plan-card-inactive {
+  color: var(--portal-on-surface) !important;
+}
+
+.client-portal-main :is(section, aside).rounded-2xl.border-white\/10,
+.client-portal-main :is(section, aside).border-white\/10.bg-white\/\[0\.03\],
+.client-portal-main form.rounded-3xl.border-white\/10 {
+  border-color: color-mix(in srgb, var(--portal-on-surface) 8%, transparent) !important;
+  background-color: var(--portal-surface-container-lowest) !important;
+  color: var(--portal-on-surface);
+}
+
+/* ── Portal buttons: enforce label/background contrast ── */
+
+.client-portal-root .portal-btn-primary,
+.client-portal-root :is(button, a).bg-accent-gold:where(:not(.portal-btn-secondary)) {
+  background-color: var(--portal-accent-gold) !important;
+  color: var(--portal-on-accent) !important;
+}
+
+.client-portal-root .portal-btn-primary:hover,
+.client-portal-root :is(button, a).bg-accent-gold:hover {
+  filter: brightness(1.06);
+}
+
+.client-portal-root .portal-btn-dark,
+.client-portal-root :is(button, a).bg-on-surface {
+  background-color: var(--portal-on-surface) !important;
+  color: var(--portal-surface) !important;
+}
+
+.client-portal-root .portal-btn-secondary {
+  background-color: var(--portal-surface-container-lowest) !important;
+  color: var(--portal-on-surface) !important;
+  border-color: color-mix(in srgb, var(--portal-on-surface) 15%, transparent) !important;
+}
+
+.client-portal-root .portal-empty-state :is(button, a).bg-accent-gold {
+  background-color: var(--portal-accent-gold) !important;
+  color: var(--portal-on-accent) !important;
+}
+
+/* Profile / legacy panels: dark chips with light labels */
+.client-portal-main :is(button, a).border-white\/15.text-white,
+.client-portal-main :is(button, a).bg-black\/20.text-white,
+.client-portal-main :is(button, a).bg-white\/\[0\.04\].text-white {
+  color: var(--portal-on-surface) !important;
+  background-color: var(--portal-surface-container-low) !important;
+  border-color: color-mix(in srgb, var(--portal-on-surface) 12%, transparent) !important;
+}
+
+html[data-theme="dark"] .client-portal-main :is(button, a).border-white\/15.text-white,
+html[data-theme="dark"] .client-portal-main :is(button, a).bg-black\/20.text-white,
+html[data-theme="dark"] .client-portal-main :is(button, a).bg-white\/\[0\.04\].text-white {
+  color: var(--portal-on-surface) !important;
+  background-color: var(--portal-surface-container) !important;
+}

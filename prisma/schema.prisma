@@ -1,0 +1,782 @@
+// Production relational schema — PostgreSQL
+// New / empty database: `npx prisma migrate deploy` (applies prisma/migrations).
+// Schema iteration (dev): `npx prisma migrate dev`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  user
+  manager
+  admin
+  master_admin
+  support
+}
+
+enum SubscriptionStatus {
+  trialing
+  active
+  paused
+  canceled
+  past_due
+}
+
+enum BillingCycle {
+  monthly
+  yearly
+}
+
+enum ProjectSubscriptionStatus {
+  not_started
+  on_hold
+  active
+}
+
+enum PaymentStatus {
+  succeeded
+  failed
+  pending
+  refunded
+}
+
+enum TicketStatus {
+  open
+  in_progress
+  hold
+  resolved
+  closed
+}
+
+enum TicketPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum SupportTicketCategory {
+  general
+  edit
+  addon
+}
+
+enum AddonRecurringType {
+  monthly
+  yearly
+  one_time
+}
+
+enum AddonBillingKind {
+  recurring
+  one_time
+  per_use
+}
+
+enum EditTypeCategory {
+  atomic
+  multi_credit
+}
+
+enum CrmLeadStatus {
+  NEW
+  MEETING_SCHEDULED
+  YET_TO_CONTACT
+  CONTACTED
+  HOLD
+}
+
+model User {
+  id                     String    @id @default(cuid())
+  email                  String    @unique
+  name                   String
+  passwordHash           String    @map("password_hash")
+  role                   Role      @default(user)
+  isEmailVerified        Boolean   @default(false) @map("is_email_verified")
+  emailVerificationToken String?   @map("email_verification_token")
+  passwordResetToken     String?   @map("password_reset_token")
+  passwordResetExpiresAt DateTime? @map("password_reset_expires_at")
+  stripeCustomerId       String?   @map("stripe_customer_id")
+  razorpayCustomerId     String?   @map("razorpay_customer_id")
+  phoneNumber            String?   @map("phone_number")
+  hasLoggedIn            Boolean   @default(false) @map("has_logged_in")
+  uiPrefsJson            Json      @default("{}") @map("ui_prefs_json")
+  isActive               Boolean   @default(true) @map("is_active")
+  deactivatedAt          DateTime? @map("deactivated_at")
+  deactivationReason     String?   @map("deactivation_reason")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  refreshTokens     RefreshToken[]
+  subscriptions     Subscription[]
+  payments          Payment[]
+  tickets           SupportTicket[]
+  ticketMessages    TicketMessage[]
+  clientDocuments   ClientDocument[]
+  projects          Project[]
+  invitesCreated    Invite[]           @relation("InviteCreator")
+  funnelEvents      FunnelEvent[]
+  moduleAccess      UserModuleAccess[]
+  ticketAttachments TicketAttachment[]
+  addonUtilizationTracking AddonUtilizationTracking[]
+  formDefinitions   FormDefinition[]   @relation("FormCreatedBy")
+  crmStatusChanges  CrmLeadStatusLog[] @relation("CrmStatusChangedBy")
+  convertedLeads    CrmLead[]          @relation("CrmLeadConvertedCustomer")
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model UserModuleAccess {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  moduleKey String   @map("module_key")
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, moduleKey])
+  @@index([userId])
+  @@map("user_module_access")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Plan {
+  id                   String    @id @default(cuid())
+  code                 String    @unique
+  name                 String
+  description          String    @default("")
+  priceMonthlyCents    Int       @map("price_monthly_cents")
+  priceYearlyCents     Int       @map("price_yearly_cents")
+  currency             String    @default("USD")
+  features             String[]  @default([])
+  isActive             Boolean   @default(true) @map("is_active")
+  archivedAt           DateTime? @map("archived_at")
+  trialDays            Int       @default(14) @map("trial_days")
+  billingMonthlyEnabled Boolean  @default(true) @map("billing_monthly_enabled")
+  billingYearlyEnabled  Boolean  @default(true) @map("billing_yearly_enabled")
+  /// Website edit credits granted each billing period for this plan (admin-editable).
+  includedEditCreditsPerPeriod Int @default(0) @map("included_edit_credits_per_period")
+  /// Admin-editable catalog: ranges, booleans, setup fees, page limits, marketing copy, etc.
+  catalogJson          Json      @default("{}") @map("catalog_json")
+  stripeProductId      String?   @map("stripe_product_id")
+  stripePriceMonthlyId String?   @map("stripe_price_monthly_id")
+  stripePriceYearlyId  String?   @map("stripe_price_yearly_id")
+  razorpayPlanId       String?   @map("razorpay_plan_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  subscriptions        Subscription[]
+  planFeatureOverrides PlanFeatureOverride[]
+  invites              Invite[]
+
+  @@index([isActive])
+  @@map("plans")
+}
+
+model SubscriptionAddon {
+  id         String   @id @default(cuid())
+  code       String   @unique
+  label      String
+  desc       String   @default("")
+  priceCents Int      @map("price_cents")
+  currency   String   @default("USD")
+  isActive   Boolean  @default(true) @map("is_active")
+  billingMonthlyEnabled Boolean @default(true) @map("billing_monthly_enabled")
+  billingYearlyEnabled  Boolean @default(true) @map("billing_yearly_enabled")
+  billingKind AddonBillingKind @default(recurring) @map("billing_kind")
+  priceMinCents Int?   @map("price_min_cents")
+  priceMaxCents Int?   @map("price_max_cents")
+  setupFeeCents Int   @default(0) @map("setup_fee_cents")
+  deliveryMode String  @default("") @map("delivery_mode")
+  eligiblePlanCodes Json @default("[]") @map("eligible_plan_codes")
+  catalogJson Json     @default("{}") @map("catalog_json")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  projectEntitlements ProjectAddonEntitlement[]
+  supportTickets      SupportTicket[]
+  utilizationTracking AddonUtilizationTracking[]
+
+  @@index([isActive])
+  @@map("subscription_addons")
+}
+
+model Subscription {
+  id                     String             @id @default(cuid())
+  userId                 String             @map("user_id")
+  projectId              String             @map("project_id")
+  planId                 String             @map("plan_id")
+  status                 SubscriptionStatus
+  billingCycle           BillingCycle       @default(monthly) @map("billing_cycle")
+  currentPeriodStart     DateTime           @map("current_period_start")
+  currentPeriodEnd       DateTime           @map("current_period_end")
+  cancelAtPeriodEnd      Boolean            @default(false) @map("cancel_at_period_end")
+  pausedAt               DateTime?          @map("paused_at")
+  canceledAt             DateTime?          @map("canceled_at")
+  stripeSubscriptionId   String?            @unique @map("stripe_subscription_id")
+  stripeCustomerId       String?            @map("stripe_customer_id")
+  razorpaySubscriptionId String?            @map("razorpay_subscription_id")
+  includedCreditsPerPeriod         Int @default(0) @map("included_credits_per_period")
+  includedCreditsUsedThisPeriod    Int @default(0) @map("included_credits_used_this_period")
+  purchasedCreditsBalance          Int @default(0) @map("purchased_credits_balance")
+  /// When set and in the future, project support tickets use high priority (priority-boost add-on).
+  supportPriorityBoostUntil        DateTime?        @map("support_priority_boost_until")
+  createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  plan     Plan      @relation(fields: [planId], references: [id])
+  payments Payment[]
+  addonUtilizationTracking AddonUtilizationTracking[]
+
+  @@unique([userId, projectId])
+  @@index([userId])
+  @@index([planId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  userId          String        @map("user_id")
+  subscriptionId  String        @map("subscription_id")
+  invoiceNumber   String        @unique @map("invoice_number")
+  amountCents     Int           @map("amount_cents")
+  currency        String        @default("USD")
+  status          PaymentStatus
+  paidAt          DateTime?     @map("paid_at")
+  failureReason   String?       @map("failure_reason")
+  stripeInvoiceId String?       @unique @map("stripe_invoice_id")
+  invoicePdfUrl   String?       @map("invoice_pdf_url")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([subscriptionId])
+  @@index([status])
+  @@map("payments")
+}
+
+model Coupon {
+  id               String    @id @default(cuid())
+  code             String    @unique
+  discountType     String    @map("discount_type") // percent | flat
+  discountValue    Int       @map("discount_value")
+  expiresAt        DateTime? @map("expires_at")
+  maxRedemptions   Int?      @map("max_redemptions")
+  redemptionsCount Int       @default(0) @map("redemptions_count")
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@map("coupons")
+}
+
+model SupportTicket {
+  id          String         @id @default(cuid())
+  userId      String         @map("user_id")
+  projectId   String?        @map("project_id")
+  subject     String
+  description String         @db.Text
+  status      TicketStatus   @default(open)
+  priority    TicketPriority @default(medium)
+  department  String         @default("General")
+  category    SupportTicketCategory @default(general) @map("category")
+  userPlan    String?        @map("user_plan")
+  editTypeId  String?        @map("edit_type_id")
+  subscriptionAddonId String? @map("subscription_addon_id")
+  creditsCharged Int         @default(0) @map("credits_charged")
+  creditsFromIncluded Int    @default(0) @map("credits_from_included")
+  creditsFromPurchased Int   @default(0) @map("credits_from_purchased")
+  /// When status is resolved: true = keep deduction, false = refund reserved credits once.
+  workCompleted Boolean?     @map("work_completed")
+  creditsRefunded Boolean    @default(false) @map("credits_refunded")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project     Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  editType    EditType?          @relation(fields: [editTypeId], references: [id], onDelete: SetNull)
+  addon       SubscriptionAddon? @relation(fields: [subscriptionAddonId], references: [id], onDelete: SetNull)
+  messages    TicketMessage[]
+  attachments TicketAttachment[]
+  activeAddonUtilization AddonUtilizationTracking? @relation("ActiveAddonUtilizationTicket")
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([status])
+  @@index([priority])
+  @@index([editTypeId])
+  @@index([subscriptionAddonId])
+  @@index([category])
+  @@map("support_tickets")
+}
+
+model EditType {
+  id                   String           @id @default(cuid())
+  code                 String           @unique
+  label                String
+  category             EditTypeCategory
+  creditsMin           Int              @map("credits_min")
+  creditsMax           Int              @map("credits_max")
+  defaultChargeCredits Int              @map("default_charge_credits")
+  isActive             Boolean          @default(true) @map("is_active")
+  sortOrder            Int              @default(0) @map("sort_order")
+  createdAt            DateTime         @default(now()) @map("created_at")
+  updatedAt            DateTime         @updatedAt @map("updated_at")
+
+  supportTickets SupportTicket[]
+
+  @@index([isActive])
+  @@map("edit_types")
+}
+
+model ProjectAddonEntitlement {
+  id                    String            @id @default(cuid())
+  projectId             String            @map("project_id")
+  subscriptionAddonId String            @map("subscription_addon_id")
+  checkoutDedupeKey     String?           @unique @map("checkout_dedupe_key")
+  consumedAt            DateTime?         @map("consumed_at")
+  createdAt             DateTime          @default(now()) @map("created_at")
+
+  project Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  addon   SubscriptionAddon @relation(fields: [subscriptionAddonId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("project_addon_entitlements")
+}
+
+/// Stripe subscription for a recurring add-on billed on its own cadence (e.g. monthly add-on on a yearly plan).
+model ProjectRecurringAddonStripe {
+  id                   String       @id @default(cuid())
+  projectId            String       @map("project_id")
+  addonCode            String       @map("addon_code")
+  stripeSubscriptionId String       @unique @map("stripe_subscription_id")
+  billingCycle         BillingCycle @map("billing_cycle")
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, addonCode])
+  @@index([projectId])
+  @@map("project_recurring_addon_stripe")
+}
+
+/// Per user/project/add-on/billing-cycle utilization for support-ticket–gated add-on delivery.
+model AddonUtilizationTracking {
+  id                  String             @id @default(cuid())
+  userId              String             @map("user_id")
+  projectId           String             @map("project_id")
+  subscriptionId      String             @map("subscription_id")
+  subscriptionAddonId String             @map("subscription_addon_id")
+  isRecurring         Boolean            @default(false) @map("is_recurring")
+  recurringType       AddonRecurringType @map("recurring_type")
+  hasSetupFee         Boolean            @default(false) @map("has_setup_fee")
+  isBundled           Boolean            @default(false) @map("is_bundled")
+  currentCycleStart   DateTime           @map("current_cycle_start")
+  currentCycleEnd     DateTime           @map("current_cycle_end")
+  isUtilized          Boolean            @default(false) @map("is_utilized")
+  lastUtilizedAt      DateTime?          @map("last_utilized_at")
+  activeSupportTicketId String?          @unique @map("active_support_ticket_id")
+  utilizationHistory  Json               @default("[]") @map("utilization_history")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project      Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  subscription Subscription      @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  addon        SubscriptionAddon @relation(fields: [subscriptionAddonId], references: [id], onDelete: Cascade)
+  activeTicket SupportTicket?    @relation("ActiveAddonUtilizationTicket", fields: [activeSupportTicketId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, projectId, subscriptionAddonId, currentCycleStart])
+  @@index([projectId, subscriptionAddonId])
+  @@index([subscriptionId])
+  @@map("addon_utilization_tracking")
+}
+
+model TicketMessage {
+  id        String   @id @default(cuid())
+  ticketId  String   @map("ticket_id")
+  userId    String?  @map("user_id")
+  isStaff   Boolean  @default(false) @map("is_staff")
+  body      String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  ticket      SupportTicket      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user        User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  attachments TicketAttachment[]
+
+  @@index([ticketId])
+  @@map("ticket_messages")
+}
+
+model TicketAttachment {
+  id               String   @id @default(cuid())
+  ticketId         String   @map("ticket_id")
+  messageId        String?  @map("message_id")
+  uploadedByUserId String?  @map("uploaded_by_user_id")
+  fileName         String   @map("file_name")
+  mimeType         String   @map("mime_type")
+  storagePath      String   @default("") @map("storage_path")
+  fileData         Bytes?   @map("file_data")
+  sizeBytes        Int      @default(0) @map("size_bytes")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  ticket         SupportTicket  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  message        TicketMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploadedByUser User?          @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId])
+  @@index([messageId])
+  @@map("ticket_attachments")
+}
+
+model KBCategory {
+  id           String      @id @default(cuid())
+  name         String
+  slug         String      @unique
+  articleCount Int         @default(0) @map("article_count")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+  articles     KBArticle[]
+
+  @@map("kb_categories")
+}
+
+model KBArticle {
+  id              String   @id @default(cuid())
+  title           String
+  excerpt         String
+  content         String   @db.Text
+  categoryId      String   @map("category_id")
+  readTimeMinutes Int      @default(5) @map("read_time_minutes")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  category KBCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId])
+  @@map("kb_articles")
+}
+
+model WebhookEvent {
+  id          String    @id @default(cuid())
+  provider    String
+  eventId     String    @unique @map("event_id")
+  eventType   String    @map("event_type")
+  payload     Json
+  processedAt DateTime? @map("processed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([provider])
+  @@map("webhook_events")
+}
+
+model EmailLog {
+  id             String   @id @default(cuid())
+  toEmail        String   @map("to_email")
+  template       String
+  idempotencyKey String?  @unique @map("idempotency_key")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("email_logs")
+}
+
+/// Singleton (id = "default"). Admin-configured outbound email; secrets stored encrypted at rest.
+model EmailSettings {
+  id               String   @id
+  provider         String   @default("console")
+  fromEmail        String   @default("") @map("from_email")
+  fromName         String   @default("") @map("from_name")
+  settingsJson     Json     @default("{}") @map("settings_json")
+  secretsEncrypted String?  @map("secrets_encrypted") @db.Text
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("email_settings")
+}
+
+model EmailTemplate {
+  id        String   @id
+  name      String
+  subject   String
+  html      String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("email_templates")
+}
+
+/// SaaS-wide toggles (admin). Keys are stable API contracts.
+/// For experiment flags, `stringValue` stores the active variant; boolean flags use `stringValue` = null.
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  label       String
+  enabled     Boolean  @default(true)
+  stringValue String?  @map("string_value") @db.VarChar(120)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("feature_flags")
+}
+
+/// When set, overrides the global flag for a specific plan (existing subscribers keep their plan row).
+model PlanFeatureOverride {
+  id        String   @id @default(cuid())
+  planId    String   @map("plan_id")
+  key       String
+  enabled   Boolean
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([planId, key])
+  @@index([planId])
+  @@map("plan_feature_overrides")
+}
+
+/// Admin-uploaded files visible only to the owning client.
+model ClientDocument {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  category    String   @default("General")
+  title       String
+  fileName    String   @map("file_name")
+  mimeType    String   @map("mime_type")
+  storagePath String   @default("") @map("storage_path")
+  fileData    Bytes?   @map("file_data")
+  sizeBytes   Int      @default(0) @map("size_bytes")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([category])
+  @@map("client_documents")
+}
+
+model Project {
+  id                 String                    @id @default(cuid())
+  ownerUserId        String                    @map("owner_user_id")
+  name               String
+  description        String                    @default("")
+  subscriptionStatus ProjectSubscriptionStatus @default(not_started) @map("subscription_status")
+  planId             String?                   @map("plan_id")
+  planName           String?                   @map("plan_name")
+  planValidUntil     DateTime?                 @map("plan_valid_until")
+  billingCycle       BillingCycle?             @map("billing_cycle")
+  addonsJson         Json                      @default("[]") @map("addons_json")
+  invoicesJson       Json                      @default("[]") @map("invoices_json")
+  createdAt          DateTime                  @default(now()) @map("created_at")
+  updatedAt          DateTime                  @updatedAt @map("updated_at")
+
+  owner         User            @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+  supportTickets SupportTicket[]
+  addonEntitlements ProjectAddonEntitlement[]
+  recurringAddonStripe ProjectRecurringAddonStripe[]
+  addonUtilizationTracking AddonUtilizationTracking[]
+
+  @@index([ownerUserId, createdAt(sort: Desc)])
+  @@index([subscriptionStatus])
+  @@map("projects")
+}
+
+/// Admin-issued signup invite (optional pre-assigned plan).
+model Invite {
+  id              String    @id @default(cuid())
+  email           String
+  tokenHash       String    @unique @map("token_hash")
+  planId          String?   @map("plan_id")
+  /// Staff invite: role applied when the invitee completes signup (customer invites leave null).
+  invitedRole     Role?     @map("invited_role")
+  message         String    @default("") @db.Text
+  expiresAt       DateTime  @map("expires_at")
+  acceptedAt      DateTime? @map("accepted_at")
+  revokedAt       DateTime? @map("revoked_at")
+  resendCount     Int       @default(0) @map("resend_count")
+  lastSentAt      DateTime? @map("last_sent_at")
+  createdByUserId String    @map("created_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  plan      Plan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+  createdBy User  @relation("InviteCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([expiresAt])
+  @@map("invites")
+}
+
+/// Immutable audit trail for security and operational forensics.
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?  @map("actor_user_id")
+  actorRole   String?  @map("actor_role")
+  action      String
+  targetType  String?  @map("target_type")
+  targetId    String?  @map("target_id")
+  requestId   String?  @map("request_id")
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([actorUserId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+/// Product/conversion funnel events (authenticated; used for layout experiments and checkout analytics).
+model FunnelEvent {
+  id        String   @id @default(cuid())
+  userId    String?  @map("user_id")
+  name      String
+  props     Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([name, createdAt])
+  @@index([userId, createdAt])
+  @@map("funnel_events")
+}
+
+/// Secure runtime configuration values managed by admin UI.
+/// Secrets are encrypted in `valueEncrypted`; non-secrets use `valuePlain`.
+model SystemConfig {
+  id             String   @id @default(cuid())
+  key            String   @unique
+  valuePlain     String?  @map("value_plain") @db.Text
+  valueEncrypted String?  @map("value_encrypted") @db.Text
+  isSecret       Boolean  @default(false) @map("is_secret")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("system_config")
+}
+
+model FormDefinition {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  isActive     Boolean  @default(true) @map("is_active")
+  embedKey     String   @unique @map("embed_key")
+  settingsJson Json     @default("{}") @map("settings_json")
+  createdById  String?  @map("created_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  createdBy   User?            @relation("FormCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  fields      FormField[]
+  submissions FormSubmission[]
+  leads       CrmLead[]
+
+  @@map("form_definitions")
+}
+
+model FormField {
+  id             String   @id @default(cuid())
+  formId         String   @map("form_id")
+  key            String
+  label          String
+  type           String
+  required       Boolean  @default(false)
+  fieldOrder     Int      @default(0) @map("field_order")
+  optionsJson    Json     @default("[]") @map("options_json")
+  validationJson Json     @default("{}") @map("validation_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  form FormDefinition @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId, fieldOrder])
+  @@map("form_fields")
+}
+
+model FormSubmission {
+  id                    String   @id @default(cuid())
+  formId                String   @map("form_id")
+  payloadJson           Json     @map("payload_json")
+  sourceUrl             String?  @map("source_url")
+  sourceReferrer        String?  @map("source_referrer")
+  utmJson               Json     @default("{}") @map("utm_json")
+  submittedAt           DateTime @default(now()) @map("submitted_at")
+  ipHash                String?  @map("ip_hash")
+  userAgent             String?  @map("user_agent")
+  calBookingId          String?  @map("cal_booking_id")
+  meetingUrlAtSubmit    String?  @map("meeting_url_at_submit")
+  calMeetingDetailsJson Json?    @map("cal_meeting_details_json")
+
+  form FormDefinition @relation(fields: [formId], references: [id], onDelete: Cascade)
+  lead CrmLead?
+
+  @@index([formId, submittedAt(sort: Desc)])
+  @@map("form_submissions")
+}
+
+model CrmLead {
+  id                  String        @id @default(cuid())
+  formId              String        @map("form_id")
+  submissionId        String        @unique @map("submission_id")
+  fullName            String?       @map("full_name")
+  email               String?
+  phone               String?
+  company             String?
+  sourceLabel         String?       @map("source_label")
+  status              CrmLeadStatus @default(YET_TO_CONTACT)
+  meetingLink         String?       @map("meeting_link")
+  meetingScheduledAt  DateTime?     @map("meeting_scheduled_at")
+  assignedTo          String?       @map("assigned_to")
+  notes               String?       @db.Text
+  convertedAt         DateTime?     @map("converted_at")
+  convertedCustomerId String?       @map("converted_customer_id")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+
+  form              FormDefinition     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  submission        FormSubmission     @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  convertedCustomer User?              @relation("CrmLeadConvertedCustomer", fields: [convertedCustomerId], references: [id], onDelete: SetNull)
+  statusLogs        CrmLeadStatusLog[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([email])
+  @@map("crm_leads")
+}
+
+model CrmLeadStatusLog {
+  id          String         @id @default(cuid())
+  leadId      String         @map("lead_id")
+  fromStatus  CrmLeadStatus? @map("from_status")
+  toStatus    CrmLeadStatus  @map("to_status")
+  meetingLink String?        @map("meeting_link")
+  changedById String?        @map("changed_by_id")
+  changedAt   DateTime       @default(now()) @map("changed_at")
+  reason      String?        @db.Text
+
+  lead      CrmLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  changedBy User?   @relation("CrmStatusChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([leadId, changedAt(sort: Desc)])
+  @@map("crm_lead_status_logs")
+}

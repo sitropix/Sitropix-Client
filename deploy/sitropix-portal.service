@@ -1,0 +1,21 @@
+[Unit]
+Description=Sitropix Client Portal (API + frontend)
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/opt/sitropix-portal
+EnvironmentFile=/opt/sitropix-portal/.env
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=API_SERVER_PORT=8790
+Environment=PORT=8790
+ExecStart=/usr/bin/node server/src/index.mjs
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/sitropix-portal/app.log
+StandardError=append:/var/log/sitropix-portal/app.log
+
+[Install]
+WantedBy=multi-user.target

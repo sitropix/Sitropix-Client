@@ -1,0 +1,218 @@
+/* ============================================================
+   Sitropix Brand Tokens v1.0
+   Source: docs/sitropix-brand-guidelines.html
+   Every color, space, radius and font is declared here.
+   ============================================================ */
+:root {
+  /* ── Brand color: confident teal-blue ── */
+  --color-brand-50: #eaf4f7;
+  --color-brand-100: #c9e2ea;
+  --color-brand-200: #93c5d3;
+  --color-brand-300: #5ba5ba;
+  --color-brand-400: #2f89a1;
+  --color-brand-500: #15728c; /* primary brand */
+  --color-brand-600: #0f5b71;
+  --color-brand-700: #0b4557;
+  --color-brand-800: #07303d;
+  --color-brand-900: #041c24;
+
+  /* ── Accent: warm coral. Used sparingly. ── */
+  --color-accent-50: #fff1ed;
+  --color-accent-100: #ffdcd0;
+  --color-accent-300: #ffa88c;
+  --color-accent-500: #f26a47; /* primary accent */
+  --color-accent-600: #d9542f;
+  --color-accent-700: #b23f1f;
+
+  /* ── Neutrals: warm-cool grayscale ── */
+  --color-ink-0: #ffffff;
+  --color-ink-25: #fafaf8;
+  --color-ink-50: #f4f4f1;
+  --color-ink-100: #e8e8e3;
+  --color-ink-200: #d3d3cc;
+  --color-ink-300: #b4b4ac;
+  --color-ink-400: #8c8c83;
+  --color-ink-500: #6b6b62;
+  --color-ink-600: #4d4d46;
+  --color-ink-700: #34342f;
+  --color-ink-800: #1f1f1c;
+  --color-ink-900: #111110;
+
+  /* ── Status: reserved colors. ── */
+  --color-success-bg: #e7f4ec;
+  --color-success-fg: #1b6e3d;
+  --color-success-500: #2d8f55;
+
+  --color-info-bg: #e6f0f8;
+  --color-info-fg: #1b4f7e;
+  --color-info-500: #2e72a6;
+
+  --color-warning-bg: #fbf1da;
+  --color-warning-fg: #7a5210;
+  --color-warning-500: #c78b1a;
+
+  --color-danger-bg: #fbe7e3;
+  --color-danger-fg: #9b2818;
+  --color-danger-500: #c8412c;
+
+  --color-closed-bg: #ececE7;
+  --color-closed-fg: #4d4d46;
+  --color-closed-500: #6b6b62;
+
+  /* ── Surfaces ── */
+  --surface-page: var(--color-ink-25);
+  --surface-card: var(--color-ink-0);
+  --surface-raised: var(--color-ink-0);
+  --surface-sunken: var(--color-ink-50);
+  --surface-inverse: var(--color-ink-900);
+
+  /* ── Borders ── */
+  --border-subtle: var(--color-ink-100);
+  --border-default: var(--color-ink-200);
+  --border-strong: var(--color-ink-300);
+  --border-focus: var(--color-brand-500);
+
+  /* ── Text ── */
+  --text-primary: var(--color-ink-900);
+  --text-secondary: var(--color-ink-600);
+  --text-tertiary: var(--color-ink-500);
+  --text-muted: var(--color-ink-400);
+  --text-inverse: var(--color-ink-0);
+  --text-brand: var(--color-brand-600);
+  --text-accent: var(--color-accent-600);
+
+  /* ── Typography ── */
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-ui: "Inter Tight", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Type scale — 10 steps */
+  --type-2xs: 0.6875rem; /* 11px */
+  --type-xs: 0.75rem; /* 12px */
+  --type-sm: 0.8125rem; /* 13px */
+  --type-base: 0.9375rem; /* 15px */
+  --type-md: 1rem; /* 16px */
+  --type-lg: 1.125rem; /* 18px */
+  --type-xl: 1.375rem; /* 22px */
+  --type-2xl: 1.75rem; /* 28px */
+  --type-3xl: 2.5rem; /* 40px */
+  --type-4xl: 4rem; /* 64px */
+
+  --line-tight: 1.1;
+  --line-snug: 1.25;
+  --line-normal: 1.5;
+  --line-relaxed: 1.65;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semi: 600;
+  --weight-bold: 700;
+
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+  --tracking-caps: 0.12em;
+
+  /* ── Spacing scale, 4px base ── */
+  --space-1: 0.25rem; /* 4 */
+  --space-2: 0.5rem; /* 8 */
+  --space-3: 0.75rem; /* 12 */
+  --space-4: 1rem; /* 16 */
+  --space-5: 1.5rem; /* 24 */
+  --space-6: 2rem; /* 32 */
+  --space-7: 3rem; /* 48 */
+  --space-8: 4rem; /* 64 */
+  --space-9: 6rem; /* 96 */
+
+  /* ── Radius ── */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-full: 999px;
+
+  /* ── Elevation ── */
+  --shadow-none: none;
+  --shadow-sm: 0 1px 2px rgba(17, 17, 16, 0.04), 0 1px 1px rgba(17, 17, 16, 0.03);
+  --shadow-md: 0 4px 8px -2px rgba(17, 17, 16, 0.06), 0 2px 4px -2px rgba(17, 17, 16, 0.04);
+  --shadow-lg: 0 12px 24px -6px rgba(17, 17, 16, 0.08), 0 4px 8px -4px rgba(17, 17, 16, 0.04);
+  --shadow-xl: 0 24px 48px -12px rgba(17, 17, 16, 0.12);
+  --shadow-focus: 0 0 0 3px rgba(21, 114, 140, 0.25);
+
+  /* ── Layout ── */
+  --container-narrow: 720px;
+  --container-base: 1080px;
+  --container-wide: 1280px;
+  --sidebar-width: 280px;
+
+  /* ── Motion ── */
+  --duration-instant: 80ms;
+  --duration-fast: 150ms;
+  --duration-base: 220ms;
+  --duration-slow: 360ms;
+
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasis: cubic-bezier(0.3, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* Dark mode — soft inversion of neutrals; brand stays the same hue. */
+html[data-theme="dark"] {
+  --surface-page: #0d0e10;
+  --surface-card: #15171a;
+  --surface-raised: #1a1c20;
+  --surface-sunken: #0a0b0d;
+  --surface-inverse: var(--color-ink-0);
+
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  --text-primary: #f3f3f0;
+  --text-secondary: #c8c8c2;
+  --text-tertiary: #9a9a93;
+  --text-muted: #6f6f68;
+  --text-inverse: var(--color-ink-900);
+  --text-brand: var(--color-brand-300);
+}
+
+/* ============================================================
+   Brand utility primitives
+   These are minimal classes used by net-new components in v2.
+   They don't conflict with Tailwind.
+   ============================================================ */
+
+.sitropix-focus-ring:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sitropix-motion-aware,
+  .sitropix-motion-aware *,
+  .sitropix-motion-aware *::before,
+  .sitropix-motion-aware *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Density modifier — admin pages opt into compact controls. */
+[data-density="compact"] {
+  --control-height-sm: 28px;
+  --control-height-md: 32px;
+  --control-height-lg: 38px;
+  --control-padding-x: 0.625rem;
+  --control-font-size: var(--type-sm);
+}
+[data-density="comfortable"],
+:root {
+  --control-height-sm: 30px;
+  --control-height-md: 38px;
+  --control-height-lg: 46px;
+  --control-padding-x: 1rem;
+  --control-font-size: var(--type-sm);
+}
