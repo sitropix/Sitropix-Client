@@ -31,7 +31,7 @@ import {
   editTypePatchSchema,
 } from "../schemas/billingSchemas.mjs";
 import { createInviteSchema } from "../schemas/inviteSchemas.mjs";
-import { emailSettingsPutSchema, emailTestSchema } from "../schemas/emailSettingsSchemas.mjs";
+import { emailSettingsPutSchema, emailTemplatePutSchema, emailTestSchema } from "../schemas/emailSettingsSchemas.mjs";
 import { systemConfigPutSchema } from "../schemas/systemConfigSchemas.mjs";
 import { getAdminEmailSettingsPayload, saveAdminEmailSettings } from "../services/emailSettingsStore.mjs";
 import { getSystemConfigPayload, saveSystemConfig } from "../services/systemConfigStore.mjs";
@@ -2592,18 +2592,24 @@ adminRouter.get("/email-templates", async (_req, res) => {
   );
 });
 
-adminRouter.put("/email-templates/:id", async (req, res) => {
+adminRouter.put("/email-templates/:id", validate(emailTemplatePutSchema), async (req, res) => {
+  const auditCtx = requestAuditContext(req);
   const id = String(req.params.id ?? "").trim();
-  const name = String(req.body?.name ?? "").trim();
-  const subject = String(req.body?.subject ?? "").trim();
-  const html = String(req.body?.html ?? "");
-  if (!id || !name || !subject || !html.trim()) {
-    return res.status(400).json({ error: "invalid_payload" });
-  }
+  if (!id) return res.status(400).json({ error: "invalid_payload" });
+  const { name, subject, html } = req.validatedBody;
   const row = await prisma.emailTemplate.upsert({
     where: { id },
     update: { name, subject, html },
     create: { id, name, subject, html },
+  });
+  await logAuditEvent({
+    action: "admin.email_template_updated",
+    actorUserId: req.auth.userId,
+    actorRole: req.auth.role,
+    targetType: "email_template",
+    targetId: row.id,
+    metadata: { name: row.name, subjectLength: subject.length, htmlLength: html.length },
+    ...auditCtx,
   });
   return res.json({
     id: row.id,

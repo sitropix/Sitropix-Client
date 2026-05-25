@@ -11,3 +11,11 @@ export const emailSettingsPutSchema = z.object({
 export const emailTestSchema = z.object({
   to: z.string().email().optional(),
 });
+
+export const emailTemplatePutSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    subject: z.string().trim().min(1).max(400),
+    html: z.string().min(1).max(100_000),
+  })
+  .strict();
