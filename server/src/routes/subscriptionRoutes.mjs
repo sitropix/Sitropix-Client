@@ -2105,7 +2105,7 @@ adminRouter.post("/invites", requireMasterAdmin, validate(createInviteSchema), a
         .replace(/>/g, "&gt;")
         .replace(/\n/g, "<br/>")}</div>`
     : "";
-  const planLine = invite.plan ? `<p>Your workspace includes the <strong>${invite.plan.name}</strong> plan.</p>` : "";
+  const planLine = invite.plan ? `<p>Your workspace includes the <strong>${escapeHtml(invite.plan.name)}</strong> plan.</p>` : "";
   const paymentLine = paymentUrl
     ? `<p>After creating your account, complete payment here: <a href="${paymentUrl}">Open payment page</a></p>`
     : "";
@@ -2179,7 +2179,7 @@ adminRouter.post("/invites/:id/resend", requireMasterAdmin, async (req, res) => 
   });
   const signupUrl = `${env.appUrl}/signup?invite=${encodeURIComponent(plainToken)}`;
   const paymentUrl = row.plan ? `${env.appUrl}/subscription?prefillPlan=${encodeURIComponent(row.plan.code)}` : null;
-  const planLine = row.plan ? `<p>Your workspace includes the <strong>${row.plan.name}</strong> plan.</p>` : "";
+  const planLine = row.plan ? `<p>Your workspace includes the <strong>${escapeHtml(row.plan.name)}</strong> plan.</p>` : "";
   const paymentLine = paymentUrl
     ? `<p>After creating your account, complete payment here: <a href="${paymentUrl}">Open payment page</a></p>`
     : "";
@@ -3131,7 +3131,12 @@ adminRouter.get("/audit-logs/export.csv", async (req, res) => {
     take: 5000,
   });
 
-  const escapeCsv = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  // Prefix cells beginning with =, +, -, @, tab, or CR with a single quote so spreadsheet apps (Excel/Sheets/Numbers) treat them as text instead of executing them as formulas.
+  const escapeCsv = (v) => {
+    let s = String(v ?? "");
+    if (s.length > 0 && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+    return `"${s.replace(/"/g, '""')}"`;
+  };
   const header = [
     "createdAt",
     "action",
