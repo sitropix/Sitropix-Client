@@ -14,6 +14,7 @@ import {
 } from "../schemas/formCrmSchemas.mjs";
 import { isAllowedMeetingUrl } from "../services/crmLeadHelpers.mjs";
 import { logAuditEvent, requestAuditContext } from "../services/auditLogService.mjs";
+import { log } from "../observability/logger.mjs";
 
 const router = express.Router();
 router.use(requireAuth, requireRole("admin", "master_admin"));
@@ -195,7 +196,12 @@ formsRouter.put("/:id/fields", validate(replaceFormFieldsSchema), async (req, re
 
     return res.json(formatFormDetail(form));
   } catch (e) {
-    return res.status(400).json({ error: "update_failed", message: e?.message });
+    log.errorReq(req, "forms.fields_replace_failed", {
+      formId: req.params.id,
+      error: e?.message,
+      code: e?.code,
+    });
+    return res.status(400).json({ error: "update_failed", message: "Could not replace fields. Check the field definitions and try again." });
   }
 });
 
@@ -472,6 +478,23 @@ crmRouter.post("/leads/:id/convert", validate(convertLeadSchema), async (req, re
   const existing = await prisma.user.findUnique({ where: { email } });
 
   if (existing) {
+    // Refuse to silently attach a public-form lead to a privileged account. Anyone can submit a public form with a staff email; if an admin clicks "convert" the lead would be tied to that staff account and pollute the audit trail / enable social-engineering pivots.
+    if (existing.role && existing.role !== "user") {
+      await logAuditEvent({
+        actorUserId: req.auth.userId,
+        actorRole: req.auth.role,
+        action: "crm.lead_convert_refused_privileged",
+        targetType: "crm_lead",
+        targetId: lead.id,
+        ...auditCtx,
+        metadata: { matchedUserId: existing.id, matchedRole: existing.role, email },
+      });
+      return res.status(409).json({
+        error: "matched_user_is_privileged",
+        message: "An account with this email exists but is not a customer account; refusing to auto-link. Convert manually if intended.",
+      });
+    }
+
     const updated = await prisma.crmLead.update({
       where: { id: lead.id },
       data: {

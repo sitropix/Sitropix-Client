@@ -14,6 +14,7 @@ import { validateFormAnswers } from "../services/formAnswerValidation.mjs";
 import { sanitizePayloadValues } from "../services/formInputSanitize.mjs";
 import { logAuditEvent, requestAuditContext } from "../services/auditLogService.mjs";
 import { issueFormCsrfToken, verifyFormCsrfToken } from "../utils/formCsrf.mjs";
+import { log } from "../observability/logger.mjs";
 
 const router = express.Router();
 
@@ -316,7 +317,13 @@ router.post("/:embedKey/submit", submitLimiter, validate(publicSubmitSchema), as
       submittedAt: new Date().toISOString(),
     });
   } catch (e) {
-    return res.status(500).json({ error: "submit_failed", message: e?.message ?? "error" });
+    // Log the underlying error server-side; do not echo Prisma/DB messages to unauthenticated clients (schema probing surface).
+    log.errorReq(req, "form_public.submit_failed", {
+      embedKey,
+      error: e?.message,
+      code: e?.code,
+    });
+    return res.status(500).json({ error: "submit_failed", message: "Submission could not be saved. Please try again." });
   }
 });
 
