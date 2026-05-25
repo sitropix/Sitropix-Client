@@ -110,6 +110,7 @@ import {
   fetchSubscriptionAddonCatalog,
 } from "../services/addonCatalogStore.mjs";
 import { randomToken, sha256 } from "../utils/crypto.mjs";
+import { escapeHtml } from "../utils/htmlEscape.mjs";
 import { log } from "../observability/logger.mjs";
 import { metricsBilling } from "../observability/metrics.mjs";
 
@@ -837,7 +838,7 @@ router.post("/change-plan", validate(changePlanSchema), async (req, res) => {
       template: "plan_changed",
       idempotencyKey: `plan_change_${sub.id}_${Date.now()}`,
       subject: "Your plan was updated",
-      html: `<p>Hi ${user.name},</p><p>Your plan is now <strong>${nextPlan.name}</strong>.</p>`,
+      html: `<p>Hi ${escapeHtml(user.name)},</p><p>Your plan is now <strong>${escapeHtml(nextPlan.name)}</strong>.</p>`,
     });
   }
 
@@ -897,7 +898,7 @@ router.post("/cancel", async (req, res) => {
       template: "subscription_canceled",
       idempotencyKey: `user_cancel_${sub.id}`,
       subject: "Subscription canceled",
-      html: `<p>Hi ${user.name},</p><p>Your subscription has been canceled per your request.</p>`,
+      html: `<p>Hi ${escapeHtml(user.name)},</p><p>Your subscription has been canceled per your request.</p>`,
     });
   }
 
@@ -2502,7 +2503,7 @@ adminRouter.post("/customers/:id/password-reset", async (req, res) => {
     template: "password_reset",
     idempotencyKey: `admin_customer_pwd_reset_${user.id}_${Date.now()}`,
     subject: "Password reset",
-    html: `<p>Hi ${user.name},</p><p>An administrator requested a password reset for your account.</p><p><a href="${env.appUrl}/reset-password?token=${resetToken}">Set new password</a> (link expires in 2 hours).</p>`,
+    html: `<p>Hi ${escapeHtml(user.name)},</p><p>An administrator requested a password reset for your account.</p><p><a href="${env.appUrl}/reset-password?token=${resetToken}">Set new password</a> (link expires in 2 hours).</p>`,
   });
   await logAuditEvent({
     action: "admin.password_reset_requested_for_customer",
@@ -2981,7 +2982,7 @@ adminRouter.post("/user-management/users/:id/password-reset-link", requireMaster
     template: "password_reset",
     idempotencyKey: `user_mgmt_pwd_reset_${user.id}_${Date.now()}`,
     subject: "Password reset",
-    html: `<p>Hi ${user.name},</p><p><a href="${env.appUrl}/reset-password?token=${resetToken}">Set new password</a></p>`,
+    html: `<p>Hi ${escapeHtml(user.name)},</p><p><a href="${env.appUrl}/reset-password?token=${resetToken}">Set new password</a></p>`,
   });
   await logAuditEvent({
     action: "admin.user_password_reset_link_sent",
@@ -3013,7 +3014,7 @@ adminRouter.post("/user-management/users/:id/set-password", requireMasterAdmin, 
     template: "account_security",
     idempotencyKey: `user_mgmt_pwd_set_${user.id}_${Date.now()}`,
     subject: "Your login password was updated",
-    html: `<p>Hi ${user.name},</p><p>An administrator updated your account password. Please sign in again.</p>`,
+    html: `<p>Hi ${escapeHtml(user.name)},</p><p>An administrator updated your account password. Please sign in again.</p>`,
   });
   await logAuditEvent({
     action: "admin.user_password_set_directly",
@@ -3176,7 +3177,7 @@ adminRouter.post("/users/:userId/password-reset", async (req, res) => {
     template: "password_reset",
     idempotencyKey: `admin_pwd_reset_${user.id}_${Date.now()}`,
     subject: "Password reset",
-    html: `<p>Hi ${user.name},</p><p>An administrator requested a password reset for your account.</p><p><a href="${env.appUrl}/reset-password?token=${resetToken}">Set new password</a> (link expires in 2 hours).</p>`,
+    html: `<p>Hi ${escapeHtml(user.name)},</p><p>An administrator requested a password reset for your account.</p><p><a href="${env.appUrl}/reset-password?token=${resetToken}">Set new password</a> (link expires in 2 hours).</p>`,
   });
   await logAuditEvent({
     action: "admin.password_reset_requested_for_user",

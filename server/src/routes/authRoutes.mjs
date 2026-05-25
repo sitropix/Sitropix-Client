@@ -206,7 +206,7 @@ router.post("/signup", validate(signupSchema), async (req, res) => {
     template: "signup_verify",
     idempotencyKey: `signup_verify_${user.id}`,
     subject: "Verify your account",
-    html: `<p>Welcome ${user.name}.</p><p><a href="${env.appUrl}/verify-email?token=${verificationToken}">Verify your email</a></p>`,
+    html: `<p>Welcome ${escapeHtml(user.name)}.</p><p><a href="${env.appUrl}/verify-email?token=${verificationToken}">Verify your email</a></p>`,
   });
 
   return res.status(201).json({

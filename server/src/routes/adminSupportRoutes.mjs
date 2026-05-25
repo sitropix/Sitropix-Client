@@ -14,6 +14,7 @@ import {
 import { ticketStatusForApi } from "../services/supportTicketSerialize.mjs";
 import { refundSubscriptionCreditsTx } from "../services/subscriptionCredits.mjs";
 import { markAddonUtilizedOnTicketResolvedTx } from "../services/addonUtilizationTracking.mjs";
+import { escapeHtml } from "../utils/htmlEscape.mjs";
 
 const router = express.Router();
 router.use(requireAuth, requireRole("admin", "master_admin", "support"), requireModuleAccess("tickets"));
