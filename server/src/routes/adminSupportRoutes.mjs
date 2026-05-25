@@ -193,7 +193,7 @@ router.post("/tickets/:id/messages", validate(replyTicketSchema), async (req, re
     template: "ticket_reply",
     idempotencyKey: `ticket_reply_${ticket.id}_${msg.id}`,
     subject: `Update on your ticket: ${ticket.subject}`,
-    html: `<p>Hi ${ticket.user.name},</p><p>Our team added a reply to your ticket <strong>#${ticket.id}</strong>:</p><blockquote>${req.validatedBody.body.replace(/</g, "&lt;")}</blockquote><p><a href="${env.appUrl}/support/tickets/${ticket.id}">View conversation</a></p>`,
+    html: `<p>Hi ${escapeHtml(ticket.user.name)},</p><p>Our team added a reply to your ticket <strong>#${escapeHtml(ticket.id)}</strong>:</p><blockquote>${escapeHtml(req.validatedBody.body)}</blockquote><p><a href="${env.appUrl}/support/tickets/${encodeURIComponent(ticket.id)}">View conversation</a></p>`,
   });
 
   return res.status(201).json({ id: msg.id, createdAt: msg.createdAt, status: nextStatus });

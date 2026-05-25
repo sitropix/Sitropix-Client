@@ -53,7 +53,8 @@ function originAllowed(req, allowedList) {
     /* ignore */
   }
   const candidates = [origin, refOrigin].filter(Boolean);
-  if (candidates.length === 0) return true;
+  // When an allowlist is configured, deny requests with neither Origin nor Referer (curl/scripts) — the admin opted in to host-based restriction and a missing-header bypass would silently break that control.
+  if (candidates.length === 0) return false;
   return candidates.some((c) => merged.includes(c));
 }
 

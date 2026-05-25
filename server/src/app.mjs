@@ -31,19 +31,39 @@ const distPath = path.resolve(__dirname, "../../dist");
 export const app = express();
 
 app.set("trust proxy", 1);
-app.use(
-  helmet({
-    contentSecurityPolicy: {
-      directives: {
-        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-        "frame-ancestors": ["*"],
-        // Allow HTTP access (e.g. EC2 IP before DNS/HTTPS). Default upgrade breaks JS on http://IP.
-        "upgrade-insecure-requests": null,
-      },
+
+// Default Helmet: deny framing of the app shell (admin/customer surfaces).
+const defaultHelmet = helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "frame-ancestors": ["'self'"],
+      // Allow HTTP access (e.g. EC2 IP before DNS/HTTPS). Default upgrade breaks JS on http://IP.
+      "upgrade-insecure-requests": null,
     },
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-  }),
-);
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+});
+
+// Public embed pages (and embed API) need cross-origin framing for the lead-form iframe to work on customer sites.
+const embeddableHelmet = helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "frame-ancestors": ["*"],
+      "upgrade-insecure-requests": null,
+    },
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+});
+
+app.use((req, res, next) => {
+  const p = req.path || "";
+  if (p.startsWith("/embed/form/") || p.startsWith("/api/forms/") || p.startsWith("/api/v1/forms/")) {
+    return embeddableHelmet(req, res, next);
+  }
+  return defaultHelmet(req, res, next);
+});
 const corsOrigins =
   env.nodeEnv === "development"
     ? [
