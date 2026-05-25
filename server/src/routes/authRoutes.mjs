@@ -24,6 +24,7 @@ import { sendTransactionalEmail } from "../services/emailService.mjs";
 import { deleteInviteRowIfExpiredPending } from "../services/inviteCleanup.mjs";
 import { ensureStaffModuleAccess } from "../services/staffModuleAccess.mjs";
 import { randomToken, sha256 } from "../utils/crypto.mjs";
+import { escapeHtml } from "../utils/htmlEscape.mjs";
 import {
   signAccessToken,
   signRefreshToken,
@@ -421,6 +422,7 @@ router.patch(
 
     const data = {};
     let emailChanged = false;
+    let newVerificationToken = null;
     if (
       email !== undefined &&
       email.toLowerCase() !== user.email.toLowerCase()
@@ -436,6 +438,10 @@ router.patch(
       }
       data.email = email.toLowerCase();
       emailChanged = true;
+      // Changing email forces re-verification so a hijacked session can't inherit verified status on a mailbox the attacker doesn't own.
+      newVerificationToken = randomToken(24);
+      data.isEmailVerified = false;
+      data.emailVerificationToken = sha256(newVerificationToken);
     }
     if (phoneNumber !== undefined) {
       data.phoneNumber = phoneNumber === "" ? null : String(phoneNumber).trim();
@@ -453,6 +459,16 @@ router.patch(
         phoneNumber: true,
       },
     });
+
+    if (emailChanged && newVerificationToken) {
+      await sendTransactionalEmail({
+        to: updated.email,
+        template: "signup_verify",
+        idempotencyKey: `email_change_verify_${updated.id}_${Date.now()}`,
+        subject: "Verify your new email address",
+        html: `<p>Hi ${escapeHtml(updated.name)}.</p><p>Please confirm this is your new email address for Sitropix:</p><p><a href="${env.appUrl}/verify-email?token=${newVerificationToken}">Verify this email</a></p>`,
+      });
+    }
 
     const authUser = {
       id: updated.id,
