@@ -240,11 +240,19 @@ export function AdminPortalShell({ children }: { children: ReactNode }) {
               ? [{ to: "/admin/team", label: "Team", module: "users" }]
               : []),
             { to: "/admin/settings/email", label: "Email", module: "email" },
-            { to: "/admin/settings/email-templates", label: "Email templates" },
-            { to: "/admin/settings/environment", label: "Environment" },
+            { to: "/admin/settings/email-templates", label: "Email templates", module: "email" },
+            { to: "/admin/settings/environment", label: "Environment", module: "environment" },
           ],
         },
       ];
+
+  // Filter every nav item by the user's module access. While modules are still loading we render nothing
+  // (avoids a flash of items that disappear once access is known); admin/master_admin always pass.
+  const groups: AdminGroup[] = modulesLoading
+    ? rawGroups.map((g) => ({ ...g, items: [] }))
+    : rawGroups
+        .map((g) => ({ ...g, items: g.items.filter((i) => !i.module || hasModule(i.module)) }))
+        .filter((g) => g.items.length > 0);
 
   const sidebarBody = (
     <>
