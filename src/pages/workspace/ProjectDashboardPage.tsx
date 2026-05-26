@@ -16,6 +16,7 @@ import { NextActionCard } from "@/components/projectDashboard/NextActionCard";
 import { ProjectChat } from "@/components/projectDashboard/ProjectChat";
 import { BrandVoiceQuickEdit } from "@/components/projectDashboard/BrandVoiceQuickEdit";
 import { ApprovalCheckpointCard } from "@/components/projectDashboard/ApprovalCheckpointCard";
+import { DesignerControlsCard } from "@/components/projectDashboard/DesignerControlsCard";
 import { ProjectFilesCard } from "@/components/projectDashboard/ProjectFilesCard";
 import { ProjectTickets } from "@/components/projectDashboard/ProjectTickets";
 import { ProjectInvoices } from "@/components/projectDashboard/ProjectInvoices";
@@ -113,6 +114,14 @@ export function ProjectDashboardPage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
         <div className="flex flex-col gap-4">
           {snapshot?.nextAction ? <NextActionCard nextAction={snapshot.nextAction} /> : null}
+
+          {viewerIsStaff && snapshot ? (
+            <DesignerControlsCard
+              projectId={project.id}
+              snapshot={snapshot}
+              onChanged={(next) => setSnapshot(next)}
+            />
+          ) : null}
 
           <ProjectChat projectId={project.id} viewerIsStaff={viewerIsStaff} />
 
