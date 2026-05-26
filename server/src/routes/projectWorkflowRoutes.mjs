@@ -60,13 +60,12 @@ router.get("/:id/workflow", async (req, res) => {
   const ctx = await loadAccessibleProject(req, res);
   if (!ctx) return;
   const snap = workflowSnapshot(ctx.project, ctx.project.assignedDesigner);
-  const [unreadCount, recentChat] = await Promise.all([
+  const [unreadCount, staffUnread, recentChat] = await Promise.all([
     prisma.projectChatMessage.count({
-      where: {
-        projectId: ctx.project.id,
-        isStaff: true,
-        readByCustomerAt: null,
-      },
+      where: { projectId: ctx.project.id, isStaff: true, readByCustomerAt: null },
+    }),
+    prisma.projectChatMessage.count({
+      where: { projectId: ctx.project.id, isStaff: false, readByStaffAt: null },
     }),
     prisma.projectChatMessage.findFirst({
       where: { projectId: ctx.project.id },
@@ -81,8 +80,18 @@ router.get("/:id/workflow", async (req, res) => {
   res.json({
     ...snap,
     customerUnreadCount: unreadCount,
+    staffUnreadCount: staffUnread,
     lastChatAt: recentChat?.createdAt?.toISOString?.() ?? null,
     nextAction,
+    // Owner info — used by staff sidebar; customer never sees this in their own view (it's their own data anyway).
+    owner: ctx.project.owner
+      ? {
+          id: ctx.project.owner.id,
+          name: ctx.project.owner.name,
+          email: ctx.project.owner.email,
+          phoneNumber: ctx.project.owner.phoneNumber ?? null,
+        }
+      : null,
   });
 });
 

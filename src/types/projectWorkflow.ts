@@ -54,8 +54,15 @@ export interface ProjectWorkflowSnapshot {
   shareLinkEnabled: boolean;
   shareLinkExpiresAt: string | null;
   customerUnreadCount?: number;
+  staffUnreadCount?: number;
   lastChatAt?: string | null;
   nextAction?: ProjectNextAction | null;
+  owner?: {
+    id: string;
+    name: string;
+    email: string;
+    phoneNumber: string | null;
+  } | null;
 }
 
 export interface ProjectChatMessage {
