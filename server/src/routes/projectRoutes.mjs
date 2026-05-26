@@ -1,7 +1,7 @@
 import express from "express";
 import { prisma } from "../db/client.mjs";
 import { log } from "../observability/logger.mjs";
-import { requireAuth, requireRole } from "../middleware/auth.mjs";
+import { requireAuth, requireModuleAccess, requireRole } from "../middleware/auth.mjs";
 import { stripe } from "../services/stripeService.mjs";
 import { syncSubscriptionFromStripeForUserId } from "../services/stripeSubscriptionSync.mjs";
 import {
@@ -416,7 +416,7 @@ router.post("/:id/activate-subscription", async (req, res) => {
 });
 
 const adminProjectRouter = express.Router();
-adminProjectRouter.use(requireAuth, requireRole("admin", "master_admin"));
+adminProjectRouter.use(requireAuth, requireRole("admin", "master_admin", "support"), requireModuleAccess("projects"));
 
 adminProjectRouter.get("/users/:userId/projects", async (req, res) => {
   const rows = await prisma.project.findMany({

@@ -1,6 +1,6 @@
 import express from "express";
 import { prisma } from "../db/client.mjs";
-import { requireAuth, requireRole } from "../middleware/auth.mjs";
+import { requireAuth, requireModuleAccess, requireRole } from "../middleware/auth.mjs";
 import { validate } from "../middleware/validate.mjs";
 import { logAuditEvent, requestAuditContext } from "../services/auditLogService.mjs";
 import {
@@ -11,7 +11,7 @@ import { runWeeklyDigestForAllCustomers, buildWeeklyDigestForCustomer } from "..
 import { projectAssignSchema } from "../schemas/projectWorkflowSchemas.mjs";
 
 const router = express.Router();
-router.use(requireAuth, requireRole("admin", "master_admin", "support"));
+router.use(requireAuth, requireRole("admin", "master_admin", "support"), requireModuleAccess("designer"));
 
 /**
  * List of staff users that can be assigned as a designer.

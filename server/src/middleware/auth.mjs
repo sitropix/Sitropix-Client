@@ -38,10 +38,8 @@ export function requireModuleAccess(moduleKey) {
     };
 
     if (role === "master_admin" || role === "admin") return next();
-    if (role === "support") {
-      if (moduleKey === "tickets") return next();
-      return res.status(403).json(forbiddenBody);
-    }
+    // Support staff: tickets is always allowed (legacy contract). All other modules go through the DB toggle.
+    if (role === "support" && moduleKey === "tickets") return next();
     if (role === "user") return res.status(403).json({ error: "forbidden" });
 
     try {

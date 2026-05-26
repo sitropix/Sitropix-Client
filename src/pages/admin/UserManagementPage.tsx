@@ -32,7 +32,26 @@ const modules = [
   "tickets",
   "forms",
   "crm",
+  "projects",
+  "designer",
 ] as const;
+
+const MODULE_LABELS: Record<(typeof modules)[number], string> = {
+  dashboard: "Dashboard",
+  customers: "Customers",
+  users: "Team / Users",
+  plans: "Plans",
+  invites: "Invites",
+  features: "Feature flags",
+  audit_logs: "Audit logs",
+  email: "Email settings & templates",
+  environment: "Environment config",
+  tickets: "Support tickets",
+  forms: "Forms",
+  crm: "CRM",
+  projects: "Customer projects",
+  designer: "Designer queue & board",
+};
 
 export function UserManagementPage() {
   const { cache, updateCache } = useAdminPrefetch();
