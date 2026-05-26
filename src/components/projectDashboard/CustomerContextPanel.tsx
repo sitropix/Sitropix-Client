@@ -44,12 +44,6 @@ export function CustomerContextPanel(props: {
         >
           Open in customer manager
         </Link>
-        <Link
-          to={`/admin/tickets?userId=${encodeURIComponent(props.customerId)}`}
-          className="inline-flex h-[34px] items-center justify-center rounded-sx-md border border-[var(--border-default)] bg-[var(--surface-card)] px-3 font-ui text-sx-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--surface-sunken)]"
-        >
-          Their tickets
-        </Link>
       </div>
     </div>
   );
