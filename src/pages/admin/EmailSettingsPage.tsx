@@ -286,7 +286,9 @@ export function EmailSettingsPage() {
                     value={smtpPass}
                     onChange={(e) => setSmtpPass(e.target.value)}
                     placeholder={
-                      payload?.secretMasks?.pass
+                      payload?.secretMasks?.smtpPassword
+                        ? `Saved: ${payload.secretMasks.smtpPassword}`
+                        : payload?.secretMasks?.pass
                         ? `Saved: ${payload.secretMasks.pass}`
                         : "Paste password"
                     }
