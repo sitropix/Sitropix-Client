@@ -48,7 +48,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       let portalPayload = await fetchCustomerPortal();
-      let { contact: c, subscription: s0 } = profileAndSubscriptionFromPortal(portalPayload);
+      const { contact: c, subscription: s0 } = profileAndSubscriptionFromPortal(portalPayload);
       let s = s0;
       if (s == null) {
         try {
