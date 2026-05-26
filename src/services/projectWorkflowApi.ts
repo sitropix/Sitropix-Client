@@ -117,13 +117,21 @@ export function clearPendingCheckout(projectId: string): Promise<{ ok: true }> {
 }
 
 /* ──────────────────── Share link ──────────────────── */
+/**
+ * Issue/rotate a share token.
+ * - `undefined` (default) → server preserves the existing expiry (Regenerate use-case)
+ * - `null` → no expiry
+ * - `number` → expires in N days
+ */
 export function issueProjectShareLink(
   projectId: string,
   expiresInDays?: number | null,
 ): Promise<ProjectShareLinkInfo> {
+  const body: { expiresInDays?: number | null } = {};
+  if (expiresInDays !== undefined) body.expiresInDays = expiresInDays;
   return api(`/api/projects/${p(projectId)}/share-link`, {
     method: "POST",
-    body: JSON.stringify({ expiresInDays: expiresInDays ?? null }),
+    body: JSON.stringify(body),
   });
 }
 

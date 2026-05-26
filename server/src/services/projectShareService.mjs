@@ -30,22 +30,28 @@ export function buildPublicSharePayload(project, owner, assignedDesigner, recent
 }
 
 /**
- * Issue / regenerate a share token. expiresInDays null → no expiry.
+ * Issue / regenerate a share token.
+ * - expiresInDays = number > 0 → set new expiry that many days out
+ * - expiresInDays = null → explicitly set no expiry
+ * - expiresInDays = undefined → preserve existing expiry (Regenerate use-case)
  * Always sets shareLinkEnabled = true.
  */
 export async function issueShareLink(projectId, expiresInDays) {
   const token = newShareToken();
-  const expiresAt =
-    typeof expiresInDays === "number" && expiresInDays > 0
-      ? new Date(Date.now() + expiresInDays * 86_400_000)
-      : null;
+  const data = {
+    shareLinkToken: token,
+    shareLinkEnabled: true,
+  };
+  if (expiresInDays === undefined) {
+    // Preserve whatever expiresAt the row already has.
+  } else if (expiresInDays === null) {
+    data.shareLinkExpiresAt = null;
+  } else if (typeof expiresInDays === "number" && expiresInDays > 0) {
+    data.shareLinkExpiresAt = new Date(Date.now() + expiresInDays * 86_400_000);
+  }
   const updated = await prisma.project.update({
     where: { id: projectId },
-    data: {
-      shareLinkToken: token,
-      shareLinkExpiresAt: expiresAt,
-      shareLinkEnabled: true,
-    },
+    data,
   });
   return { token, expiresAt: updated.shareLinkExpiresAt };
 }

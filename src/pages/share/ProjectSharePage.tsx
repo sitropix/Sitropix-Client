@@ -83,7 +83,7 @@ export function ProjectSharePage() {
   const progress = v.progressPercent ?? null;
 
   return (
-    <div className="min-h-screen bg-[var(--surface-app)]">
+    <div className="min-h-screen bg-[var(--surface-page)]">
       <header className="border-b border-[var(--border-subtle)] bg-[var(--surface-card)] px-6 py-4">
         <div className="mx-auto flex max-w-4xl items-center justify-between">
           <SxLogo />

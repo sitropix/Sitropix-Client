@@ -486,7 +486,13 @@ router.post("/:id/share-link", validate(projectShareLinkSchema), async (req, res
   const ctx = await loadAccessibleProject(req, res);
   if (!ctx) return;
   if (!ctx.isOwner && !ctx.isStaff) return res.status(403).json({ error: "forbidden" });
-  const out = await issueShareLink(ctx.project.id, req.validatedBody.expiresInDays ?? null);
+  // Preserve undefined so the service can distinguish "rotate token, keep expiry" from "rotate + clear expiry".
+  const out = await issueShareLink(
+    ctx.project.id,
+    Object.prototype.hasOwnProperty.call(req.validatedBody, "expiresInDays")
+      ? req.validatedBody.expiresInDays
+      : undefined,
+  );
   await logAuditEvent({
     actorUserId: req.auth.userId,
     actorRole: req.auth.role,

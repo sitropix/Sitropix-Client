@@ -17,6 +17,13 @@ export function BrandVoiceQuickEdit(props: {
   const [busy, setBusy] = useState(false);
   const dirty = !readOnly && value.trim() !== (initialValue ?? "").trim();
 
+  // Resync when the initial value changes (parent refresh after save, or projectId switch).
+  // Skip while busy so we don't clobber the user mid-edit.
+  useEffect(() => {
+    if (!busy) setValue(initialValue);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialValue]);
+
   async function save() {
     if (busy) return;
     setBusy(true);

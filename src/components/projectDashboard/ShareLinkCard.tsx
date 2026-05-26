@@ -17,7 +17,8 @@ export function ShareLinkCard(props: {
   const [busy, setBusy] = useState(false);
   const [latestUrl, setLatestUrl] = useState<string | null>(null);
 
-  async function issue(days: number | null) {
+  // `days`: undefined = preserve existing expiry (Regenerate), null = no expiry, number = set days.
+  async function issue(days: number | null | undefined) {
     if (busy) return;
     setBusy(true);
     try {
@@ -84,7 +85,7 @@ export function ShareLinkCard(props: {
             </p>
           ) : null}
           <div className="mt-3 flex gap-2">
-            <SxButton variant="secondary" size="sm" onClick={() => void issue(null)} disabled={busy}>
+            <SxButton variant="secondary" size="sm" onClick={() => void issue(undefined)} disabled={busy}>
               Regenerate
             </SxButton>
             <SxButton variant="danger" size="sm" onClick={revoke} disabled={busy}>
