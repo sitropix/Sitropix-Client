@@ -390,18 +390,26 @@ export function UserManagementPage() {
                   <div className="mx-4 mb-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-tertiary)]">Module access</p>
                     <div className="mt-3 grid gap-2 md:grid-cols-2">
-                      {modules.map((m) => (
-                        <label key={m} className="flex items-center justify-between rounded border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-2 text-sm text-[var(--text-primary)]">
-                          <span>{m}</span>
-                          <input
-                            type="checkbox"
-                            checked={moduleDraft[m] ?? false}
-                            disabled={!isMasterAdmin}
-                            onChange={(e) => setModuleDraft((prev) => ({ ...prev, [m]: e.target.checked }))}
-                            className="accent-[var(--color-brand-500)]"
-                          />
-                        </label>
-                      ))}
+                      {modules.map((m) => {
+                        const isTicketsForSupport = u.role === "support" && m === "tickets";
+                        const isAdminRole = u.role === "admin" || u.role === "master_admin";
+                        return (
+                          <label
+                            key={m}
+                            className="flex items-center justify-between gap-2 rounded border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-2 text-sm text-[var(--text-primary)]"
+                            title={isAdminRole ? "Admins have access to all modules by default" : isTicketsForSupport ? "Support staff always have tickets access" : ""}
+                          >
+                            <span className="truncate">{MODULE_LABELS[m]}</span>
+                            <input
+                              type="checkbox"
+                              checked={isAdminRole || isTicketsForSupport || (moduleDraft[m] ?? false)}
+                              disabled={!isMasterAdmin || isAdminRole || isTicketsForSupport}
+                              onChange={(e) => setModuleDraft((prev) => ({ ...prev, [m]: e.target.checked }))}
+                              className="accent-[var(--color-brand-500)]"
+                            />
+                          </label>
+                        );
+                      })}
                     </div>
 
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
