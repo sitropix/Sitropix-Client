@@ -497,6 +497,26 @@ router.patch(
   },
 );
 
+/**
+ * Module-access for the currently-signed-in user.
+ * Admin / master_admin bypass all checks → `hasAllModules: true` + empty modules array (caller treats as all-true).
+ * Support always has `tickets`; the rest come from UserModuleAccess rows.
+ */
+router.get("/me/module-access", requireAuth, async (req, res) => {
+  const { userId, role } = req.auth;
+  if (role === "admin" || role === "master_admin") {
+    return res.json({ role, modules: [], hasAllModules: true });
+  }
+  const rows = await prisma.userModuleAccess.findMany({
+    where: { userId, enabled: true },
+    select: { moduleKey: true },
+  });
+  const set = new Set(rows.map((r) => r.moduleKey));
+  // Support staff: tickets is always allowed (matches middleware contract).
+  if (role === "support") set.add("tickets");
+  return res.json({ role, modules: Array.from(set), hasAllModules: false });
+});
+
 router.get("/ui-preferences", requireAuth, async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.auth.userId },
