@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SxButton } from "@/components/sx/Button";
 import { SxPanel } from "@/components/sx/Panel";
 import { SxSelect } from "@/components/sx/Input";
@@ -38,6 +38,26 @@ export function DesignerControlsCard(props: {
   const [live, setLive] = useState<string>(snapshot.liveUrl ?? "");
   const [savingWorkflow, setSavingWorkflow] = useState(false);
   const [savingUrls, setSavingUrls] = useState(false);
+
+  // Resync local form state when the snapshot changes (after our own save, or a parent refresh).
+  // Without this, the inputs keep stale values and the dirty check fires incorrectly, letting a
+  // stale "Save" clobber a more recent change made elsewhere.
+  useEffect(() => {
+    if (!savingWorkflow) {
+      setStatus(snapshot.workflowStatus);
+      setPercent(snapshot.phaseProgressOverride ?? 0);
+    }
+    if (!savingUrls) {
+      setStaging(snapshot.stagingUrl ?? "");
+      setLive(snapshot.liveUrl ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    snapshot.workflowStatus,
+    snapshot.phaseProgressOverride,
+    snapshot.stagingUrl,
+    snapshot.liveUrl,
+  ]);
 
   const workflowDirty = status !== snapshot.workflowStatus || percent !== (snapshot.phaseProgressOverride ?? 0);
   const urlsDirty = staging !== (snapshot.stagingUrl ?? "") || live !== (snapshot.liveUrl ?? "");

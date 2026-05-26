@@ -279,10 +279,9 @@ router.patch("/:id/urls", validate(projectUrlsPatchSchema), async (req, res) => 
   }
   data.lastDesignerActivityAt = new Date();
   data.designerHeartbeatAt = new Date();
-  const updated = await prisma.project.update({
+  await prisma.project.update({
     where: { id: ctx.project.id },
     data,
-    include: { assignedDesigner: true },
   });
   await logAuditEvent({
     actorUserId: req.auth.userId,
@@ -293,7 +292,8 @@ router.patch("/:id/urls", validate(projectUrlsPatchSchema), async (req, res) => 
     metadata: { ...data, lastDesignerActivityAt: undefined, designerHeartbeatAt: undefined },
     ...requestAuditContext(req),
   });
-  res.json(workflowSnapshot(updated, updated.assignedDesigner));
+  const payload = await buildEnrichedWorkflow(ctx.project.id, ctx.isOwner);
+  res.json(payload);
 });
 
 /* ──────────────────── Approval checkpoints (customer-only) ──────────────────── */
@@ -344,11 +344,8 @@ router.post("/:id/approve", validate(projectApprovalSchema), async (req, res) =>
     metadata: { note: note ?? null },
     ...auditCtx,
   });
-  const updated = await prisma.project.findUnique({
-    where: { id: ctx.project.id },
-    include: { assignedDesigner: true },
-  });
-  res.json(workflowSnapshot(updated, updated.assignedDesigner));
+  const payload = await buildEnrichedWorkflow(ctx.project.id, ctx.isOwner);
+  res.json(payload);
 });
 
 /* ──────────────────── Project-scoped finance (invoices + payments via subscription) ──────────────────── */
