@@ -106,15 +106,21 @@ export function ProjectDashboardPage() {
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6 sm:px-6 sm:py-8">
-      <PendingCheckoutBanner project={project} snapshot={snapshot} />
-      <ProjectHeader project={project} snapshot={snapshot} />
+      {viewerIsOwner ? <PendingCheckoutBanner project={project} snapshot={snapshot} /> : null}
+      <ProjectHeader project={project} snapshot={snapshot} viewerIsStaff={viewerIsStaff} />
       {snapshot ? (
         <PhaseTracker status={snapshot.workflowStatus} progressPercent={snapshot.progressPercent} />
       ) : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
         <div className="flex flex-col gap-4">
-          {snapshot?.nextAction ? <NextActionCard nextAction={snapshot.nextAction} /> : null}
+          {snapshot?.nextAction ? (
+            <NextActionCard
+              nextAction={snapshot.nextAction}
+              viewerIsStaff={viewerIsStaff}
+              staffUnreadCount={snapshot.staffUnreadCount ?? 0}
+            />
+          ) : null}
 
           {viewerIsStaff && snapshot ? (
             <DesignerControlsCard
@@ -134,11 +140,12 @@ export function ProjectDashboardPage() {
             />
           ) : null}
 
-          {viewerIsOwner && snapshot ? (
+          {snapshot ? (
             <BrandVoiceQuickEdit
               projectId={project.id}
               initialValue={snapshot.brandVoiceShort}
               onSaved={(next) => setSnapshot((s) => (s ? { ...s, brandVoiceShort: next } : s))}
+              readOnly={!viewerIsOwner}
             />
           ) : null}
 

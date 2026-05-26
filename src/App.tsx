@@ -397,6 +397,14 @@ export default function App() {
                               }
                             />
                             <Route
+                              path="/admin/projects/:projectId"
+                              element={
+                                <RequireAdmin>
+                                  <ProjectDashboardPage />
+                                </RequireAdmin>
+                              }
+                            />
+                            <Route
                               path="/admin/team-access"
                               element={<Navigate to="/admin/team" replace />}
                             />

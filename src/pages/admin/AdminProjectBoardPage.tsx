@@ -111,7 +111,7 @@ export function AdminProjectBoardPage() {
           <ul className="mt-2 divide-y divide-[var(--color-warning-500)]/30">
             {overview.stuckProjects.map((s) => (
               <li key={s.id} className="flex items-center justify-between py-2 text-sx-sm text-[var(--color-warning-fg)]">
-                <Link to={`/projects/${encodeURIComponent(s.id)}`} className="truncate font-medium hover:underline">
+                <Link to={`/admin/projects/${encodeURIComponent(s.id)}`} className="truncate font-medium hover:underline">
                   {s.name}
                 </Link>
                 <span className="font-mono text-sx-2xs">
@@ -144,7 +144,7 @@ export function AdminProjectBoardPage() {
                     {items.map((p) => (
                       <li key={p.id} className="rounded-sx-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-2">
                         <Link
-                          to={`/projects/${encodeURIComponent(p.id)}`}
+                          to={`/admin/projects/${encodeURIComponent(p.id)}`}
                           className="block truncate font-ui text-sx-xs font-semibold text-[var(--text-primary)] hover:text-[var(--text-brand)]"
                         >
                           {p.name}

@@ -149,7 +149,7 @@ export function DesignerQueuePage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <Link
-                        to={`/projects/${encodeURIComponent(r.id)}`}
+                        to={`/admin/projects/${encodeURIComponent(r.id)}`}
                         className="truncate font-ui text-sx-sm font-semibold text-[var(--text-primary)] hover:text-[var(--text-brand)]"
                       >
                         {r.name}
