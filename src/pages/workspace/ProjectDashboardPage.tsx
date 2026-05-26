@@ -159,6 +159,7 @@ export function ProjectDashboardPage() {
           project={project}
           snapshot={snapshot}
           isOwner={viewerIsOwner}
+          isStaff={viewerIsStaff}
           onSnapshotChanged={(next) => setSnapshot(next)}
           onShareLinkChanged={() => {
             void refreshAll(true);
