@@ -200,7 +200,14 @@ export function AdminPortalShell({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   const groups: AdminGroup[] = isSupportOnly
-    ? [{ items: [{ to: "/admin/tickets", label: "Tickets", end: true }] }]
+    ? [
+        {
+          items: [
+            { to: "/admin/tickets", label: "Tickets", end: true },
+            { to: "/admin/designer", label: "My queue" },
+          ],
+        },
+      ]
     : [
         {
           items: [
@@ -208,6 +215,8 @@ export function AdminPortalShell({ children }: { children: ReactNode }) {
             { to: "/admin/customers", label: "Customers" },
             { to: "/admin/tickets", label: "Tickets" },
             { to: "/admin/projects", label: "Projects" },
+            { to: "/admin/designer", label: "Designer queue" },
+            { to: "/admin/projects/board", label: "Project board" },
             { to: "/admin/crm", label: "CRM" },
           ],
         },

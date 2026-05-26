@@ -91,6 +91,19 @@ enum CrmLeadStatus {
   HOLD
 }
 
+enum ProjectWorkflowStatus {
+  awaiting_brief
+  awaiting_assets
+  ready_to_start
+  in_progress
+  awaiting_customer_reply
+  in_review
+  revisions_requested
+  approved
+  live
+  on_hold
+}
+
 model User {
   id                     String    @id @default(cuid())
   email                  String    @unique
@@ -127,6 +140,8 @@ model User {
   formDefinitions   FormDefinition[]   @relation("FormCreatedBy")
   crmStatusChanges  CrmLeadStatusLog[] @relation("CrmStatusChangedBy")
   convertedLeads    CrmLead[]          @relation("CrmLeadConvertedCustomer")
+  assignedProjects  Project[]          @relation("AssignedDesigner")
+  projectChatMessages ProjectChatMessage[]
 
   @@index([email])
   @@index([role])
@@ -589,19 +604,66 @@ model Project {
   billingCycle       BillingCycle?             @map("billing_cycle")
   addonsJson         Json                      @default("[]") @map("addons_json")
   invoicesJson       Json                      @default("[]") @map("invoices_json")
+  /// Operational workflow status (separate from billing's subscriptionStatus).
+  workflowStatus           ProjectWorkflowStatus @default(awaiting_brief) @map("workflow_status")
+  workflowChangedAt        DateTime              @default(now())          @map("workflow_changed_at")
+  /// Designer-overridable percent (0-100). Phase tracker derives its own % otherwise.
+  phaseProgressPercent     Int                   @default(0)              @map("phase_progress_percent")
+  assignedDesignerId       String?               @map("assigned_designer_id")
+  lastCustomerActivityAt   DateTime?             @map("last_customer_activity_at")
+  lastDesignerActivityAt   DateTime?             @map("last_designer_activity_at")
+  /// Updated when designer takes any action; UI shows "actively building" if <2h ago.
+  designerHeartbeatAt      DateTime?             @map("designer_heartbeat_at")
+  brandVoiceShort          String                @default("")             @map("brand_voice_short") @db.Text
+  notifyOnDesignerReply    Boolean               @default(true)           @map("notify_on_designer_reply")
+  notifyOnPhaseChange      Boolean               @default(true)           @map("notify_on_phase_change")
+  stagingUrl               String?               @map("staging_url")
+  liveUrl                  String?               @map("live_url")
+  approvedDesignAt         DateTime?             @map("approved_design_at")
+  approvedLaunchAt         DateTime?             @map("approved_launch_at")
+  /// Stripe checkout session pending payment; lets users resume an abandoned checkout.
+  pendingCheckoutSessionId String?               @map("pending_checkout_session_id")
+  pendingCheckoutSessionAt DateTime?             @map("pending_checkout_session_at")
+  /// Public read-only share link (when shareLinkEnabled). Random token.
+  shareLinkToken           String?               @unique @map("share_link_token")
+  shareLinkExpiresAt       DateTime?             @map("share_link_expires_at")
+  shareLinkEnabled         Boolean               @default(false)          @map("share_link_enabled")
   createdAt          DateTime                  @default(now()) @map("created_at")
   updatedAt          DateTime                  @updatedAt @map("updated_at")
 
   owner         User            @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  assignedDesigner User?        @relation("AssignedDesigner", fields: [assignedDesignerId], references: [id], onDelete: SetNull)
   subscriptions Subscription[]
   supportTickets SupportTicket[]
   addonEntitlements ProjectAddonEntitlement[]
   recurringAddonStripe ProjectRecurringAddonStripe[]
   addonUtilizationTracking AddonUtilizationTracking[]
+  chatMessages   ProjectChatMessage[]
 
   @@index([ownerUserId, createdAt(sort: Desc)])
   @@index([subscriptionStatus])
+  @@index([workflowStatus])
+  @@index([assignedDesignerId])
   @@map("projects")
+}
+
+/// Lightweight designer↔customer chat scoped to a single project.
+/// Separate from SupportTicket so the existing support inbox stays clean.
+model ProjectChatMessage {
+  id               String   @id @default(cuid())
+  projectId        String   @map("project_id")
+  authorUserId     String?  @map("author_user_id")
+  isStaff          Boolean  @default(false) @map("is_staff")
+  body             String   @db.Text
+  readByCustomerAt DateTime? @map("read_by_customer_at")
+  readByStaffAt    DateTime? @map("read_by_staff_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author  User?   @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, createdAt(sort: Desc)])
+  @@map("project_chat_messages")
 }
 
 /// Admin-issued signup invite (optional pre-assigned plan).

@@ -21,6 +21,8 @@ import { SxEmptyState } from "@/components/sx/EmptyState";
 import { SxPageHeader } from "@/components/sx/PageHeader";
 import { SxPanel } from "@/components/sx/Panel";
 import { useSxToast } from "@/components/sx/Toast";
+import { getProjectsRollUp } from "@/services/projectWorkflowApi";
+import type { ProjectMultiSummary } from "@/types/projectWorkflow";
 
 type ProjectRow = Awaited<ReturnType<typeof listProjectsByUser>>[number];
 
@@ -46,6 +48,7 @@ export function MyProjectsPage() {
   >({});
   const [setupDialogProject, setSetupDialogProject] =
     useState<ProjectRow | null>(null);
+  const [rollUp, setRollUp] = useState<ProjectMultiSummary | null>(null);
 
   useEffect(() => {
     if (!userId) {
@@ -64,6 +67,24 @@ export function MyProjectsPage() {
       cancelled = true;
     };
   }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      setRollUp(null);
+      return;
+    }
+    let cancelled = false;
+    void getProjectsRollUp()
+      .then((r) => {
+        if (!cancelled) setRollUp(r);
+      })
+      .catch(() => {
+        if (!cancelled) setRollUp(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, projects.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -176,6 +197,40 @@ export function MyProjectsPage() {
           }}
         />
       </SxPanel>
+
+      {rollUp && rollUp.buckets.total >= 2 ? (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          {[
+            { label: "Total", value: rollUp.buckets.total, tone: "neutral" },
+            { label: "Awaiting payment", value: rollUp.buckets.awaitingPayment, tone: rollUp.buckets.awaitingPayment > 0 ? "warning" : "neutral" },
+            { label: "Awaiting your action", value: rollUp.buckets.awaitingYourAction, tone: rollUp.buckets.awaitingYourAction > 0 ? "brand" : "neutral" },
+            { label: "In progress", value: rollUp.buckets.inProgress, tone: "neutral" },
+            { label: "Live", value: rollUp.buckets.live, tone: "success" },
+            { label: "On hold", value: rollUp.buckets.onHold, tone: rollUp.buckets.onHold > 0 ? "warning" : "neutral" },
+          ].map((cell) => (
+            <div
+              key={cell.label}
+              className={
+                "rounded-sx-lg border p-3 " +
+                (cell.tone === "warning"
+                  ? "border-[var(--color-warning-500)]/40 bg-[var(--color-warning-bg)]"
+                  : cell.tone === "success"
+                  ? "border-[var(--color-success-500)]/40 bg-[var(--color-success-bg)]"
+                  : cell.tone === "brand"
+                  ? "border-[var(--color-brand-500)]/40 bg-[var(--color-brand-50)]"
+                  : "border-[var(--border-subtle)] bg-[var(--surface-card)]")
+              }
+            >
+              <p className="font-mono text-sx-2xs uppercase tracking-wider text-[var(--text-tertiary)]">
+                {cell.label}
+              </p>
+              <p className="mt-1 font-display text-sx-xl font-semibold text-[var(--text-primary)]">
+                {cell.value}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {projects.length === 0 ? (
         <SxEmptyState

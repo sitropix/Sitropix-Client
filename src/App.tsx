@@ -74,6 +74,15 @@ const ProjectAddonCheckoutPage = lazy(() =>
 const AdminProjectsPage = lazy(() =>
   import("@/pages/admin/AdminProjectsPage").then((m) => ({ default: m.AdminProjectsPage })),
 );
+const DesignerQueuePage = lazy(() =>
+  import("@/pages/admin/DesignerQueuePage").then((m) => ({ default: m.DesignerQueuePage })),
+);
+const AdminProjectBoardPage = lazy(() =>
+  import("@/pages/admin/AdminProjectBoardPage").then((m) => ({ default: m.AdminProjectBoardPage })),
+);
+const ProjectSharePage = lazy(() =>
+  import("@/pages/share/ProjectSharePage").then((m) => ({ default: m.ProjectSharePage })),
+);
 const KnowledgeBasePage = lazy(() =>
   import("@/pages/KnowledgeBasePage").then((m) => ({ default: m.KnowledgeBasePage })),
 );
@@ -123,6 +132,7 @@ export default function App() {
                       <Suspense fallback={<AppRouteFallback />}>
                         <Routes>
                           <Route path="/embed/form/:embedKey" element={<PublicEmbedFormPage />} />
+                          <Route path="/share/projects/:token" element={<ProjectSharePage />} />
                           <Route element={<AuthLayout />}>
                             <Route path="/login" element={<LoginPage />} />
                             <Route path="/signup" element={<SignupPage />} />
@@ -366,6 +376,22 @@ export default function App() {
                               element={
                                 <RequireAdmin>
                                   <AdminProjectsPage />
+                                </RequireAdmin>
+                              }
+                            />
+                            <Route
+                              path="/admin/designer"
+                              element={
+                                <RequireAdmin>
+                                  <DesignerQueuePage />
+                                </RequireAdmin>
+                              }
+                            />
+                            <Route
+                              path="/admin/projects/board"
+                              element={
+                                <RequireAdmin>
+                                  <AdminProjectBoardPage />
                                 </RequireAdmin>
                               }
                             />

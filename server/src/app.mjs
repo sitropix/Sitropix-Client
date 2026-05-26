@@ -17,6 +17,9 @@ import { webhookRouter } from "./routes/webhookRoutes.mjs";
 import { healthRouter } from "./routes/healthRoutes.mjs";
 import { formPublicRouter } from "./routes/formPublicRoutes.mjs";
 import { adminFormCrmRouter } from "./routes/adminFormCrmRoutes.mjs";
+import { projectWorkflowRouter } from "./routes/projectWorkflowRoutes.mjs";
+import { projectShareRouter } from "./routes/projectShareRoutes.mjs";
+import { adminDesignerRouter } from "./routes/adminDesignerRoutes.mjs";
 import { seedIfEmpty } from "./seed/seed.mjs";
 import { log } from "./observability/logger.mjs";
 import { sendAlert } from "./observability/alerts.mjs";
@@ -98,6 +101,10 @@ app.use("/api/auth", authRouter);
 app.use("/api/forms", formPublicRouter);
 app.use("/api/v1/forms", formPublicRouter);
 app.use("/api/subscriptions", subscriptionRouter);
+// Public read-only project share view (token-gated, no auth) — mount BEFORE the auth-required project routers.
+app.use("/api/share", projectShareRouter);
+// Project workflow / chat / approval / finance / settings — owner-or-staff guarded internally.
+app.use("/api/projects", projectWorkflowRouter);
 app.use("/api/projects", projectRouter);
 app.use("/api/documents", clientDocumentRouter);
 // Tickets router first: other admin routers apply admin-only role guards to all /api/admin paths.
@@ -106,6 +113,7 @@ app.use("/api/admin", adminClientDocumentRouter);
 app.use("/api/admin", adminProjectRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/admin", adminFormCrmRouter);
+app.use("/api/admin/designer", adminDesignerRouter);
 app.use("/api/support", supportRouter);
 
 /** Single-host production: API + Vite `dist` on one process (nginx proxies :443 → env.port). */
