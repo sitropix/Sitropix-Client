@@ -383,25 +383,25 @@ export default function App() {
                             <Route
                               path="/admin/designer"
                               element={
-                                <RequireAdmin>
+                                <RequireAdminPortal>
                                   <DesignerQueuePage />
-                                </RequireAdmin>
+                                </RequireAdminPortal>
                               }
                             />
                             <Route
                               path="/admin/projects/board"
                               element={
-                                <RequireAdmin>
+                                <RequireAdminPortal>
                                   <AdminProjectBoardPage />
-                                </RequireAdmin>
+                                </RequireAdminPortal>
                               }
                             />
                             <Route
                               path="/admin/projects/:projectId"
                               element={
-                                <RequireAdmin>
+                                <RequireAdminPortal>
                                   <ProjectDashboardPage />
-                                </RequireAdmin>
+                                </RequireAdminPortal>
                               }
                             />
                             <Route
