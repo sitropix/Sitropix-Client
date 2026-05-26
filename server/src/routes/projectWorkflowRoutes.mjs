@@ -56,43 +56,58 @@ async function loadAccessibleProject(req, res, { staffOnly = false } = {}) {
 
 /* ──────────────────── Workflow snapshot ──────────────────── */
 
-router.get("/:id/workflow", async (req, res) => {
-  const ctx = await loadAccessibleProject(req, res);
-  if (!ctx) return;
-  const snap = workflowSnapshot(ctx.project, ctx.project.assignedDesigner);
+/**
+ * Build the full enriched snapshot payload returned by GET /:id/workflow. Re-used by every
+ * mutation endpoint so the dashboard never loses `nextAction`, unread counts, or `owner`
+ * after a save (which would happen if we returned the bare `workflowSnapshot()`).
+ */
+async function buildEnrichedWorkflow(projectId, viewerIsOwner) {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    include: { assignedDesigner: true, owner: true },
+  });
+  if (!project) return null;
+  const snap = workflowSnapshot(project, project.assignedDesigner);
   const [unreadCount, staffUnread, recentChat] = await Promise.all([
     prisma.projectChatMessage.count({
-      where: { projectId: ctx.project.id, isStaff: true, readByCustomerAt: null },
+      where: { projectId, isStaff: true, readByCustomerAt: null },
     }),
     prisma.projectChatMessage.count({
-      where: { projectId: ctx.project.id, isStaff: false, readByStaffAt: null },
+      where: { projectId, isStaff: false, readByStaffAt: null },
     }),
     prisma.projectChatMessage.findFirst({
-      where: { projectId: ctx.project.id },
+      where: { projectId },
       orderBy: { createdAt: "desc" },
       select: { id: true, isStaff: true, createdAt: true },
     }),
   ]);
-  const nextAction = deriveNextAction(ctx.project, {
-    hasUnreadDesignerMessage: ctx.isOwner ? unreadCount > 0 : false,
+  const nextAction = deriveNextAction(project, {
+    hasUnreadDesignerMessage: viewerIsOwner ? unreadCount > 0 : false,
     hasUploadedAssets: false,
   });
-  res.json({
+  return {
     ...snap,
     customerUnreadCount: unreadCount,
     staffUnreadCount: staffUnread,
     lastChatAt: recentChat?.createdAt?.toISOString?.() ?? null,
     nextAction,
-    // Owner info — used by staff sidebar; customer never sees this in their own view (it's their own data anyway).
-    owner: ctx.project.owner
+    owner: project.owner
       ? {
-          id: ctx.project.owner.id,
-          name: ctx.project.owner.name,
-          email: ctx.project.owner.email,
-          phoneNumber: ctx.project.owner.phoneNumber ?? null,
+          id: project.owner.id,
+          name: project.owner.name,
+          email: project.owner.email,
+          phoneNumber: project.owner.phoneNumber ?? null,
         }
       : null,
-  });
+  };
+}
+
+router.get("/:id/workflow", async (req, res) => {
+  const ctx = await loadAccessibleProject(req, res);
+  if (!ctx) return;
+  const payload = await buildEnrichedWorkflow(ctx.project.id, ctx.isOwner);
+  if (!payload) return res.status(404).json({ error: "project_not_found" });
+  res.json(payload);
 });
 
 /* ──────────────────── Workflow update (staff only) ──────────────────── */
@@ -122,11 +137,8 @@ router.patch("/:id/workflow", validate(updateWorkflowSchema), async (req, res) =
       auditCtx,
     });
   }
-  const updated = await prisma.project.findUnique({
-    where: { id: ctx.project.id },
-    include: { assignedDesigner: true },
-  });
-  res.json(workflowSnapshot(updated, updated.assignedDesigner));
+  const payload = await buildEnrichedWorkflow(ctx.project.id, ctx.isOwner);
+  res.json(payload);
 });
 
 /* ──────────────────── Per-project chat ──────────────────── */
@@ -236,10 +248,9 @@ router.patch("/:id/settings", validate(projectSettingsPatchSchema), async (req, 
   if (!ctx.isOwner && !ctx.isStaff) {
     return res.status(403).json({ error: "forbidden" });
   }
-  const updated = await prisma.project.update({
+  await prisma.project.update({
     where: { id: ctx.project.id },
     data: req.validatedBody,
-    include: { assignedDesigner: true },
   });
   await logAuditEvent({
     actorUserId: req.auth.userId,
@@ -250,7 +261,8 @@ router.patch("/:id/settings", validate(projectSettingsPatchSchema), async (req, 
     metadata: { fields: Object.keys(req.validatedBody) },
     ...requestAuditContext(req),
   });
-  res.json(workflowSnapshot(updated, updated.assignedDesigner));
+  const payload = await buildEnrichedWorkflow(ctx.project.id, ctx.isOwner);
+  res.json(payload);
 });
 
 /* ──────────────────── Staging / live URL (staff sets) ──────────────────── */
