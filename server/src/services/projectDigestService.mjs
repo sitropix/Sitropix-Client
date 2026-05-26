@@ -84,11 +84,17 @@ export async function runWeeklyDigestForAllCustomers() {
     },
     select: { id: true },
   });
-  const results = { totalCandidates: users.length, sent: 0, skipped: 0 };
+  const results = { totalCandidates: users.length, sent: 0, skipped: 0, failed: 0, failures: [] };
   for (const u of users) {
-    const r = await sendWeeklyDigestForCustomer(u.id);
-    if (r.sent) results.sent += 1;
-    else results.skipped += 1;
+    try {
+      const r = await sendWeeklyDigestForCustomer(u.id);
+      if (r.sent) results.sent += 1;
+      else results.skipped += 1;
+    } catch (e) {
+      // One bad mailbox should never abort the whole batch.
+      results.failed += 1;
+      results.failures.push({ userId: u.id, message: e?.message ?? "send_failed" });
+    }
   }
   return results;
 }

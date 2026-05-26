@@ -173,14 +173,14 @@ router.get("/overview", async (_req, res) => {
   });
 });
 
-/** Preview a digest for a single customer (no email sent). */
-router.get("/digest/preview/:userId", async (req, res) => {
+/** Preview a digest for a single customer (no email sent). Admin-only — it returns the customer's email content. */
+router.get("/digest/preview/:userId", requireRole("admin", "master_admin"), async (req, res) => {
   const digest = await buildWeeklyDigestForCustomer(req.params.userId);
   res.json(digest ?? { empty: true });
 });
 
-/** Trigger the weekly digest immediately (admin-only). Sends real emails. */
-router.post("/digest/run-now", async (req, res) => {
+/** Trigger the weekly digest immediately. Admin-only. Sends real emails. */
+router.post("/digest/run-now", requireRole("admin", "master_admin"), async (req, res) => {
   const auditCtx = requestAuditContext(req);
   const out = await runWeeklyDigestForAllCustomers();
   await logAuditEvent({

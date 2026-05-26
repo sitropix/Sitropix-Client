@@ -6,6 +6,7 @@ import { SxEmptyState } from "@/components/sx/EmptyState";
 import { SxPanel } from "@/components/sx/Panel";
 import { SxSelect } from "@/components/sx/Input";
 import { useSxToast } from "@/components/sx/Toast";
+import { useAuthz } from "@/context/AuthzContext";
 import {
   assignProjectDesigner,
   getDesignerQueue,
@@ -38,6 +39,7 @@ function fmt(iso: string | null) {
 
 export function DesignerQueuePage() {
   const toast = useSxToast();
+  const { isAdmin } = useAuthz();
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const [status, setStatus] = useState<ProjectWorkflowStatus | "">("");
   const [rows, setRows] = useState<DesignerQueueRow[] | null>(null);
@@ -109,15 +111,17 @@ export function DesignerQueuePage() {
           />
           Mine
         </label>
-        <label className="flex items-center gap-2 text-sx-xs text-[var(--text-secondary)]">
-          <input
-            type="radio"
-            name="scope"
-            checked={scope === "all"}
-            onChange={() => setScope("all")}
-          />
-          All projects
-        </label>
+        {isAdmin ? (
+          <label className="flex items-center gap-2 text-sx-xs text-[var(--text-secondary)]">
+            <input
+              type="radio"
+              name="scope"
+              checked={scope === "all"}
+              onChange={() => setScope("all")}
+            />
+            All projects
+          </label>
+        ) : null}
         <div className="ml-auto flex items-center gap-2">
           <span className="font-mono text-sx-2xs text-[var(--text-tertiary)]">Status</span>
           <SxSelect value={status} onChange={(e) => setStatus(e.target.value as ProjectWorkflowStatus | "")}>
