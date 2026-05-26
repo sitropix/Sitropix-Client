@@ -14,8 +14,9 @@ function workflowBadge(status: string): { variant: "success" | "warning" | "neut
 export function ProjectHeader(props: {
   project: ProjectRecord;
   snapshot: ProjectWorkflowSnapshot | null;
+  viewerIsStaff?: boolean;
 }) {
-  const { project, snapshot } = props;
+  const { project, snapshot, viewerIsStaff } = props;
   const badge = workflowBadge(snapshot?.workflowStatus ?? "awaiting_brief");
   const designerName = snapshot?.assignedDesigner?.name ?? null;
   const liveUrl = snapshot?.liveUrl ?? null;
@@ -28,6 +29,11 @@ export function ProjectHeader(props: {
           <h1 className="truncate font-display text-sx-xl font-semibold text-[var(--text-primary)] sm:text-sx-2xl">
             {project.name}
           </h1>
+          {viewerIsStaff ? (
+            <span className="inline-flex items-center rounded-full bg-[var(--color-brand-500)] px-2.5 py-1 font-mono text-sx-2xs uppercase tracking-wider text-white">
+              Staff view
+            </span>
+          ) : null}
           <SxBadge variant={badge.variant}>{badge.label}</SxBadge>
           {project.planName ? (
             <span className="rounded-full bg-[var(--surface-sunken)] px-3 py-1 font-mono text-sx-2xs text-[var(--text-secondary)]">

@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { CustomerContextPanel } from "./CustomerContextPanel";
 import { NotificationPrefsToggle } from "./NotificationPrefsToggle";
 import { ShareLinkCard } from "./ShareLinkCard";
 import type { ProjectRecord } from "@/types/project";
@@ -19,8 +20,9 @@ export function ProjectSidebar(props: {
   onSnapshotChanged: (next: ProjectWorkflowSnapshot) => void;
   onShareLinkChanged: () => void;
   isOwner: boolean;
+  isStaff: boolean;
 }) {
-  const { project, snapshot, onSnapshotChanged, onShareLinkChanged, isOwner } = props;
+  const { project, snapshot, onSnapshotChanged, onShareLinkChanged, isOwner, isStaff } = props;
   const usage = project.usage ?? null;
   const includedRemaining = usage
     ? Math.max(0, usage.includedCreditsPerPeriod - usage.includedCreditsUsedThisPeriod)
@@ -31,6 +33,10 @@ export function ProjectSidebar(props: {
 
   return (
     <aside className="flex flex-col gap-4">
+      {isStaff ? (
+        <CustomerContextPanel snapshot={snapshot} customerId={project.ownerUserId} />
+      ) : null}
+
       <div className="rounded-sx-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4">
         <h3 className="font-display text-sx-sm font-semibold text-[var(--text-primary)]">Plan & credits</h3>
         <div className="mt-2 space-y-1">
