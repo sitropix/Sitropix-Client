@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { useAuthz } from "@/context/AuthzContext";
 import { SxLogo } from "@/components/sx/Logo";
 
 const ADMIN_TITLES: Array<[RegExp, string]> = [
@@ -179,11 +180,12 @@ function AdminProfileMenu() {
   );
 }
 
-type AdminLink = { to: string; label: string; end?: boolean };
+type AdminLink = { to: string; label: string; end?: boolean; module?: string };
 type AdminGroup = { heading?: string; items: AdminLink[] };
 
 export function AdminPortalShell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const { hasModule, modulesLoading } = useAuthz();
   const { pathname } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const isSupportOnly = user?.role === "support";
@@ -199,44 +201,45 @@ export function AdminPortalShell({ children }: { children: ReactNode }) {
     setMobileOpen(false);
   }, [pathname]);
 
-  const groups: AdminGroup[] = isSupportOnly
+  const rawGroups: AdminGroup[] = isSupportOnly
     ? [
         {
           items: [
-            { to: "/admin/tickets", label: "Tickets", end: true },
-            { to: "/admin/designer", label: "My queue" },
+            { to: "/admin/tickets", label: "Tickets", end: true, module: "tickets" },
+            { to: "/admin/designer", label: "My queue", module: "designer" },
+            { to: "/admin/projects/board", label: "Project board", module: "designer" },
           ],
         },
       ]
     : [
         {
           items: [
-            { to: "/admin", label: "Dashboard", end: true },
-            { to: "/admin/customers", label: "Customers" },
-            { to: "/admin/tickets", label: "Tickets" },
-            { to: "/admin/projects", label: "Projects" },
-            { to: "/admin/designer", label: "Designer queue" },
-            { to: "/admin/projects/board", label: "Project board" },
-            { to: "/admin/crm", label: "CRM" },
+            { to: "/admin", label: "Dashboard", end: true, module: "dashboard" },
+            { to: "/admin/customers", label: "Customers", module: "customers" },
+            { to: "/admin/tickets", label: "Tickets", module: "tickets" },
+            { to: "/admin/projects", label: "Projects", module: "projects" },
+            { to: "/admin/designer", label: "Designer queue", module: "designer" },
+            { to: "/admin/projects/board", label: "Project board", module: "designer" },
+            { to: "/admin/crm", label: "CRM", module: "crm" },
           ],
         },
         {
           heading: "Catalog",
           items: [
-            { to: "/admin/plans", label: "Plans" },
-            { to: "/admin/forms", label: "Forms" },
-            { to: "/admin/invites", label: "Invites" },
+            { to: "/admin/plans", label: "Plans", module: "plans" },
+            { to: "/admin/forms", label: "Forms", module: "forms" },
+            { to: "/admin/invites", label: "Invites", module: "invites" },
           ],
         },
         {
           heading: "Settings",
           items: [
-            { to: "/admin/features", label: "Feature flags" },
-            { to: "/admin/audit-logs", label: "Audit logs" },
+            { to: "/admin/features", label: "Feature flags", module: "features" },
+            { to: "/admin/audit-logs", label: "Audit logs", module: "audit_logs" },
             ...(canManageTeamAccess
-              ? [{ to: "/admin/team", label: "Team" }]
+              ? [{ to: "/admin/team", label: "Team", module: "users" }]
               : []),
-            { to: "/admin/settings/email", label: "Email" },
+            { to: "/admin/settings/email", label: "Email", module: "email" },
             { to: "/admin/settings/email-templates", label: "Email templates" },
             { to: "/admin/settings/environment", label: "Environment" },
           ],
