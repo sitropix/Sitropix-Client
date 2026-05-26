@@ -93,7 +93,8 @@ export function ProjectDashboardPage() {
   }
 
   if (!project) {
-    return <Navigate to="/projects" replace />;
+    // Staff land back on the queue; customers go to their projects list.
+    return <Navigate to={viewerIsStaff ? "/admin/designer" : "/projects"} replace />;
   }
 
   // Owner-only when not staff. Staff can view any project.

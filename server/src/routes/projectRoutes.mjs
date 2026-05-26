@@ -212,15 +212,19 @@ router.get("/subscriptions/details", async (req, res) => {
 });
 
 router.get("/:id", async (req, res) => {
+  // Staff (admin / master_admin / support) can view any project; customers see only their own.
+  const isStaff = ["admin", "master_admin", "support"].includes(req.auth.role);
   const row = await prisma.project.findFirst({
-    where: { id: req.params.id, ownerUserId: req.auth.userId },
+    where: isStaff ? { id: req.params.id } : { id: req.params.id, ownerUserId: req.auth.userId },
   });
   if (!row) return res.status(404).json({ error: "project_not_found" });
   const normalized = normalizeProject(row);
   if (normalized.subscriptionStatus !== row.subscriptionStatus) {
     await persistNormalizedStatus(row.id, normalized);
   }
-  const sub = await findUserProjectSubscription(req.auth.userId, row.id, { include: { plan: true } });
+  // Resolve subscription against the project's actual owner, not the requesting user, so staff see real numbers.
+  const subscriptionUserId = row.ownerUserId;
+  const sub = await findUserProjectSubscription(subscriptionUserId, row.id, { include: { plan: true } });
   if (sub?.plan) {
     const j = sub.plan.catalogJson && typeof sub.plan.catalogJson === "object" ? sub.plan.catalogJson : {};
     const pagesRaw = j.pagesIncludedMax ?? j.pagesIncluded;
@@ -267,7 +271,7 @@ router.get("/:id", async (req, res) => {
     accessibleAddons = await enrichProjectAccessibleAddonsWithFulfillment({
       accessibleAddons,
       catalog: addonCatalogRows,
-      userId: req.auth.userId,
+      userId: subscriptionUserId,
       projectId: row.id,
       subscription: sub,
       project: row,
