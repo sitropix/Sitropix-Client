@@ -5,6 +5,7 @@ import { Layout } from "@/components/Layout";
 import { RequireAdmin } from "@/components/RequireAdmin";
 import { RequireAdminPortal } from "@/components/RequireAdminPortal";
 import { RequireAdminRole } from "@/components/RequireAdminRole";
+import { RequireAuth } from "@/components/RequireAuth";
 import { RequireCustomer } from "@/components/RequireCustomer";
 import { ToastProvider } from "@/components/Toast";
 import { SxToastProvider } from "@/components/sx/Toast";
@@ -248,9 +249,9 @@ export default function App() {
                             <Route
                               path="/projects/:projectId"
                               element={
-                                <RequireCustomer>
+                                <RequireAuth>
                                   <ProjectDashboardPage />
-                                </RequireCustomer>
+                                </RequireAuth>
                               }
                             />
 
