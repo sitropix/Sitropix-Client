@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Link } from "react-router-dom";
 import { useAdminPrefetch } from "@/context/AdminPrefetchContext";
 import { isModuleForbiddenError } from "@/services/http";
@@ -115,6 +116,14 @@ export function CustomerManagementPage() {
   useEffect(() => {
     void loadList();
   }, []);
+
+  // Honor `?userId=` from links elsewhere in admin (e.g. CustomerContextPanel on a project page).
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const fromUrl = searchParams.get("userId");
+    if (fromUrl && fromUrl !== selectedId) setSelectedId(fromUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   useEffect(() => {
     if (!selectedId) {
