@@ -12,6 +12,8 @@ const ALL_MODULES = [
   "tickets",
   "forms",
   "crm",
+  "projects",
+  "designer",
 ];
 
 const MANAGER_MODULES = [
@@ -23,9 +25,12 @@ const MANAGER_MODULES = [
   "tickets",
   "forms",
   "crm",
+  "projects",
+  "designer",
 ];
 
-const SUPPORT_MODULES = ["tickets"];
+/** Support staff default: tickets + designer queue (so a support user picked up as designer can use their queue). */
+const SUPPORT_MODULES = ["tickets", "designer"];
 
 export function moduleKeysForStaffRole(role) {
   if (role === "master_admin" || role === "admin") return ALL_MODULES;
