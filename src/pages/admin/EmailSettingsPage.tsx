@@ -51,11 +51,14 @@ export function EmailSettingsPage() {
     setProvider((p.provider as EmailProviderId) || "console");
     setFromEmail(p.fromEmail || "");
     setFromName(p.fromName || "");
-    const s = p.settings || {};
-    setSmtpHost(String(s.host ?? ""));
-    setSmtpPort(String(s.port ?? "587"));
-    setSmtpUser(String(s.user ?? ""));
-    setSmtpDomain(String(s.domain ?? ""));
+    // Backend stores provider-specific keys (smtpHost, smtpPort, smtpUser, mailgunDomain).
+    // Older saves may have used generic names (host/port/user/domain) — fall back to those too so
+    // existing rows still hydrate cleanly.
+    const s = (p.settings || {}) as Record<string, unknown>;
+    setSmtpHost(String(s.smtpHost ?? s.host ?? ""));
+    setSmtpPort(String(s.smtpPort ?? s.port ?? "587"));
+    setSmtpUser(String(s.smtpUser ?? s.user ?? ""));
+    setSmtpDomain(String(s.mailgunDomain ?? s.domain ?? ""));
     setApiKey("");
     setSmtpPass("");
   }
@@ -96,13 +99,22 @@ export function EmailSettingsPage() {
       const settings: Record<string, unknown> = {};
       const secrets: Record<string, string> = {};
       if (meta.needsSmtp) {
-        settings.host = smtpHost.trim();
-        settings.port = Number(smtpPort) || 587;
-        if (smtpUser.trim()) settings.user = smtpUser.trim();
-        if (smtpPass.trim()) secrets.pass = smtpPass.trim();
+        settings.smtpHost = smtpHost.trim();
+        settings.smtpPort = Number(smtpPort) || 587;
+        if (smtpUser.trim()) settings.smtpUser = smtpUser.trim();
+        if (smtpPass.trim()) secrets.smtpPassword = smtpPass.trim();
       }
-      if (meta.needsApiKey && apiKey.trim()) secrets.apiKey = apiKey.trim();
-      if (smtpDomain.trim()) settings.domain = smtpDomain.trim();
+      if (meta.needsApiKey && apiKey.trim()) {
+        const k = apiKey.trim();
+        // Each provider has its own allowed secret-key name; sending the wrong one is dropped server-side.
+        if (provider === "brevo") secrets.brevoApiKey = k;
+        else if (provider === "resend") secrets.resendApiKey = k;
+        else if (provider === "sendgrid") secrets.sendgridApiKey = k;
+        else if (provider === "mailgun") secrets.mailgunApiKey = k;
+      }
+      if (provider === "mailgun" && smtpDomain.trim()) {
+        settings.mailgunDomain = smtpDomain.trim();
+      }
       const next = await saveAdminEmailSettings({
         provider,
         fromEmail: fromEmail.trim(),
@@ -230,11 +242,20 @@ export function EmailSettingsPage() {
                   type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={
-                    payload?.secretMasks?.apiKey
-                      ? `Saved: ${payload.secretMasks.apiKey}`
-                      : "Paste your API key"
-                  }
+                  placeholder={(() => {
+                    const masks = payload?.secretMasks ?? {};
+                    const key =
+                      provider === "brevo"
+                        ? masks.brevoApiKey
+                        : provider === "resend"
+                        ? masks.resendApiKey
+                        : provider === "sendgrid"
+                        ? masks.sendgridApiKey
+                        : provider === "mailgun"
+                        ? masks.mailgunApiKey
+                        : masks.apiKey;
+                    return key ? `Saved: ${key}` : "Paste your API key";
+                  })()}
                   helpText="Leave blank to keep the existing key."
                 />
               ) : null}
